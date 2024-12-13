@@ -1170,6 +1170,13 @@ void HandleUI(void)
 			}
 			break;
 
+		case KEY_F7: // added: F7 activates joystick map whenver OSD is visible, or in menu core
+			if (menustate != MENU_SCRIPTS1 || script_finished)
+			{
+				menustate = MENU_JOYDIGMAP;
+			}
+			break;
+
 			// Within the menu the esc key acts as the menu key. problem:
 			// if the menu is left with a press of ESC, then the follwing
 			// break code for the ESC key when the key is released will
