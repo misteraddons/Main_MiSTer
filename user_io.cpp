@@ -357,6 +357,14 @@ char is_uneon()
 	return (is_uneon_type == 1);
 }
 
+static int is_groovy_type = 0;
+char is_groovy()
+{
+	if (!is_groovy_type) is_groovy_type = strcasecmp(orig_name, "Groovy") ? 2 : 1;
+	return (is_groovy_type == 1);
+}
+
+
 static int is_no_type = 0;
 static int disable_osd = 0;
 char has_menu()
@@ -387,6 +395,7 @@ void user_io_read_core_name()
 	is_st_type = 0;
 	is_pcxt_type = 0;
 	is_uneon_type = 0;
+	is_groovy_type = 0;
 	core_name[0] = 0;
 
 	char *p = user_io_get_confstr(0);
@@ -1685,6 +1694,11 @@ void user_io_l_analog_joystick(unsigned char joystick, char valueX, char valueY)
 		}
 		DisableIO();
 	}
+		
+	if (is_groovy())
+	{
+		groovy_send_analog(joystick, 0, valueX, valueY);
+	}
 }
 
 void user_io_r_analog_joystick(unsigned char joystick, char valueX, char valueY)
@@ -1701,6 +1715,11 @@ void user_io_r_analog_joystick(unsigned char joystick, char valueX, char valueY)
 			spi8(valueY);
 		}
 		DisableIO();
+	}
+	
+	if (is_groovy())
+	{
+		groovy_send_analog(joystick, 1, valueX, valueY);
 	}
 }
 
@@ -1721,6 +1740,11 @@ void user_io_digital_joystick(unsigned char joystick, uint64_t map, int newdir)
 	if (!is_minimig() && joy_transl == 1 && newdir)
 	{
 		user_io_l_analog_joystick(joystick, (bitmask & 2) ? 128 : (bitmask & 1) ? 127 : 0, (bitmask & 8) ? 128 : (bitmask & 4) ? 127 : 0);
+	}
+	
+	if (is_groovy())
+	{
+		groovy_send_joystick(joystick, bitmask);
 	}
 }
 
@@ -3569,6 +3593,7 @@ void user_io_poll()
 	if (is_psx()) psx_poll();
 	if (is_neogeo_cd()) neocd_poll();
 	if (is_n64()) n64_poll();
+	if (is_groovy()) groovy_poll();
 	process_ss(0);
 }
 
@@ -3683,6 +3708,11 @@ static void send_keycode(unsigned short key, int press)
 
 	if (core_type == CORE_TYPE_8BIT)
 	{
+		if (is_groovy())
+		{
+			groovy_send_keyboard(key, press);
+		}
+		
 		uint32_t code = get_ps2_code(key);
 		if (code == NONE) return;
 
@@ -3871,6 +3901,11 @@ void user_io_mouse(unsigned char b, int16_t x, int16_t y, int16_t w)
 				spi_w(ps2_mouse[1] | ((((uint16_t)b) << 5) & 0xF00));
 				spi_w(ps2_mouse[2] | ((((uint16_t)b) << 1) & 0x100));
 				DisableIO();
+				
+				if (is_groovy())
+				{
+					groovy_send_mouse(ps2_mouse[0], ps2_mouse[1], ps2_mouse[2], (unsigned char) w);					
+				}
 			}
 		}
 		return;
