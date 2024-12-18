@@ -37,6 +37,28 @@ void *shmem_map(uint32_t address, uint32_t size)
 	return res;
 }
 
+void *shmem_map_private(uint32_t address, uint32_t size)
+{
+	if (memfd < 0)
+	{
+		memfd = open("/dev/mem", O_RDWR | O_SYNC | O_CLOEXEC);
+		if (memfd == -1)
+		{
+			printf("Error: Unable to open /dev/mem!\n");
+			return 0;
+		}
+	}
+
+	void *res = mmap(0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, memfd, address);
+	if (res == (void *)-1)
+	{
+		printf("Error: Unable to mmap private (0x%X, %d)!\n", address, size);
+		return 0;
+	}
+
+	return res;
+}
+
 int shmem_unmap(void* map, uint32_t size)
 {
 	if (munmap(map, size) < 0)

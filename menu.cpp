@@ -2445,8 +2445,15 @@ void HandleUI(void)
 					}
 					else
 					{
-						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
-						if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+						if (is_groovy())
+						{
+							groovy_user_io_file_gmc(selPath);
+						}
+						else
+						{
+							user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+							if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+						}
 					}
 				}
 
@@ -6893,6 +6900,11 @@ void HandleUI(void)
 				break;
 			}
 		}
+		
+		if (is_groovy()) //clean server
+		{
+			groovy_stop();
+		}
 
 		if (isXmlName(Selected_tmp))
 		{
@@ -6906,6 +6918,10 @@ void HandleUI(void)
 		break;
 
 	case MENU_CORE_FILE_SELECTED2:
+		if (is_groovy()) //clean server
+		{
+			groovy_stop();
+		}
 		fpga_load_rbf(Selected_tmp, selPath);
 		menustate = MENU_NONE1;
 		break;
@@ -7312,7 +7328,7 @@ int menu_allow_cfg_switch()
 
 void menu_process_save()
 {
-	menu_save_timer = GetTimer(500);
+	menu_save_timer = GetTimer(1000);
 }
 
 static char pchar[] = { 0x8C, 0x8E, 0x8F, 0x90, 0x91, 0x7F };
