@@ -1951,6 +1951,17 @@ static int get_edid_vmode(vmode_custom_t *v)
 
 	if (hact >= 1920) support_FHD = 1;
 
+	/* Detect direct video EDID (1024x768), then force direct video
+	if (hact == 1024 && vact == 768) // && cfg.direct_video == 2) && vendor ID
+	{
+		cfg.direct_video = 1;
+		//video_mode_adjust();
+		//spd_config_dv();
+		printf("EDID: Automatically set direct video mode.\n");
+		return;
+	}
+	*/
+
 	if (hact > 2048)
 	{
 		printf("EDID: Preferred resolution is too high (%dx%d).\n", hact, vact);
