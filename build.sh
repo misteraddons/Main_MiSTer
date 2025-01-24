@@ -3,7 +3,6 @@
 # create simple text file named 'host' in this folder with IP address of your MiSTer.
 
 HOST=192.168.1.75
-BUILDDIR=bin
 [ -f host ] && HOST=$(cat host)
 
 # make script fail if any command failed,
@@ -23,7 +22,7 @@ open $HOST
 user root 1
 passive
 binary
-put $(BUILDDIR)/MiSTer /media/fat/MiSTer
+put MiSTer /media/fat/MiSTer
 EOF
 
 plink root@$HOST -pw 1 -batch 'sync;PATH=/media/fat:$PATH;MiSTer >/dev/ttyS0 2>/dev/ttyS0 </dev/null &'
