@@ -1373,7 +1373,7 @@ static void hdmi_config_init()
 		0xD6, 0b11000000,		// [7:6] HPD Control...
 								// 00 = HPD is from both HPD pin or CDC HPD
 								// 01 = HPD is from CDC HPD
-								// 10 = HPD is from HPD pin
+								// 10 = HPD is from HPD pin - TRY THIS
 								// 11 = HPD is always high
 
 		0x41, 0x10,				// Power Down control
@@ -1501,7 +1501,27 @@ static void hdmi_config_init()
 		0x07, 0x01,				//
 		0x08, 0x22,				// Set CTS Value 74250
 		0x09, 0x0A,				//
+		
+		// Enable CEC
+		// 0xE2, 0x00,				// Enable CEC
+
+
 	};
+
+	/* CEC Init
+	uint8_t init_cec_data[] = {
+		0xE1, 0x78,				// CEC I2C Address
+		0x00, 0x81, // 0x00 — Control register: Soft reset + enable, bit7 = 1 => software reset, bit0 = 1 => enable CEC
+		// Wait a bit after toggling reset... In practice, you might do this in code rather than in a table.
+		0x00, 0x01, // Clear reset, keep CEC enabled
+		0x01, 0x04, // 0x01 — Set your logical address (0..15), For example, 0x04 = "Playback Device 1" 
+		// 0x02, 0x00, // 0x02 — Additional config if you want multi-logical addresses or other device-type bits. Often left at 0x00 if you only need one address
+		0x0C, 0xFF, // 0x0C — Interrupt Mask register, e.g. 0xFF to enable all possible CEC interrupts, or pick bits as needed.
+		0x0D, 0xFF, // 0x0D — Interrupt Status register, writing 1s here will clear any pending interruptts
+		// If desired, tweak timing registers 0x10..0x13, etc. (Often not needed if your environment is standard.)
+		// Add any additional configuration your application needs
+	}
+	*/
 
 	int fd = i2c_open(0x39, 0);
 	if (fd >= 0)
