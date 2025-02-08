@@ -18,26 +18,26 @@ typedef struct {
 	uint8_t vga_sog;
 	uint8_t hdmi_audio_96k; // OSD toggle
 	uint8_t dvi_mode;
-	uint8_t hdmi_limited;
+	uint8_t hdmi_limited; // OSD toggle?
 	uint8_t direct_video;
-	uint8_t video_info;
+	uint8_t video_info; // OSD toggle
 	float refresh_min;
 	float refresh_max;
-	uint8_t controller_info;
-	uint8_t vsync_adjust;
+	uint8_t controller_info; // OSD toggle
+	uint8_t vsync_adjust; // OSD toggle?
 	uint8_t kbd_nomouse;
 	uint8_t mouse_throttle;
 	uint8_t bootscreen;
-	uint8_t vscale_mode;
-	uint16_t vscale_border;
-	uint8_t rbf_hide_datecode;
-	uint8_t menu_pal;
-	int16_t bootcore_timeout;
+	uint8_t vscale_mode; // OSD toggle
+	uint16_t vscale_border; // OSD toggle
+	uint8_t rbf_hide_datecode; // OSD toggle
+	uint8_t menu_pal;  // OSD toggle?
+	int16_t bootcore_timeout; // OSD toggle
 	uint8_t fb_size;
-	uint8_t fb_terminal;
-	uint8_t osd_rotate;
-	uint16_t osd_timeout;
-	uint8_t gamepad_defaults;
+	uint8_t fb_terminal; // OSD toggle?
+	uint8_t osd_rotate; // OSD toggle?
+	uint16_t osd_timeout; // OSD toggle but make it a 30, 60, 120, 180, 300 second array
+	uint8_t gamepad_defaults; // OSD toggle
 	uint8_t recents;
 	uint16_t jamma_vid;
 	uint16_t jamma_pid;
@@ -51,8 +51,8 @@ typedef struct {
 	int spinner_throttle;
 	uint8_t spinner_axis;
 	uint8_t sniper_mode;
-	uint8_t browse_expand;
-	uint8_t logo;
+	uint8_t browse_expand; // OSD toggle
+	uint8_t logo; // OSD toggle
 	uint8_t log_file_entry;
 	uint8_t shmask_mode_default;
 	int bt_auto_disconnect;
@@ -72,31 +72,31 @@ typedef struct {
 	char shmask_default[1023];
 	char preset_default[1023];
 	char player_controller[6][8][256];
-	char controller_deadzone[32][256];
+	char controller_deadzone[32][256]; // OSD toggle
 	uint8_t rumble;
 	uint8_t wheel_force;
 	uint16_t wheel_range;
 	uint8_t hdmi_game_mode;
-	uint8_t vrr_mode;
-	uint8_t vrr_min_framerate;
-	uint8_t vrr_max_framerate;
-	uint8_t vrr_vesa_framerate;
+	uint8_t vrr_mode; // OSD toggle?
+	uint8_t vrr_min_framerate; // OSD toggle?
+	uint8_t vrr_max_framerate; // OSD toggle?
+	uint8_t vrr_vesa_framerate; // OSD toggle?
 	uint16_t video_off;
-	uint8_t disable_autofire;
-	uint8_t video_brightness;
-	uint8_t video_contrast;
-	uint8_t video_saturation;
-	uint16_t video_hue;
-	char video_gain_offset[256];
-	uint8_t hdr;
-	uint16_t hdr_max_nits;
-	uint16_t hdr_avg_nits;
-	char vga_mode[16];
+	uint8_t disable_autofire; // OSD toggle
+	uint8_t video_brightness; // OSD toggle
+	uint8_t video_contrast; // OSD toggle
+	uint8_t video_saturation; // OSD toggle
+	uint16_t video_hue; // OSD toggle
+	char video_gain_offset[256]; // OSD toggle
+	uint8_t hdr; // OSD toggle
+	uint16_t hdr_max_nits; // OSD toggle
+	uint16_t hdr_avg_nits; // OSD toggle
+	char vga_mode[16]; // OSD toggle - might not be needed if we do hardware transcoding
 	char vga_mode_int;
-	char ntsc_mode;
-	uint32_t controller_unique_mapping[256];
-	char osd_lock[25];
-	uint16_t osd_lock_time;
+	char ntsc_mode; // OSD toggle
+	uint32_t controller_unique_mapping[256]; // OSD toggle?
+	char osd_lock[25]; // OSD toggle?
+	uint16_t osd_lock_time; // OSD toggle
 	char debug;
 	char main[1024];
 } cfg_t;

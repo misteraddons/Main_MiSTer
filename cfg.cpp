@@ -575,6 +575,7 @@ void cfg_parse()
 	cfg.fb_terminal = 1;
 	cfg.controller_info = 6;
 	cfg.browse_expand = 1;
+    cfg.gamepad_defaults = 1;  // Set default to 1 instead of 0
 	cfg.logo = 1;
 	cfg.rumble = 1;
 	cfg.wheel_force = 50;
