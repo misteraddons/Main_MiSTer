@@ -131,6 +131,7 @@ static const ini_var_t ini_vars[] =
 	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), UINT16, 0, 60 },
 	{ "DEBUG", (void *)(&(cfg.debug)), UINT8, 0, 1 },
 	{ "MAIN", (void*)(&(cfg.main)), STRING, 0, sizeof(cfg.main) - 1 },
+	{ "SHOW_PROGRESS_INFO", (void*)(&(cfg.show_progress_info)), UINT8, 0, 1 },
 };
 
 static const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -575,7 +576,7 @@ void cfg_parse()
 	cfg.fb_terminal = 1;
 	cfg.controller_info = 6;
 	cfg.browse_expand = 1;
-    cfg.gamepad_defaults = 1;  // Set default to 1 instead of 0
+	cfg.gamepad_defaults = 1;  // Set default to 1 instead of 0
 	cfg.logo = 1;
 	cfg.rumble = 1;
 	cfg.wheel_force = 50;
@@ -592,6 +593,7 @@ void cfg_parse()
 	has_video_sections = false;
 	using_video_section = false;
 	cfg_error_count = 0;
+	cfg.show_progress_info = 0; // disable game progress boar
 	ini_parse(altcfg(), video_get_core_mode_name(1));
 	if (has_video_sections && !using_video_section)
 	{
