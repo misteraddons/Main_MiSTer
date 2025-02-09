@@ -572,12 +572,13 @@ const char* cfg_get_label(uint8_t alt)
 void cfg_parse()
 {
 	memset(&cfg, 0, sizeof(cfg));
+	cfg.csync = 1; // Set default to 1 instead of 0
 	cfg.bootscreen = 1;
 	cfg.fb_terminal = 1;
-	cfg.controller_info = 6;
-	cfg.browse_expand = 1;
+	cfg.controller_info = 0; // Set default to 0 instead of 6
+	cfg.browse_expand = 0; // Set default to 0 instead of 1
 	cfg.gamepad_defaults = 1;  // Set default to 1 instead of 0
-	cfg.logo = 1;
+	cfg.logo = 0; // Set default to 0 instead of 1
 	cfg.rumble = 1;
 	cfg.wheel_force = 50;
 	cfg.dvi_mode = 2;
