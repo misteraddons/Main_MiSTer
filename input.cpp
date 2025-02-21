@@ -4969,6 +4969,22 @@ int input_test(int getchar)
 							input_lightgun_load(n);
 						}
 
+						//Sinden Lightgun (two different PIDs, four different PIDs depending on gun color/config)                                                                                                   
+						if ((input[n].vid == 0x16c0 || input[n].vid == 0x16d0) && (                             
+            					input[n].pid == 0x0f01 ||                             
+            					input[n].pid == 0x0f02 ||                             
+            					input[n].pid == 0x0f38 ||                             
+            					input[n].pid == 0x0f39))                             
+						{                             
+    							input[n].quirk = QUIRK_LIGHTGUN;                             
+    							input[n].lightgun = 1;                             
+    							input[n].guncal[0] = 0;                             
+    							input[n].guncal[1] = 65535;                             
+    							input[n].guncal[2] = 0;                             
+    							input[n].guncal[3] = 65535;                             
+    							input_lightgun_load(n);                             
+						} 
+
 						//Madcatz Arcade Stick 360
 						if (input[n].vid == 0x0738 && input[n].pid == 0x4758) input[n].quirk = QUIRK_MADCATZ360;
 
@@ -5812,29 +5828,32 @@ int input_poll(int getchar)
 	{
 		for (int i = 0; i < NUMPLAYERS; i++)
 		{
+			int send = 0;
 			if (af_delay[i] < AF_MIN) af_delay[i] = AF_MIN;
 
-			if (!time[i]) time[i] = GetTimer(af_delay[i]);
-			int send = 0;
-			int newdir = ((((uint32_t)(joy[i]) | (uint32_t)(joy[i] >> 32)) & 0xF) != (((uint32_t)(joy_prev[i]) | (uint32_t)(joy_prev[i] >> 32)) & 0xF));
-			
-			if (joy[i] != joy_prev[i])
+			/* Autofire handler */
+			if (joy[i] & autofire[i])
 			{
-				if ((joy[i] ^ joy_prev[i]) & autofire[i])
+				if (!time[i]) time[i] = GetTimer(af_delay[i]);
+				else if ((joy[i] ^ joy_prev[i]) & autofire[i])
 				{
 					time[i] = GetTimer(af_delay[i]);
 					af[i] = 0;
 				}
-
-				send = 1;
-				joy_prev[i] = joy[i];
+				else if (CheckTimer(time[i]))
+				{
+					time[i] = GetTimer(af_delay[i]);
+					af[i] = !af[i];
+					send = 1;
+				}
 			}
 
-			if (CheckTimer(time[i]))
+			int newdir = ((((uint32_t)(joy[i]) | (uint32_t)(joy[i] >> 32)) & 0xF) != (((uint32_t)(joy_prev[i]) | (uint32_t)(joy_prev[i] >> 32)) & 0xF));
+
+			if (joy[i] != joy_prev[i])
 			{
-				time[i] = GetTimer(af_delay[i]);
-				af[i] = !af[i];
-				if (joy[i] & autofire[i]) send = 1;
+				joy_prev[i] = joy[i];
+				send = 1;
 			}
 
 			if (send)
