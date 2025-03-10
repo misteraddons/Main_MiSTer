@@ -579,6 +579,7 @@ void cfg_parse()
 	cfg.browse_expand = 0; // Set default to 0 instead of 1
 	cfg.gamepad_defaults = 1;  // Set default to 1 instead of 0
 	cfg.logo = 0; // Set default to 0 instead of 1
+	cfg.recents = 1; // Set default to 1 instead of 0
 	cfg.rumble = 1;
 	cfg.wheel_force = 50;
 	cfg.dvi_mode = 2;
