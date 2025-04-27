@@ -100,6 +100,7 @@ typedef struct {
 	char debug;
 	char main[1024];
 	uint8_t show_progress_info;
+	char vfilter_interlace_default[1023];
 } cfg_t;
 
 extern cfg_t cfg;

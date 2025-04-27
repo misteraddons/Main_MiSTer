@@ -2834,7 +2834,7 @@ void HandleUI(void)
 
 	case MENU_VIDEOPROC1:
 		helptext_idx = 0;
-		menumask = 0x1FFF;
+		menumask = 0x7FFF;
 		OsdSetTitle("Video Processing");
 		menustate = MENU_VIDEOPROC2;
 		parentstate = MENU_VIDEOPROC1;
@@ -2857,6 +2857,7 @@ void HandleUI(void)
 			strcat(s, " \x16 ");
 			MenuWrite(n++, s, menusub == 2, !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)));
 
+      
 			MenuWrite(n++);
 			sprintf(s, " Vert filter: %s", video_get_scaler_flt(VFILTER_VERT) ? "From file" : "Same as Horz");
 			MenuWrite(n++, s, menusub == 3, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
@@ -2878,30 +2879,41 @@ void HandleUI(void)
 			MenuWrite(n++, s, menusub == 6, !video_get_scaler_flt(VFILTER_SCAN) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
 
 			MenuWrite(n++);
+			sprintf(s, " Intl filter: %s", video_get_scaler_flt(VFILTER_ILACE) ? "From file" : "Same as Horz");
+			MenuWrite(n++, s, menusub == 7, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
+			strcpy(s, " ");
+			if (strlen(video_get_scaler_coeff(VFILTER_ILACE))) strncat(s, video_get_scaler_coeff(VFILTER_ILACE), 25);
+			else strcpy(s, " < none >");
+			while (strlen(s) < 26) strcat(s, " ");
+			strcat(s, " \x16 ");
+			MenuWrite(n++, s, menusub == 8, !video_get_scaler_flt(VFILTER_ILACE) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
+
+
+			MenuWrite(n++);
 			sprintf(s, " Gamma correction - %s", (video_get_gamma_en() > 0) ? "On" : "Off");
-			MenuWrite(n++, s, menusub == 7, video_get_gamma_en() < 0);
+			MenuWrite(n++, s, menusub == 9, video_get_gamma_en() < 0);
 			strcpy(s, " ");
 			if (strlen(video_get_gamma_curve())) strncat(s, video_get_gamma_curve(), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 8, (video_get_gamma_en() <= 0) || !S_ISDIR(getFileType(GAMMA_DIR)));
+			MenuWrite(n++, s, menusub == 10, (video_get_gamma_en() <= 0) || !S_ISDIR(getFileType(GAMMA_DIR)));
 
 			MenuWrite(n++);
 			sprintf(s, " Shadow Mask - %s", (video_get_shadow_mask_mode() < 0) ? config_smask_msg[0] : config_smask_msg[video_get_shadow_mask_mode()]);
-			MenuWrite(n++, s, menusub == 9, video_get_shadow_mask_mode() < 0);
+			MenuWrite(n++, s, menusub == 11, video_get_shadow_mask_mode() < 0);
 			strcpy(s, " ");
 			if (strlen(video_get_shadow_mask())) strncat(s, video_get_shadow_mask(), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 10, (video_get_shadow_mask_mode() <= 0) || !S_ISDIR(getFileType(SMASK_DIR)));
+			MenuWrite(n++, s, menusub == 12, (video_get_shadow_mask_mode() <= 0) || !S_ISDIR(getFileType(SMASK_DIR)));
 
 			MenuWrite(n++);
-			MenuWrite(n++, " Reset to Defaults", menusub == 11);
+			MenuWrite(n++, " Reset to Defaults", menusub == 13);
 
 			MenuWrite(n++);
-			MenuWrite(n++, STD_BACK, menusub == 12);
+			MenuWrite(n++, STD_BACK, menusub == 14);
 
 			if (!adjvisible) break;
 			firstmenu += adjvisible;
@@ -2911,7 +2923,7 @@ void HandleUI(void)
 	case MENU_VIDEOPROC2:
 		if (menu || left)
 		{
-			menusub = 6;
+			menusub = 8;
 			menustate = MENU_COMMON1;
 			break;
 		}
@@ -2940,7 +2952,8 @@ void HandleUI(void)
 			case 2:
 			case 4:
 			case 6:
-				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : VFILTER_SCAN;
+			case 8:
+				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : (menusub == 6) ? VFILTER_SCAN : VFILTER_ILACE;
 				if(video_get_scaler_flt(VFILTER_HORZ) && video_get_scaler_flt(vfilter_type))
 				{
 					const char *newfile = flist_GetPrevNext(COEFF_DIR, video_get_scaler_coeff(vfilter_type, 0), "TXT", plus);
@@ -2948,7 +2961,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 8:
+			case 10:
 				if(video_get_gamma_en() > 0)
 				{
 					const char *newfile = flist_GetPrevNext(GAMMA_DIR, video_get_gamma_curve(0), "TXT", plus);
@@ -2956,7 +2969,7 @@ void HandleUI(void)
 				}
 				break;
 
-			case 10:
+			case 12:
 				if (video_get_shadow_mask_mode() > 0)
 				{
 					const char *newfile = flist_GetPrevNext(SMASK_DIR, video_get_shadow_mask(0), "TXT", plus);
@@ -2984,7 +2997,8 @@ void HandleUI(void)
 			case 2:
 			case 4:
 			case 6:
-				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : VFILTER_SCAN;
+			case 8:
+				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : (menusub == 6) ? VFILTER_SCAN : VFILTER_ILACE;
 				if (video_get_scaler_flt(VFILTER_HORZ))
 				{
 					snprintf(Selected_tmp, sizeof(Selected_tmp), COEFF_DIR"/%s", video_get_scaler_coeff(vfilter_type, 0));
@@ -2994,27 +3008,22 @@ void HandleUI(void)
 				break;
 
 			case 3:
-				if (!cfg.direct_video && video_get_scaler_flt(VFILTER_HORZ))
-				{
-					video_set_scaler_flt(VFILTER_VERT, video_get_scaler_flt(VFILTER_VERT) ? 0 : 1);
-					menustate = parentstate;
-				}
-				break;
-
 			case 5:
+			case 7:
 				if (!cfg.direct_video && video_get_scaler_flt(VFILTER_HORZ))
 				{
-					video_set_scaler_flt(VFILTER_SCAN, video_get_scaler_flt(VFILTER_SCAN) ? 0 : 1);
+					vfilter_type = (menusub == 3) ? VFILTER_VERT : (menusub == 5) ? VFILTER_SCAN : VFILTER_ILACE;
+					video_set_scaler_flt(vfilter_type, video_get_scaler_flt(vfilter_type) ? 0 : 1);
 					menustate = parentstate;
 				}
 				break;
 
-			case 7:
+			case 9:
 				if (video_get_gamma_en() >= 0) video_set_gamma_en(video_get_gamma_en() ? 0 : 1);
 				menustate = parentstate;
 				break;
 
-			case 8:
+			case 10:
 				if (video_get_gamma_en() > 0)
 				{
 					snprintf(Selected_tmp, sizeof(Selected_tmp), GAMMA_DIR"/%s", video_get_gamma_curve(0));
@@ -3023,12 +3032,12 @@ void HandleUI(void)
 				}
 				break;
 
-			case 9:
+			case 11:
 				if (video_get_shadow_mask_mode() >= 0) video_set_shadow_mask_mode(video_get_shadow_mask_mode() + 1);
 				menustate = parentstate;
 				break;
 
-			case 10:
+			case 12:
 				if (video_get_shadow_mask_mode() > 0)
 				{
 					snprintf(Selected_tmp, sizeof(Selected_tmp), SMASK_DIR"/%s", video_get_shadow_mask(0));
@@ -3037,12 +3046,12 @@ void HandleUI(void)
 				}
 				break;
 
-			case 11:
+			case 13:
 				video_cfg_reset();
 				menustate = parentstate;
 				break;
 
-			case 12:
+			case 14:
 				menusub = 6;
 				menustate = MENU_COMMON1;
 				break;
@@ -5131,7 +5140,7 @@ void HandleUI(void)
 				char type = flist_SelectedItem()->de.d_type;
 				memcpy(name, flist_SelectedItem()->de.d_name, sizeof(name));
 
-				if ((fs_Options & SCANO_UMOUNT) && (is_megacd() || is_pce() || is_neogeo() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_saturn()) && type == DT_DIR && strcmp(flist_SelectedItem()->de.d_name, ".."))
+				if ((fs_Options & SCANO_UMOUNT) && (is_megacd() || is_pce() || is_cdi() || is_neogeo() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_saturn()) && type == DT_DIR && strcmp(flist_SelectedItem()->de.d_name, ".."))
 				{
 					int len = strlen(selPath);
 					strcat(selPath, "/");

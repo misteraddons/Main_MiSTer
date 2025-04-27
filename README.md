@@ -5,3 +5,8 @@ This fork of Main Binary includes extra features compared to [the official repos
 - [Groovy MiSTer](https://github.com/MiSTer-devel/Main_MiSTer/commit/e9aa699a34cb8c849bf8f03d3c7cee4ea1bed0d8) integration
 - [Full-range Direct Video YPbPr](https://github.com/MiSTer-devel/Main_MiSTer/commit/b8461ebcf9b0677975580a880a8f1f5a9d63a825)
 - [F7 keyboard shortcut](https://github.com/MiSTer-devel/Main_MiSTer/commit/611959d2f53e19fb1c73e48a7b7d42ff91851944) for the joystick mapping dialog when OSD is open
+For the purposes of getting google to crawl the wiki, here's a link to the (not for humans) [crawlable wiki](https://github-wiki-see.page/m/MiSTer-devel/Wiki_MiSTer/wiki)
+
+If you're a human looking for the wiki, that's [here](https://github.com/MiSTer-devel/Wiki_MiSTer/wiki)
+
+To compile this application, read more about that [here](https://mister-devel.github.io/MkDocs_MiSTer/developer/mistercompile/#general-prerequisites-for-arm-cross-compiling)
