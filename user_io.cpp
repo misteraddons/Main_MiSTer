@@ -2976,6 +2976,9 @@ void user_io_poll()
 
 	user_io_send_buttons(0);
 
+	// Process CEC messages
+	video_poll();
+
 	if (is_minimig())
 	{
 		//HDD & FDD query

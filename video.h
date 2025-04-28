@@ -31,6 +31,7 @@ struct VideoInfo
 };
 
 void  video_init();
+void  video_poll();
 
 int   video_get_scaler_flt(int type);
 void  video_set_scaler_flt(int type, int n);

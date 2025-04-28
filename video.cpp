@@ -97,7 +97,7 @@ static vrr_cap_t vrr_modes[3] = {
 static uint8_t last_vrr_mode = 0xFF;
 static float last_vrr_rate = 0.0f;
 static uint32_t last_vrr_vfp = 0;
-static uint8_t edid[256] = {};
+static uint8_t edid[128 * 4] = {};
 
 struct vmode_t
 {
@@ -1516,25 +1516,20 @@ static void hdmi_config_init()
 		0x09, 0x0A,				//
 		
 		// Enable CEC
-		// 0xE2, 0x00,				// Enable CEC
-
-
+		0xE2, 0x01,				// Enable CEC
 	};
 
-	/* CEC Init
+	/* CEC Init data to be applied after main init */
 	uint8_t init_cec_data[] = {
 		0xE1, 0x78,				// CEC I2C Address
-		0x00, 0x81, // 0x00 — Control register: Soft reset + enable, bit7 = 1 => software reset, bit0 = 1 => enable CEC
+		0x00, 0x81,             // Control register: Soft reset + enable, bit7 = 1 => software reset, bit0 = 1 => enable CEC
 		// Wait a bit after toggling reset... In practice, you might do this in code rather than in a table.
-		0x00, 0x01, // Clear reset, keep CEC enabled
-		0x01, 0x04, // 0x01 — Set your logical address (0..15), For example, 0x04 = "Playback Device 1" 
-		// 0x02, 0x00, // 0x02 — Additional config if you want multi-logical addresses or other device-type bits. Often left at 0x00 if you only need one address
-		0x0C, 0xFF, // 0x0C — Interrupt Mask register, e.g. 0xFF to enable all possible CEC interrupts, or pick bits as needed.
-		0x0D, 0xFF, // 0x0D — Interrupt Status register, writing 1s here will clear any pending interruptts
-		// If desired, tweak timing registers 0x10..0x13, etc. (Often not needed if your environment is standard.)
-		// Add any additional configuration your application needs
-	}
-	*/
+		0x00, 0x01,             // Clear reset, keep CEC enabled
+		0x01, 0x04,             // Set logical address (0..15), 0x04 = "Playback Device 1" 
+		0x02, 0x00,             // Additional config, left at 0x00 for single logical address
+		0x0C, 0xFF,             // Interrupt Mask register, 0xFF to enable all possible CEC interrupts
+		0x0D, 0xFF,             // Interrupt Status register, writing 1s here will clear any pending interrupts
+	};
 
 	int fd = i2c_open(0x39, 0);
 	if (fd >= 0)
@@ -1552,7 +1547,228 @@ static void hdmi_config_init()
 		printf("*** ADV7513 not found on i2c bus! HDMI won't be available!\n");
 	}
 
+	// Initialize CEC
+	fd = i2c_open(0x39, 0);
+	if (fd >= 0)
+	{
+		for (uint i = 0; i < sizeof(init_cec_data); i += 2)
+		{
+			int res = i2c_smbus_write_byte_data(fd, init_cec_data[i], init_cec_data[i + 1]);
+			if (res < 0) printf("i2c: CEC write error (%02X %02X): %d\n", init_cec_data[i], init_cec_data[i + 1], res);
+		}
+		
+		// Add a short delay after reset to allow the CEC controller to initialize
+		usleep(10000);
+		
+		// Write to the CEC control register again to ensure it's enabled
+		int res = i2c_smbus_write_byte_data(fd, 0x00, 0x01);
+		if (res < 0) printf("i2c: CEC enable error: %d\n", res);
+		
+		i2c_close(fd);
+	}
+
 	hdmi_config_set_csc();
+}
+
+static void hdmi_cec_send_command(uint8_t destination, uint8_t opcode, uint8_t *params, uint8_t param_len)
+{
+    // Maximum parameters in a CEC message is 14
+    if (param_len > 14) return;
+    
+    int fd = i2c_open(0x78, 0); // Use the CEC I2C address
+    if (fd >= 0)
+    {
+        // First byte: (source << 4) | destination
+        // Using logical address 4 (Playback Device 1) as source
+        uint8_t header = (4 << 4) | (destination & 0x0F);
+        
+        // Write header (initiator/destination address)
+        int res = i2c_smbus_write_byte_data(fd, 0x80, header);
+        if (res < 0) {
+            printf("i2c: CEC header write error: %d\n", res);
+            i2c_close(fd);
+            return;
+        }
+        
+        // Write opcode
+        res = i2c_smbus_write_byte_data(fd, 0x81, opcode);
+        if (res < 0) {
+            printf("i2c: CEC opcode write error: %d\n", res);
+            i2c_close(fd);
+            return;
+        }
+        
+        // Write parameters
+        for (uint8_t i = 0; i < param_len; i++) {
+            res = i2c_smbus_write_byte_data(fd, 0x82 + i, params[i]);
+            if (res < 0) {
+                printf("i2c: CEC param write error at %d: %d\n", i, res);
+                i2c_close(fd);
+                return;
+            }
+        }
+        
+        // Set message length (header + opcode + params)
+        res = i2c_smbus_write_byte_data(fd, 0x90, 1 + 1 + param_len);
+        if (res < 0) {
+            printf("i2c: CEC length write error: %d\n", res);
+            i2c_close(fd);
+            return;
+        }
+        
+        // Send the message
+        res = i2c_smbus_write_byte_data(fd, 0x91, 0x01);
+        if (res < 0) {
+            printf("i2c: CEC send command error: %d\n", res);
+        }
+        
+        i2c_close(fd);
+    }
+}
+
+static uint8_t hdmi_cec_receive_message(uint8_t *source, uint8_t *destination, uint8_t *opcode, uint8_t *params, uint8_t *param_len)
+{
+    int fd = i2c_open(0x78, 0); // Use the CEC I2C address
+    if (fd < 0) return 0;
+    
+    // Check if there's a message in the buffer
+    int status = i2c_smbus_read_byte_data(fd, 0x0D); // Read interrupt status
+    if (status < 0 || !(status & 0x01)) {
+        // No message received
+        i2c_close(fd);
+        return 0;
+    }
+    
+    // Clear the receive interrupt flag
+    i2c_smbus_write_byte_data(fd, 0x0D, 0x01);
+    
+    // Get message length
+    int msg_len = i2c_smbus_read_byte_data(fd, 0x92);
+    if (msg_len <= 0) {
+        i2c_close(fd);
+        return 0;
+    }
+    
+    // Read header byte (contains source and destination)
+    int header = i2c_smbus_read_byte_data(fd, 0x95);
+    if (header < 0) {
+        i2c_close(fd);
+        return 0;
+    }
+    
+    *source = (header >> 4) & 0x0F;
+    *destination = header & 0x0F;
+    
+    // Read opcode if message has more than just header
+    if (msg_len > 1) {
+        int op = i2c_smbus_read_byte_data(fd, 0x96);
+        if (op < 0) {
+            i2c_close(fd);
+            return 0;
+        }
+        *opcode = op;
+        
+        // Read parameters if any
+        *param_len = msg_len - 2; // Subtract header and opcode
+        if (*param_len > 0) {
+            for (uint8_t i = 0; i < *param_len && i < 14; i++) {
+                int param = i2c_smbus_read_byte_data(fd, 0x97 + i);
+                if (param < 0) {
+                    i2c_close(fd);
+                    return 0;
+                }
+                params[i] = param;
+            }
+        }
+    } else {
+        *opcode = 0;
+        *param_len = 0;
+    }
+    
+    i2c_close(fd);
+    return 1;
+}
+
+static void hdmi_cec_process_message()
+{
+    uint8_t source, destination, opcode, params[14], param_len;
+    
+    if (hdmi_cec_receive_message(&source, &destination, &opcode, params, &param_len)) {
+        // Check if the message was addressed to us (logical address 4 or broadcast)
+        if (destination != 4 && destination != 15) return;
+        
+        // Handle common CEC commands
+        switch (opcode) {
+            case 0x04: // Image View On - TV requests playback device to start playback
+                // No response needed, but you could turn on relevant video output
+                printf("CEC: Received Image View On from %d\n", source);
+                break;
+                
+            case 0x0D: // Text View On - Similar to Image View On
+                printf("CEC: Received Text View On from %d\n", source);
+                break;
+                
+            case 0x8D: // Give Device Power Status
+                {
+                    // Respond with "On" status
+                    uint8_t resp_params[1] = {0x00}; // 0x00 = "On"
+                    hdmi_cec_send_command(source, 0x90, resp_params, 1); // Report Power Status
+                    printf("CEC: Reporting power status to %d\n", source);
+                }
+                break;
+                
+            case 0x46: // Give OSD Name
+                {
+                    // Send our OSD name "MiSTer FPGA"
+                    uint8_t resp_params[11] = {'M','i','S','T','e','r',' ','F','P','G','A'};
+                    hdmi_cec_send_command(source, 0x47, resp_params, 11); // Set OSD Name
+                    printf("CEC: Sending OSD name to %d\n", source);
+                }
+                break;
+                
+            case 0x8F: // Give Device Vendor ID
+                {
+                    // Send vendor ID - using MiSTer's "id" (using a made-up one for example)
+                    uint8_t resp_params[3] = {0x00, 0x12, 0x34}; // Example vendor ID
+                    hdmi_cec_send_command(source, 0x87, resp_params, 3); // Device Vendor ID
+                    printf("CEC: Sending vendor ID to %d\n", source);
+                }
+                break;
+                
+            case 0x85: // Request Active Source
+                {
+                    // Respond that we are the active source
+                    // For the physical address, we'll use 1.0.0.0 as an example
+                    uint8_t resp_params[2] = {0x10, 0x00}; // Physical address 1.0.0.0
+                    hdmi_cec_send_command(15, 0x82, resp_params, 2); // Active Source (broadcast)
+                    printf("CEC: Broadcasting active source status\n");
+                }
+                break;
+                
+            case 0x83: // Give Physical Address
+                {
+                    // Send our physical address and device type
+                    // For example, physical address 1.0.0.0 and device type 4 (Playback Device)
+                    uint8_t resp_params[3] = {0x10, 0x00, 0x04};
+                    hdmi_cec_send_command(source, 0x84, resp_params, 3); // Report Physical Address
+                    printf("CEC: Reporting physical address to %d\n", source);
+                }
+                break;
+                
+            case 0x8C: // Give Device Vendor ID
+                {
+                    // Same as 0x8F above
+                    uint8_t resp_params[3] = {0x00, 0x12, 0x34}; // Example vendor ID
+                    hdmi_cec_send_command(source, 0x87, resp_params, 3); // Device Vendor ID
+                    printf("CEC: Sending vendor ID to %d\n", source);
+                }
+                break;
+                
+            default:
+                printf("CEC: Unhandled opcode 0x%02X from %d\n", opcode, source);
+                break;
+        }
+    }
 }
 
 static void spd_config(uint8_t *data)
@@ -3957,6 +4173,12 @@ static void video_calculate_cvt(int h_pixels, int v_lines, float refresh_rate, i
 int video_get_rotated()
 {
   return current_video_info.rotated;
+}
+
+void video_poll()
+{
+    // Process CEC messages
+    hdmi_cec_process_message();
 }
 
 
