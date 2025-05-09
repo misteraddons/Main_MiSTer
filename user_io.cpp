@@ -4261,3 +4261,9 @@ void user_io_screenshot_cmd(const char *cmd)
 
 	user_io_screenshot(cmd,0);
 }
+
+// Public wrapper function to allow calling send_keycode from other modules
+void user_io_send_key(unsigned short key, int press)
+{
+	send_keycode(key, press);
+}

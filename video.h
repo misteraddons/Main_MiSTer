@@ -33,6 +33,10 @@ struct VideoInfo
 void  video_init();
 void  video_poll();
 
+// HDMI-CEC functions
+bool  hdmi_cec_send_command_safe(uint8_t destination, uint8_t opcode, uint8_t *params, uint8_t param_len);
+bool  test_cec_device(uint8_t address);
+
 int   video_get_scaler_flt(int type);
 void  video_set_scaler_flt(int type, int n);
 char* video_get_scaler_coeff(int type, int only_name = 1);

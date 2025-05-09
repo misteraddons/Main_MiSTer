@@ -101,6 +101,8 @@ typedef struct {
 	char main[1024];
 	uint8_t show_progress_info;
 	char vfilter_interlace_default[1023];
+	int cec_debug; // Add this line for CEC debugging configuration
+	int cec_enabled; // Enable HDMI-CEC functionality
 } cfg_t;
 
 extern cfg_t cfg;

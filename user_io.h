@@ -291,4 +291,8 @@ char is_groovy();
 #define CoreName user_io_get_core_name()
 #define CoreName2 user_io_get_core_name2()
 
+void user_io_ext(unsigned char *out, unsigned char *in);
+
+void user_io_dip_setup(uint32_t dip_mask);
+
 #endif // USER_IO_H
