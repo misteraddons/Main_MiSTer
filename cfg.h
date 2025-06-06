@@ -100,6 +100,11 @@ typedef struct {
 	char debug;
 	char main[1024];
 	char vfilter_interlace_default[1023];
+	// CEC configuration
+	uint32_t cec_enable;
+	char     cec_device_name[32];
+	uint32_t cec_auto_power;
+	uint32_t cec_remote_control;
 } cfg_t;
 
 extern cfg_t cfg;

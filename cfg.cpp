@@ -131,7 +131,12 @@ static const ini_var_t ini_vars[] =
 	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), UINT16, 0, 60 },
 	{ "DEBUG", (void *)(&(cfg.debug)), UINT8, 0, 1 },
 	{ "MAIN", (void*)(&(cfg.main)), STRING, 0, sizeof(cfg.main) - 1 },
-	{"VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1 },
+	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1 },
+    // Add these CEC entries:
+    { "cec_enable", (void*)(&cfg.cec_enable), UINT32, 0, 1},
+    { "cec_device_name", (void*)(cfg.cec_device_name), STRING, 0, sizeof(cfg.cec_device_name)},
+    { "cec_auto_power", (void*)(&cfg.cec_auto_power), UINT32, 0, 1},
+    { "cec_remote_control", (void*)(&cfg.cec_remote_control), UINT32, 0, 1},
 };
 
 static const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -592,6 +597,10 @@ void cfg_parse()
 	has_video_sections = false;
 	using_video_section = false;
 	cfg_error_count = 0;
+	cfg.cec_enable = 0;                          // CEC disabled by default
+	strcpy(cfg.cec_device_name, "MiSTer");       // Default device name
+	cfg.cec_auto_power = 0;                      // Don't auto-power TV by default
+	cfg.cec_remote_control = 1;                  // Enable remote control by default
 	ini_parse(altcfg(), video_get_core_mode_name(1));
 	if (has_video_sections && !using_video_section)
 	{
@@ -719,8 +728,18 @@ void cfg_print()
 				printf("  %s=%s\n", ini_vars[i].name, str);
 			}
 			break;
+		printf("\n");
+		printf("---- CEC Configuration ----\n");
+		printf("   cec_enable: %d\n", cfg.cec_enable);
+		printf("   cec_device_name: %s\n", cfg.cec_device_name);
+		printf("   cec_auto_power: %d\n", cfg.cec_auto_power);
+		printf("   cec_remote_control: %d\n", cfg.cec_remote_control);
+		
+		if (!cfg.cec_enable) {
+			printf("   (CEC is disabled)\n");
 		}
-	}
+			}
+		}
 	printf("--------------\n");
 }
 

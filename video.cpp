@@ -31,6 +31,8 @@
 #include "lib/imlib2/Imlib2.h"
 #include "lib/md5/md5.h"
 
+#include "cec.h"
+
 #define FB_SIZE  (1920*1080)
 #define FB_ADDR  (0x20000000 + (32*1024*1024)) // 512mb + 32mb(Core's fb)
 
@@ -98,6 +100,10 @@ static uint8_t last_vrr_mode = 0xFF;
 static float last_vrr_rate = 0.0f;
 static uint32_t last_vrr_vfp = 0;
 static uint8_t edid[256] = {};
+
+// CEC state
+static bool cec_initialized = false;
+static uint16_t cec_physical_address = 0x0000;
 
 struct vmode_t
 {
@@ -1124,6 +1130,58 @@ static void hdmi_config_set_spd(bool val)
 	}
 }
 
+static void hdmi_config_cec_init()
+{
+	// Only initialize CEC if enabled in config
+	if (!cfg.cec_enable) {
+		printf("CEC: Disabled in configuration\n");
+		return;
+	}
+
+	// Initialize CEC hardware
+	if (cec_init(cfg.cec_device_name[0] ? cfg.cec_device_name : "MiSTer", 
+	             cfg.cec_auto_power, cfg.cec_remote_control) < 0) {
+		printf("CEC: Failed to initialize\n");
+		return;
+	}
+
+	cec_initialized = true;
+	printf("CEC: Hardware initialized\n");
+
+	// If we already have a physical address from EDID, configure CEC
+	if (cec_physical_address != 0x0000) {
+		cec_configure(cec_physical_address);
+	}
+}
+
+static void hdmi_config_cec_update_physical_address(uint16_t addr)
+{
+	if (cec_physical_address == addr) {
+		return; // No change
+	}
+
+	cec_physical_address = addr;
+	printf("CEC: Physical address updated to %d.%d.%d.%d\n",
+	       (addr >> 12) & 0xF, (addr >> 8) & 0xF,
+	       (addr >> 4) & 0xF, addr & 0xF);
+
+	// Configure CEC if initialized
+	if (cec_initialized && addr != 0x0000) {
+		cec_configure(addr);
+	}
+}
+
+void hdmi_cec_callback(const struct cec_message* msg, void* context)
+{
+	(void)context;
+	
+	// Handle power commands
+	if (msg->opcode == 0x36) { // STANDBY
+		// Enter low power mode but keep CEC active
+		// This would trigger MiSTer standby mode
+	}
+}
+
 static void hdmi_config_set_spare(int packet, bool enabled)
 {
 	int fd = i2c_open(0x39, 0);
@@ -1895,6 +1953,19 @@ static int get_active_edid()
 		bzero(edid, sizeof(edid));
 		return 0;
 	}
+
+	// Extract CEC physical address from EDID
+    if (is_edid_valid() && edid[126] > 0) { // Check for extensions
+        // Check CEA extension at offset 128
+        if (edid[128] == 0x02) { // CEA extension tag
+            // Look for VSDB (Vendor Specific Data Block)
+            // The physical address is typically at offset 132-133 in the CEA block
+            uint16_t phys_addr = (edid[132] << 8) | edid[133];
+            hdmi_config_cec_update_physical_address(phys_addr);
+        }
+    }
+
+
 	return 1;
 }
 
@@ -2516,6 +2587,11 @@ void video_init()
 	video_cfg_init();
 
 	video_set_mode(&v_def, 0);
+
+	// Initialize CEC after delay to ensure HDMI is ready
+	usleep(100000); // 100ms
+	hdmi_config_cec_init();
+	cec_set_callback(hdmi_cec_callback, NULL);
 }
 
 
@@ -3930,4 +4006,16 @@ int video_get_rotated()
   return current_video_info.rotated;
 }
 
-
+void video_shutdown()
+{
+	// Shutdown CEC
+	if (cec_initialized) {
+		if (cfg.cec_auto_power) {
+			// Optionally send TV to standby when MiSTer shuts down
+			cec_standby_tv();
+			usleep(100000); // Give time for message to send
+		}
+		cec_shutdown();
+		cec_initialized = false;
+	}
+}
