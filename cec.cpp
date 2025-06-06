@@ -263,6 +263,7 @@ static int cec_read_reg(uint8_t reg, uint8_t *value);
 static void* cec_monitor_thread(void* arg);
 static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params, size_t param_len);
 static void cec_handle_message(uint8_t src, uint8_t dest, uint8_t opcode, const uint8_t* params, size_t param_len);
+static void cec_send_osd_name();
 
 // I2C helper functions
 static int cec_write_reg(uint8_t reg, uint8_t value) {
@@ -360,6 +361,17 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     return 0;
 }
 
+static void cec_send_osd_name() {
+    if (!cec_state.enabled || !cec_state.initialized) return;
+
+    cec_send_message(
+        CEC_ADDR_TV,
+        CEC_OP_SET_OSD_NAME,
+        (const uint8_t*)cec_state.device_name,
+        strlen(cec_state.device_name)
+    );
+}
+
 // Configure CEC with physical address from EDID
 int cec_configure(uint16_t physical_addr) {
     if (!cec_state.initialized) {
@@ -436,6 +448,10 @@ int cec_configure(uint16_t physical_addr) {
         cec_one_touch_play();
     }
     
+    cec_send_osd_name();
+
+    printf("CEC: Configuration complete\n");
+
     return 0;
 }
 
@@ -494,6 +510,9 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
         }
     }
     
+    if (opcode == CEC_OP_SET_OSD_NAME) {
+        printf("CEC: Sending SET_OSD_NAME to %02X: %.*s\n", dest, (int)param_len, params);
+    }
     // Set frame length
     cec_write_reg(CEC_TX_FRAME_LENGTH, msg_len);
     
