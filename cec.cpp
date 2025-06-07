@@ -936,6 +936,69 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     printf("CEC: Enabling RX...\n");
     cec_write_reg(CEC_RX_ENABLE, 0x01);
 
+    // Configure additional CEC timing registers that may be critical for transmission
+    printf("CEC: Configuring CEC timing registers for reliable transmission...\n");
+    fflush(stdout);
+    
+    // CEC Glitch Filter Control (register 0x4F) - Set moderate filtering (5us)
+    // Per ADV7513 datasheet: glitch filter should be set appropriately for the CEC clock frequency
+    cec_write_reg(0x4F, 0x05);  // 5us glitch filter
+    usleep(1000);
+    
+    // CEC Signal Free Time configuration (registers 0x12, 0x13)
+    // These are critical for proper CEC bus timing and arbitration
+    uint8_t sft_config = 0x35;  // Default signal free time + 3 retries
+    cec_write_reg(CEC_TX_RETRY, sft_config);
+    usleep(1000);
+    
+    // CEC Sample Time (registers 0x28, 0x2A) - These control bit detection timing
+    // Register 0x28: Sample time and buffer control
+    cec_write_reg(0x28, 0x71);  // Sample time configuration for 12MHz clock
+    usleep(1000);
+    
+    // Register 0x2A: Additional sample time control  
+    cec_write_reg(0x2A, 0x01);  // Sample time low byte for 12MHz clock
+    usleep(1000);
+    
+    // CEC Buffer control (register 0x2B) - Controls CEC line drivers
+    cec_write_reg(0x2B, 0x35);  // Buffer control for proper line driving
+    usleep(1000);
+    
+    // Line Error Time configuration - helps with noise immunity
+    cec_write_reg(0x6B, 0x00);  // Line error time high
+    cec_write_reg(0x6C, 0xC8);  // Line error time low (~200 counts)
+    usleep(1000);
+    
+    printf("CEC: Timing registers configured\n");
+    fflush(stdout);
+
+    // CRITICAL: Enable CEC arbitration and HPD response (register 0x7F)
+    // This is the missing piece that prevents TX_ENABLE from actually starting transmission
+    printf("CEC: Configuring CEC arbitration enable register 0x7F...\n");
+    fflush(stdout);
+    
+    // Enable both CEC arbitration (bit 7) and HPD response (bit 6)
+    // Per ADV7513 datasheet: This register is essential for CEC bus participation
+    uint8_t arbitration_config = 0x80 | 0x40;  // Enable arbitration + HPD response
+    cec_write_reg(CEC_ARBITRATION_ENABLE, arbitration_config);
+    usleep(5000);  // Allow time for arbitration logic to initialize
+    
+    // Verify the arbitration enable was set
+    uint8_t arb_verify = 0;
+    if (cec_read_reg(CEC_ARBITRATION_ENABLE, &arb_verify) == 0) {
+        printf("CEC: Arbitration enable register: wrote 0x%02X, read 0x%02X\n", 
+               arbitration_config, arb_verify);
+        if (arb_verify & 0x80) {
+            printf("CEC: ✓ CEC arbitration enabled successfully\n");
+        }
+        if (arb_verify & 0x40) {
+            printf("CEC: ✓ HPD response enabled successfully\n");
+        }
+    } else {
+        printf("CEC: WARNING: Failed to verify arbitration enable register\n");
+    }
+    fflush(stdout);
+
     // Final verification of all critical registers
     printf("CEC: Performing final verification...\n");
     fflush(stdout);
@@ -1458,13 +1521,19 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
     if (!success) {
         printf("CEC: TX timeout - checking final state\n");
         uint8_t final_status = 0, final_enable = 0, final_length = 0, final_header = 0;
+        uint8_t cec_glitch = 0, cec_sample = 0, cec_buffer = 0;
         cec_read_reg(CEC_INTERRUPT_STATUS, &final_status);
         cec_read_reg(CEC_TX_ENABLE_REG, &final_enable);
         cec_read_reg(CEC_TX_FRAME_LENGTH, &final_length);
         cec_read_reg(CEC_TX_FRAME_HEADER, &final_header);
+        cec_read_reg(0x28, &cec_glitch);      // CEC Glitch Filter Control
+        cec_read_reg(0x2A, &cec_sample);      // CEC Sample Time 
+        cec_read_reg(0x2B, &cec_buffer);      // CEC Buffer Control
         
         printf("CEC: Final state - STATUS=0x%02X, ENABLE=0x%02X, LEN=0x%02X, HDR=0x%02X\n", 
                final_status, final_enable, final_length, final_header);
+        printf("CEC: Timing regs - GLITCH=0x%02X, SAMPLE=0x%02X, BUFFER=0x%02X\n",
+               cec_glitch, cec_sample, cec_buffer);
         
         // ENHANCED: Force clear TX_ENABLE if transmission failed to complete
         if (final_enable != 0x00) {
