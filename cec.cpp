@@ -637,25 +637,54 @@ static void cec_send_osd_name() {
 
 // Configure CEC with physical address from EDID
 int cec_configure(uint16_t physical_addr) {
+    printf("CEC: === cec_configure() called with physical_addr=0x%04X ===\n", physical_addr);
+    fflush(stdout);
+    
+    printf("CEC: Checking if cec_state.initialized...\n");
+    fflush(stdout);
+    
     if (!cec_state.initialized) {
         printf("CEC: Not initialized\n");
+        fflush(stdout);
         return -1;
     }
+    
+    printf("CEC: cec_state.initialized=true, continuing...\n");
+    fflush(stdout);
+    
+    printf("CEC: Setting cec_state.physical_addr to 0x%04X...\n", physical_addr);
+    fflush(stdout);
     
     cec_state.physical_addr = physical_addr;
     printf("CEC: Configuring with physical address %d.%d.%d.%d\n",
            (physical_addr >> 12) & 0xF, (physical_addr >> 8) & 0xF,
            (physical_addr >> 4) & 0xF, physical_addr & 0xF);
+    fflush(stdout);
     
     // Check current register states before attempting logical address claim
     printf("CEC: Pre-configuration register check...\n");
+    fflush(stdout);
     uint8_t power_mode = 0, rx_enable = 0, clock_div = 0, int_enable = 0;
+    
+    printf("CEC: Reading CEC_POWER_MODE...\n");
+    fflush(stdout);
     cec_read_reg(CEC_POWER_MODE, &power_mode);
+    
+    printf("CEC: Reading CEC_RX_ENABLE_REG...\n");
+    fflush(stdout);
     cec_read_reg(CEC_RX_ENABLE_REG, &rx_enable);
+    
+    printf("CEC: Reading CEC_CLK_DIV...\n");
+    fflush(stdout);
     cec_read_reg(CEC_CLK_DIV, &clock_div);
+    
+    printf("CEC: Reading CEC_INTERRUPT_ENABLE...\n");
+    fflush(stdout);
     cec_read_reg(CEC_INTERRUPT_ENABLE, &int_enable);
+    
     printf("CEC: POWER=0x%02X, RX_EN=0x%02X, CLK_DIV=0x%02X, INT_EN=0x%02X\n",
            power_mode, rx_enable, clock_div, int_enable);
+    fflush(stdout);
     
     // Try to claim logical address for playback device
     uint8_t logical_addrs[] = {CEC_ADDR_PLAYBACK_1, CEC_ADDR_PLAYBACK_2, CEC_ADDR_PLAYBACK_3};

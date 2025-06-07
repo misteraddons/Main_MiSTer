@@ -1156,12 +1156,13 @@ static void hdmi_config_cec_init()
 
 	printf("CEC: Using device name: '%s'\n", cfg.cec_device_name[0] ? cfg.cec_device_name : "MiSTer");
 	
-	cec_initialized = true;
-	printf("CEC: Hardware initialized\n");
+	cec_initialized = true;	printf("CEC: Hardware initialized\n");
 	// If we already have a physical address from EDID, configure CEC
+	printf("CEC: Current physical address: 0x%04X\n", cec_physical_address);
 	if (cec_physical_address != 0x0000) {
 		printf("CEC: Configuring with physical address %04X\n", cec_physical_address);
-		cec_configure(cec_physical_address);
+		int config_result = cec_configure(cec_physical_address);
+		printf("CEC: cec_configure returned: %d\n", config_result);
 	} else {
 		printf("CEC: No physical address from EDID, waiting for EDID update\n");
 	}
@@ -1169,7 +1170,12 @@ static void hdmi_config_cec_init()
 
 static void hdmi_config_cec_update_physical_address(uint16_t addr)
 {
+	printf("CEC: hdmi_config_cec_update_physical_address called with 0x%04X\n", addr);
+	printf("CEC: Current cec_physical_address: 0x%04X\n", cec_physical_address);
+	printf("CEC: CEC initialized: %s\n", cec_initialized ? "true" : "false");
+	
 	if (cec_physical_address == addr) {
+		printf("CEC: Physical address unchanged, skipping update\n");
 		return; // No change
 	}
 
@@ -1180,7 +1186,12 @@ static void hdmi_config_cec_update_physical_address(uint16_t addr)
 
 	// Configure CEC if initialized
 	if (cec_initialized && addr != 0x0000) {
-		cec_configure(addr);
+		printf("CEC: Calling cec_configure with address 0x%04X\n", addr);
+		int config_result = cec_configure(addr);
+		printf("CEC: cec_configure returned: %d\n", config_result);
+	} else {
+		printf("CEC: Not configuring - initialized=%s, addr=0x%04X\n", 
+		       cec_initialized ? "true" : "false", addr);
 	}
 }
 
