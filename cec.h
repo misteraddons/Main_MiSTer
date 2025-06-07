@@ -72,6 +72,11 @@ uint8_t cec_get_logical_address(void);
 // Get physical address
 uint16_t cec_get_physical_address(void);
 
+// ADV7513 Register Map Management (internal functions for 30-minute fix)
+int adv7513_init_register_maps(int main_i2c_fd);
+int adv7513_verify_register_maps(int main_i2c_fd);
+int adv7513_reset_register_maps(int main_i2c_fd);
+
 #ifdef __cplusplus
 }
 #endif

@@ -447,6 +447,8 @@ static void* cec_monitor_thread(void* arg);
 static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params, size_t param_len);
 static void cec_handle_message(uint8_t src, uint8_t dest, uint8_t opcode, const uint8_t* params, size_t param_len);
 static void cec_send_osd_name();
+static int cec_verify_register_maps(); // NEW: Verify register map addressing
+static int cec_reset_register_maps();  // NEW: Reset corrupted register maps
 
 // I2C helper functions
 static int cec_write_reg(uint8_t reg, uint8_t value) {
@@ -490,6 +492,94 @@ static int cec_read_reg(uint8_t reg, uint8_t *value) {
     return 0;
 }
 
+// NEW: Verify ADV7513 register map addressing
+static int cec_verify_register_maps() {
+    if (cec_state.i2c_fd < 0) {
+        printf("CEC: Cannot verify register maps - main I2C not open\n");
+        return -1;
+    }
+    
+    // Check all three register map base addresses
+    int edid_addr = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x43);
+    int packet_addr = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x45);
+    int cec_addr = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xE1);
+    
+    bool maps_valid = true;
+    
+    if (edid_addr != 0x7E) {
+        printf("CEC: Register map corruption detected - EDID (0x43): expected 0x7E, got 0x%02X\n",
+               (edid_addr >= 0) ? (uint8_t)edid_addr : 0xFF);
+        maps_valid = false;
+    }
+    
+    if (packet_addr != 0x70) {
+        printf("CEC: Register map corruption detected - Packet (0x45): expected 0x70, got 0x%02X\n",
+               (packet_addr >= 0) ? (uint8_t)packet_addr : 0xFF);
+        maps_valid = false;
+    }
+    
+    if (cec_addr != 0x78) {
+        printf("CEC: Register map corruption detected - CEC (0xE1): expected 0x78, got 0x%02X\n",
+               (cec_addr >= 0) ? (uint8_t)cec_addr : 0xFF);
+        maps_valid = false;
+    }
+    
+    if (maps_valid) {
+        printf("CEC: Register map verification passed - all maps correctly addressed\n");
+        return 0;
+    } else {
+        printf("CEC: Register map verification FAILED - corruption detected\n");
+        return -1;
+    }
+}
+
+// NEW: Reset corrupted ADV7513 register maps without full system restart
+static int cec_reset_register_maps() {
+    if (cec_state.i2c_fd < 0) {
+        printf("CEC: Cannot reset register maps - main I2C not open\n");
+        return -1;
+    }
+    
+    printf("CEC: Resetting corrupted ADV7513 register map addresses...\n");
+    
+    // Re-program all register map base addresses
+    bool success = true;
+    
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x43, 0x7E) < 0) {
+        printf("CEC: ERROR - Failed to reset EDID register map (0x43)\n");
+        success = false;
+    }
+    usleep(5000);
+    
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x45, 0x70) < 0) {
+        printf("CEC: ERROR - Failed to reset Packet register map (0x45)\n");
+        success = false;
+    }
+    usleep(5000);
+    
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE1, 0x78) < 0) {
+        printf("CEC: ERROR - Failed to reset CEC register map (0xE1)\n");
+        success = false;
+    }
+    usleep(20000); // Allow time for changes to take effect
+    
+    if (success) {
+        printf("CEC: Register map reset completed successfully\n");
+        
+        // Verify the reset worked
+        if (cec_verify_register_maps() == 0) {
+            printf("CEC: Register map reset verification passed\n");
+            return 0;
+        } else {
+            printf("CEC: Register map reset verification failed\n");
+            return -1;
+        }
+    } else {
+        printf("CEC: Register map reset failed\n");
+        return -1;
+    }
+}
+
 // Initialize CEC hardware
 int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     if (cec_state.initialized) {
@@ -511,7 +601,7 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
 
     printf("CEC: Main ADV7513 I2C opened successfully\n");
 
-    // Ensure CEC module is powered up by writing 0x00 to main register 0xE2 per suggestion
+    // Ensure CEC module is powered up by writing 0x00 to main register 0xE2 per suggestion.
     printf("CEC: Power-up CEC by writing main reg 0xE2=0x00\n");
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE2, 0x00);
     usleep(10000);
@@ -536,17 +626,146 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     printf("CEC: Applying ADI required unlock sequence...\n");
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x98, 0x03); // ADI required Write
     usleep(10000);
+    
+    // CRITICAL: Add missing main chip register configurations from video.cpp
+    printf("CEC: Configuring critical main chip registers for transmission engine...\n");
+    
+    // HPD Control - Critical for HDMI transmission engine
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xD6, 0xC0); // HPD always high (0b11000000)
+    usleep(10000);
+    
+    // Power Down control - Required for proper operation
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x41, 0x10); // Power Down control
+    usleep(10000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9A, 0x70); // ADI required Write
     usleep(10000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9C, 0x30); // ADI required Write
     usleep(10000);
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9D, 0x61); // ADI required Write
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9D, 0x61); // ADI required Write (0b01100001)
     usleep(10000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA2, 0xA4); // ADI required Write
     usleep(10000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA3, 0xA4); // ADI required Write
     usleep(10000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE0, 0xD0); // ADI required Write
+    usleep(10000);
+    
+    // Timing configuration registers - Critical for CEC timing
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x35, 0x40);
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x36, 0xD9);
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x37, 0x0A);
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x38, 0x00);
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x39, 0x2D);
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x3A, 0x00);
+    usleep(5000);
+    
+    // Video format registers - Required for proper HDMI operation
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x16, 0x38); // Output Format 444 (0b00111000)
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x17, 0x62); // Aspect ratio and sync (0b01100010)
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x3B, 0x80); // Automatic pixel repetition
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x3C, 0x00);
+    usleep(5000);
+    
+    // Bus configuration
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x48, 0x08); // Normal bus order (0b00001000)
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x49, 0xA8); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x40, 0x00); // Reset before enabling CEC
+    usleep(5000);
+    
+    // Additional required ADI writes from video.cpp
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x4A, 0x80); // Auto-Calculate SPD checksum
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x4C, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x94, 0x80); // HPD Interrupt enabled
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x99, 0x02); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9B, 0x18); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9F, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA1, 0x00); // Monitor Sense config
+    usleep(5000);
+    
+    // Critical ADI required register block
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA4, 0x08); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA5, 0x04); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA6, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA7, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA8, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA9, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xAA, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xAB, 0x40); // ADI required Write
+    usleep(5000);
+    
+    // InfoFrame configuration registers (missing from video.cpp)
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x55, 0x10); // AVI InfoFrame basic config
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x56, 0x08); // Picture Aspect Ratio
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x57, 0x08); // RGB Quantization range
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x59, 0x00); // Content Type
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x73, 0x01); // Unknown but required
+    usleep(5000);
+    
+    // HDMI/DVI mode configuration
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xAF, 0x06); // HDMI Mode enabled (0b00000110)
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xB9, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xBA, 0x60); // Input Clock delay (0b01100000)
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xBB, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xDE, 0x9C); // ADI required Write
+    usleep(5000);
+    // Note: 0xE4 will be set later in CEC-specific section
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xFA, 0x7D); // Phase search count
+    usleep(10000);
+    
+    // Audio configuration registers (from video.cpp for complete initialization)
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0A, 0x00); // Audio Select I2S
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0B, 0x0E); // Audio config
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0D, 0x10); // I2S Bit Width
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x14, 0x02); // Audio Word Length
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x15, 0x20); // I2S Sampling Rate
+    usleep(5000);
+    // Audio Clock Config
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x01, 0x00); // Audio clock
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x02, 0x18); // Set N Value
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x03, 0x00); // Audio clock
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x07, 0x01); // Audio clock
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x08, 0x22); // Set CTS Value
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x09, 0x0A); // Audio clock
     usleep(10000);
 
     // Now set CEC-specific main registers
@@ -569,13 +788,10 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
         // Don't modify 0x41 - it controls main power and might affect video
     }
 
-    // Register 0x0C: Audio/CEC configuration (preserve audio settings, enable CEC)
-    int reg_0c = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x0C);
-    if (reg_0c >= 0) {
-        printf("CEC: Register 0x0C current: 0x%02X\n", (uint8_t)reg_0c);
-        i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0C, reg_0c | 0x04); // Enable CEC bit
-        usleep(10000);
-    }
+    // Register 0x0C: Audio/CEC configuration (set to match video.cpp exactly)
+    printf("CEC: Register 0x0C setting to match video.cpp (0x04 = I2S0 Enable)\n");
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0C, 0x04); // Match video.cpp exactly
+    usleep(10000);
 
     // Configure CEC I2C address mapping (this is critical!)
     printf("CEC: Setting CEC I2C address mapping...\n");
@@ -596,18 +812,6 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     usleep(5000);
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE4, 0x60); // CEC control (matches video init)
     usleep(10000);
-
-    // Additional ADI required writes from video.cpp that might affect CEC
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x49, 0xA8); // ADI required Write  
-    usleep(5000);
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x4C, 0x00); // ADI required Write
-    usleep(5000);
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x99, 0x02); // ADI required Write
-    usleep(5000);
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9B, 0x18); // ADI required Write
-    usleep(5000);
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9F, 0x00); // ADI required Write
-    usleep(5000);
 
     // Verify the CEC address was set
     int cec_addr_verify = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xE1);
@@ -826,7 +1030,7 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     usleep(5000);
     uint8_t addr_verify_legacy = 0;
     if (cec_read_reg(CEC_LOGICAL_ADDR_REG, &addr_verify_legacy) == 0) {
-        printf("CEC: Legacy logical address (0x27): wrote 0x%02X, read 0x%02X\n", 
+        printf("CEC: Legacy logical address (0x27): wrote 0x%X, read 0x%X\n", 
                CEC_ADDR_UNREGISTERED, addr_verify_legacy);
     }
     
@@ -1526,7 +1730,7 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
         cec_read_reg(CEC_TX_ENABLE_REG, &final_enable);
         cec_read_reg(CEC_TX_FRAME_LENGTH, &final_length);
         cec_read_reg(CEC_TX_FRAME_HEADER, &final_header);
-        cec_read_reg(0x28, &cec_glitch);      // CEC Glitch Filter Control
+        cec_read_reg(0x28, &cec_glitch);      // CEC Glitch Filter
         cec_read_reg(0x2A, &cec_sample);      // CEC Sample Time 
         cec_read_reg(0x2B, &cec_buffer);      // CEC Buffer Control
         
@@ -1562,7 +1766,27 @@ static void* cec_monitor_thread(void* arg) {
     
     printf("CEC: Monitor thread started\n");
     
+    // NEW: Add periodic register map verification to prevent 30-minute failures
+    static uint32_t last_register_check = 0;
+    const uint32_t REGISTER_CHECK_INTERVAL_MS = 60000; // Check every 60 seconds
+    uint32_t current_time_ms = 0;
+    
     while (cec_state.thread_running) {
+        // NEW: Periodic register map verification
+        current_time_ms += 10; // We sleep 10ms each iteration
+        if (current_time_ms - last_register_check >= REGISTER_CHECK_INTERVAL_MS) {
+            printf("CEC: Performing periodic register map verification...\n");
+            if (cec_verify_register_maps() != 0) {
+                printf("CEC: Register map corruption detected! Attempting recovery...\n");
+                if (cec_reset_register_maps() == 0) {
+                    printf("CEC: Register map corruption recovered successfully\n");
+                } else {
+                    printf("CEC: Failed to recover from register map corruption\n");
+                }
+            }
+            last_register_check = current_time_ms;
+        }
+        
         // Check for RX messages
         uint8_t int_status;
         if (cec_read_reg(CEC_INTERRUPT_STATUS, &int_status) == 0) {
