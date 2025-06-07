@@ -461,17 +461,31 @@ static int cec_write_reg(uint8_t reg, uint8_t value) {
     }
     
     // For critical registers, verify the write succeeded
-    if (reg == CEC_POWER_MODE || reg == CEC_LOGICAL_ADDR_REG) {
+    if (reg == CEC_POWER_MODE || reg == CEC_LOGICAL_ADDR_REG || reg == CEC_TX_ENABLE_REG) {
         usleep(1000); // Small delay before read-back
         uint8_t verify = 0;
         int read_result = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, reg);
         if (read_result >= 0) {
             verify = (uint8_t)read_result;
-            if (verify == value) {
+            if (reg == CEC_TX_ENABLE_REG) {
+                // TX_ENABLE has special behavior - it auto-clears after transmission starts
+                printf("CEC: TX_ENABLE (0x11) write: value=0x%02X, readback=0x%02X\n", value, verify);
+                if (value == 0x01 && verify == 0x00) {
+                    printf("CEC: TX_ENABLE auto-cleared - transmission may have completed instantly\n");
+                } else if (value == 0x01 && verify == 0x01) {
+                    printf("CEC: TX_ENABLE set successfully - transmission should be starting\n");
+                } else if (verify != value) {
+                    printf("CEC: TX_ENABLE unexpected readback - wrote 0x%02X, read 0x%02X\n", value, verify);
+                }
+            } else if (verify == value) {
                 printf("CEC: Register 0x%02X write verified: 0x%02X\n", reg, verify);
             } else {
                 printf("CEC: Register 0x%02X write MISMATCH: wrote 0x%02X, read 0x%02X\n", 
                        reg, value, verify);
+            }
+        } else {
+            if (reg == CEC_TX_ENABLE_REG) {
+                printf("CEC: ERROR: Cannot read back TX_ENABLE register - I2C communication failure\n");
             }
         }
     }
@@ -793,17 +807,61 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0C, 0x04); // Match video.cpp exactly
     usleep(10000);
 
-    // Configure CEC I2C address mapping (this is critical!)
-    printf("CEC: Setting CEC I2C address mapping...\n");
+    // CRITICAL FIX: Initialize ALL ADV7513 register maps to prevent TX_ENABLE failure
+    printf("CEC: Initializing all ADV7513 register map addresses...\n");
+    
+    // Program EDID register map address (register 0x43) 
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x43, 0x7E) < 0) {
+        printf("CEC: Failed to set EDID I2C address\n");
+        i2c_close(cec_state.i2c_fd);
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+    usleep(5000);
+    
+    // Program Packet register map address (register 0x45)
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x45, 0x70) < 0) {
+        printf("CEC: Failed to set Packet I2C address\n");
+        i2c_close(cec_state.i2c_fd);
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+    usleep(5000);
+    
+    // Program CEC register map address (register 0xE1)
     if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE1, ADV7513_CEC_I2C_ADDR << 1) < 0) {
         printf("CEC: Failed to set CEC I2C address\n");
         i2c_close(cec_state.i2c_fd);
         cec_state.i2c_fd = -1;
         return -1;
     }
-    printf("CEC: Mapped CEC to I2C address 0x%02X (register value 0x%02X)\n", 
-           ADV7513_CEC_I2C_ADDR, ADV7513_CEC_I2C_ADDR << 1);
+    
+    printf("CEC: Register map addresses configured:\n");
+    printf("  EDID map (0x43): 0x7E\n");
+    printf("  Packet map (0x45): 0x70\n");
+    printf("  CEC map (0xE1): 0x%02X\n", ADV7513_CEC_I2C_ADDR << 1);
+    
     usleep(20000); // Give time for address mapping to take effect
+    
+    // Verify all register map addresses were set correctly
+    int edid_verify = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x43);
+    int packet_verify = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x45);
+    int cec_verify = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xE1);
+    
+    printf("CEC: Register map verification:\n");
+    printf("  EDID (0x43): wrote 0x7E, read 0x%02X\n", (uint8_t)edid_verify);
+    printf("  Packet (0x45): wrote 0x70, read 0x%02X\n", (uint8_t)packet_verify);
+    printf("  CEC (0xE1): wrote 0x%02X, read 0x%02X\n", 
+           ADV7513_CEC_I2C_ADDR << 1, (uint8_t)cec_verify);
+    
+    if (edid_verify != 0x7E || packet_verify != 0x70 || cec_verify != (ADV7513_CEC_I2C_ADDR << 1)) {
+        printf("CEC: ERROR: Register map programming failed - this will cause TX_ENABLE issues\n");
+        i2c_close(cec_state.i2c_fd);
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+    
+    printf("CEC: All register maps initialized successfully\n");
 
     // Additional required registers for proper CEC operation
     i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE2, 0x01); // CEC internal enable
@@ -1648,11 +1706,37 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
     cec_write_reg(CEC_TX_RETRY, 0x35);  // 3 retries + signal free time
     usleep(1000);
     
-    // 6. START TRANSMISSION
+    // 6. Pre-transmission verification - ensure CEC is ready
+    printf("CEC: Verifying CEC readiness before transmission\n");
+    uint8_t power_check = 0, arb_check = 0, clock_check = 0;
+    cec_read_reg(CEC_POWER_MODE, &power_check);
+    cec_read_reg(CEC_ARBITRATION_ENABLE, &arb_check);
+    cec_read_reg(CEC_CLOCK_DIVIDER_POWER_MODE, &clock_check);
+    
+    uint8_t actual_power = power_check & 0x03;
+    bool arb_enabled = (arb_check & 0x80) != 0;
+    uint8_t actual_clock = (clock_check >> 2) & 0x3F;
+    
+    printf("CEC: Pre-TX state - Power=0x%02X, Arbitration=%s (0x%02X), Clock_div=%d\n", 
+           actual_power, arb_enabled ? "ENABLED" : "DISABLED", arb_check, actual_clock);
+    
+    if (actual_power != 0x01) {
+        printf("CEC: WARNING: CEC not in active power mode (expected 0x01, got 0x%02X)\n", actual_power);
+    }
+    if (!arb_enabled) {
+        printf("CEC: ERROR: CEC arbitration not enabled - TX_ENABLE will not work!\n");
+        printf("CEC: Attempting to enable arbitration...\n");
+        cec_write_reg(CEC_ARBITRATION_ENABLE, 0x80 | 0x40);  // Enable arbitration + HPD
+        usleep(5000);
+        cec_read_reg(CEC_ARBITRATION_ENABLE, &arb_check);
+        printf("CEC: Arbitration enable retry: 0x%02X\n", arb_check);
+    }
+    
+    // 7. START TRANSMISSION
     printf("CEC: Initiating transmission\n");
     cec_write_reg(CEC_TX_ENABLE_REG, 0x01);
     
-    // 7. Immediate verification that transmission started
+    // 8. Immediate verification that transmission started
     usleep(2000); // Brief delay for register update
     uint8_t tx_start_verify = 0;
     cec_read_reg(CEC_TX_ENABLE_REG, &tx_start_verify);
@@ -1663,7 +1747,7 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
         return -1;
     }
     
-    // 8. Enhanced completion detection with proper timeout
+    // 9. Enhanced completion detection with proper timeout
     int timeout = 250; // Increased timeout to 250ms for reliable transmission
     int success = 0;
     uint8_t last_tx_enable = 0x01;
