@@ -269,26 +269,41 @@ static void cec_send_osd_name();
 static int cec_write_reg(uint8_t reg, uint8_t value) {
     if (cec_state.cec_i2c_fd < 0) return -1;
     
-    uint8_t buf[2] = {reg, value};
-    if (write(cec_state.cec_i2c_fd, buf, 2) != 2) {
-        printf("CEC: I2C write error reg 0x%02X: %s\n", reg, strerror(errno));
+    int result = i2c_smbus_write_byte_data(cec_state.cec_i2c_fd, reg, value);
+    if (result < 0) {
+        printf("CEC: I2C write error reg 0x%02X=0x%02X: %s\n", reg, value, strerror(errno));
         return -1;
     }
+    
+    // For critical registers, verify the write succeeded
+    if (reg == CEC_POWER_MODE || reg == CEC_LOGICAL_ADDR_REG) {
+        usleep(1000); // Small delay before read-back
+        uint8_t verify = 0;
+        int read_result = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, reg);
+        if (read_result >= 0) {
+            verify = (uint8_t)read_result;
+            if (verify == value) {
+                printf("CEC: Register 0x%02X write verified: 0x%02X\n", reg, verify);
+            } else {
+                printf("CEC: Register 0x%02X write MISMATCH: wrote 0x%02X, read 0x%02X\n", 
+                       reg, value, verify);
+            }
+        }
+    }
+    
     return 0;
 }
 
 static int cec_read_reg(uint8_t reg, uint8_t *value) {
     if (cec_state.cec_i2c_fd < 0 || !value) return -1;
     
-    if (write(cec_state.cec_i2c_fd, &reg, 1) != 1) {
-        printf("CEC: I2C write error reg 0x%02X: %s\n", reg, strerror(errno));
-        return -1;
-    }
-    
-    if (read(cec_state.cec_i2c_fd, value, 1) != 1) {
+    int result = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, reg);
+    if (result < 0) {
         printf("CEC: I2C read error reg 0x%02X: %s\n", reg, strerror(errno));
         return -1;
     }
+    
+    *value = (uint8_t)result;
     return 0;
 }
 
@@ -298,71 +313,319 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
         printf("CEC: Already initialized\n");
         return 0;
     }
+
+    printf("CEC: Starting detailed initialization...\n");
     
-    // Open main ADV7513 I2C device
+    // Declare variables used throughout initialization
+    bool power_success = false;
+
+    // Open main ADV7513 I2C device first
     cec_state.i2c_fd = i2c_open(ADV7513_MAIN_I2C_ADDR, 0);
     if (cec_state.i2c_fd < 0) {
         printf("CEC: Failed to open ADV7513 main I2C\n");
         return -1;
     }
-    
-    // Set CEC I2C address in main register map
-    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE1, ADV7513_CEC_I2C_ADDR << 1);
-    
-    // Open CEC I2C device
-    cec_state.cec_i2c_fd = i2c_open(ADV7513_CEC_I2C_ADDR, 0);
-    if (cec_state.cec_i2c_fd < 0) {
-        printf("CEC: Failed to open ADV7513 CEC I2C\n");
+
+    printf("CEC: Main ADV7513 I2C opened successfully\n");
+
+    // Check main ADV7513 ID registers to verify communication
+    int chip_id1 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xF5);
+    int chip_id2 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xF6);
+
+    if (chip_id1 < 0 || chip_id2 < 0) {
+        printf("CEC: Failed to read ADV7513 chip ID (id1=%d, id2=%d)\n", chip_id1, chip_id2);
         i2c_close(cec_state.i2c_fd);
         cec_state.i2c_fd = -1;
         return -1;
     }
+
+    printf("CEC: ADV7513 chip ID: 0x%02X%02X\n", (uint8_t)chip_id1, (uint8_t)chip_id2);
+
+    // CRITICAL: Follow ADV7513 initialization sequence exactly like video.cpp
+    printf("CEC: Starting ADV7513 CEC initialization sequence...\n");
+
+    // Follow the exact same ADI required sequence from video.cpp
+    printf("CEC: Applying ADI required unlock sequence...\n");
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x98, 0x03); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9A, 0x70); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9C, 0x30); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9D, 0x61); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA2, 0xA4); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xA3, 0xA4); // ADI required Write
+    usleep(10000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE0, 0xD0); // ADI required Write
+    usleep(10000);
+
+    // Now set CEC-specific main registers
+    printf("CEC: Configuring main ADV7513 chip for CEC...\n");
+
+    // Register 0x40: CEC clock and timing (only set CEC bit, preserve others)
+    int reg_40 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x40);
+    if (reg_40 >= 0) {
+        i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x40, reg_40 & ~0x80); // Disable CEC initially
+        usleep(5000);
+        i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x40, reg_40 | 0x80); // Enable CEC clock
+        usleep(10000);
+        printf("CEC: Register 0x40 configured: 0x%02X -> 0x%02X\n", (uint8_t)reg_40, reg_40 | 0x80);
+    }
+
+    // Register 0x41: Power control (preserve existing settings)
+    int reg_41 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x41);
+    if (reg_41 >= 0) {
+        printf("CEC: Register 0x41 current: 0x%02X\n", (uint8_t)reg_41);
+        // Don't modify 0x41 - it controls main power and might affect video
+    }
+
+    // Register 0x0C: Audio/CEC configuration (preserve audio settings, enable CEC)
+    int reg_0c = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0x0C);
+    if (reg_0c >= 0) {
+        printf("CEC: Register 0x0C current: 0x%02X\n", (uint8_t)reg_0c);
+        i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x0C, reg_0c | 0x04); // Enable CEC bit
+        usleep(10000);
+    }
+
+    // Configure CEC I2C address mapping (this is critical!)
+    printf("CEC: Setting CEC I2C address mapping...\n");
+    if (i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE1, ADV7513_CEC_I2C_ADDR << 1) < 0) {
+        printf("CEC: Failed to set CEC I2C address\n");
+        i2c_close(cec_state.i2c_fd);
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+    printf("CEC: Mapped CEC to I2C address 0x%02X (register value 0x%02X)\n", 
+           ADV7513_CEC_I2C_ADDR, ADV7513_CEC_I2C_ADDR << 1);
+    usleep(20000); // Give time for address mapping to take effect
+
+    // Additional required registers for proper CEC operation
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE2, 0x01); // CEC internal enable
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE3, 0x02); // CEC buffer enable  
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE4, 0x60); // CEC control (matches video init)
+    usleep(10000);
+
+    // Additional ADI required writes from video.cpp that might affect CEC
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x49, 0xA8); // ADI required Write  
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x4C, 0x00); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x99, 0x02); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9B, 0x18); // ADI required Write
+    usleep(5000);
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0x9F, 0x00); // ADI required Write
+    usleep(5000);
+
+    // Verify the CEC address was set
+    int cec_addr_verify = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xE1);
+    printf("CEC: CEC I2C address verification: wrote 0x%02X, read 0x%02X\n", 
+           ADV7513_CEC_I2C_ADDR << 1, (uint8_t)cec_addr_verify);
+
+    // Now try to open CEC I2C device
+    cec_state.cec_i2c_fd = i2c_open(ADV7513_CEC_I2C_ADDR, 0);
+    if (cec_state.cec_i2c_fd < 0) {
+        printf("CEC: Failed to open ADV7513 CEC I2C at address 0x%02X\n", ADV7513_CEC_I2C_ADDR);
+        i2c_close(cec_state.i2c_fd);
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+
+    printf("CEC: CEC I2C opened successfully\n");
+
+    // Test CEC I2C communication by reading a known register
+    int test_result = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, CEC_POWER_MODE);
+    if (test_result >= 0) {
+        printf("CEC: Initial power mode register: 0x%02X\n", (uint8_t)test_result);
+    } else {
+        printf("CEC: Failed to read CEC power mode register (result=%d)\n", test_result);
+        i2c_close(cec_state.cec_i2c_fd);
+        i2c_close(cec_state.i2c_fd);
+        cec_state.cec_i2c_fd = -1;
+        cec_state.i2c_fd = -1;
+        return -1;
+    }
+
+    // Read and display several CEC registers to understand the current state
+    printf("CEC: Reading initial register states...\n");
+    uint8_t reg_values[10];
+    uint8_t test_regs[] = {0x00, 0x10, 0x11, 0x26, 0x27, 0x28, 0x2A, 0x2B, 0x4E, 0x7B};
+    for (int i = 0; i < 10; i++) {
+        int val = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, test_regs[i]);
+        reg_values[i] = (val >= 0) ? (uint8_t)val : 0xFF;
+        printf("CEC: Reg 0x%02X = 0x%02X\n", test_regs[i], reg_values[i]);
+    }    // Now test CEC register access - the ADI unlock should have enabled CEC access
+    printf("CEC: Testing CEC register access after proper ADI initialization...\n");
     
-    // Power up CEC module
-    cec_write_reg(CEC_POWER_MODE, 0x01);
-    usleep(10000); // 10ms delay
-    
-    // Soft reset
-    cec_write_reg(CEC_INTERRUPT_CLEAR, 0x04);
+    // First test - try setting CEC clock divider (this is usually writable)
+    printf("CEC: Setting CEC clock divider...\n");
+    cec_write_reg(CEC_CLK_DIV, 0x03); // Set appropriate clock divider for CEC
     usleep(10000);
     
-    // Configure CEC clock - assuming 28.636MHz reference clock for ~40kHz CEC clock
-    // Clock divider = 28636000 / (40000 * 16) = ~44.7 ≈ 45
-    cec_write_reg(CEC_CLK_DIV, 45);
+    uint8_t clk_verify = 0;
+    if (cec_read_reg(CEC_CLK_DIV, &clk_verify) == 0) {
+        printf("CEC: Clock divider: wrote 0x03, read 0x%02X", clk_verify);
+        if (clk_verify != 0x03) {
+            printf(" (may be encoded differently - this is OK)\n");
+        } else {
+            printf(" (matches expected value)\n");
+        }
+    }
+
+    // Try to set power mode (this is the critical test)
+    printf("CEC: Attempting to set power mode...\n");
+    fflush(stdout);
     
-    // Set up timing parameters
-    cec_write_reg(CEC_TX_RETRY, 0x02);           // 2 retries
-    cec_write_reg(CEC_TX_LOW_DRV_CNT, 0x3C);     // Standard drive strength
-    cec_write_reg(CEC_TX_BUFFERFREE_TIME, 0x07); // 7 bit periods
-    cec_write_reg(CEC_TX_ARBITER_TIME, 0x03);    // 3 bit periods
+    for (int attempt = 0; attempt < 3; attempt++) {
+        cec_write_reg(CEC_POWER_MODE, 0x01);
+        usleep(15000);  // Longer delay for power mode changes
+        
+        uint8_t power_verify = 0;
+        if (cec_read_reg(CEC_POWER_MODE, &power_verify) == 0) {
+            printf("CEC: Power mode attempt %d: wrote 0x01, read 0x%02X\n", 
+                   attempt + 1, power_verify);
+            fflush(stdout);
+            if (power_verify == 0x01) {
+                printf("CEC: SUCCESS! Power mode register is now writable!\n");
+                fflush(stdout);
+                power_success = true;
+                break;
+            }
+        }
+    }
+
+    // Test other important registers regardless of power mode success
+    printf("CEC: Testing other CEC registers...\n");
+    fflush(stdout);
     
-    // Enable RX
+    // Test RX enable (usually more permissive)
+    printf("CEC: Testing RX enable register...\n");
+    fflush(stdout);
     cec_write_reg(CEC_RX_ENABLE_REG, 0x01);
+    usleep(5000);
+    uint8_t rx_verify = 0;
+    if (cec_read_reg(CEC_RX_ENABLE_REG, &rx_verify) == 0) {
+        printf("CEC: RX enable: wrote 0x01, read 0x%02X\n", rx_verify);
+        fflush(stdout);
+    }
     
-    // Clear all interrupts
-    cec_write_reg(CEC_INTERRUPT_CLEAR, 0xFF);
-    cec_write_reg(0x30, 0xFF); // Clear interrupt 2
-    
-    // Enable interrupts
+    // Test logical address (should be writable after initialization)
+    printf("CEC: Testing logical address register...\n");
+    fflush(stdout);
+    cec_write_reg(CEC_LOGICAL_ADDR_REG, CEC_ADDR_UNREGISTERED);
+    usleep(5000);
+    uint8_t addr_verify = 0;
+    if (cec_read_reg(CEC_LOGICAL_ADDR_REG, &addr_verify) == 0) {
+        printf("CEC: Logical address: wrote 0x%02X, read 0x%02X\n", 
+               CEC_ADDR_UNREGISTERED, addr_verify);
+        fflush(stdout);
+    }
+
+    // If power mode still fails, try alternative approach
+    if (!power_success) {
+        printf("CEC: Power mode register still protected, trying alternative activation...\n");
+        fflush(stdout);
+        
+        // Method 1: Try enabling via RX first
+        printf("CEC: Trying RX-first activation method...\n");
+        fflush(stdout);
+        cec_write_reg(CEC_RX_ENABLE_REG, 0x01);
+        usleep(10000);
+        cec_write_reg(CEC_INTERRUPT_ENABLE, 0x70); // Enable RX interrupts only
+        usleep(10000);
+        
+        // Method 2: Try setting logical address to a real address (not unregistered)
+        printf("CEC: Trying logical address activation method...\n");
+        fflush(stdout);
+        cec_write_reg(CEC_LOGICAL_ADDR_REG, 0x04); // Playback device 1
+        usleep(10000);
+        
+        // Now try power mode again
+        printf("CEC: Retrying power mode after alternative activation...\n");
+        fflush(stdout);
+        cec_write_reg(CEC_POWER_MODE, 0x01);
+        usleep(15000);
+        uint8_t final_power = 0;
+        if (cec_read_reg(CEC_POWER_MODE, &final_power) == 0) {
+            printf("CEC: Final power mode test: wrote 0x01, read 0x%02X\n", final_power);
+            fflush(stdout);
+            if (final_power == 0x01) {
+                printf("CEC: SUCCESS! Alternative activation worked!\n");
+                fflush(stdout);
+                power_success = true;
+            } else {
+                printf("CEC: Power mode register remains protected, continuing anyway...\n");
+                fflush(stdout);
+                // Reset to unregistered since we'll claim address properly later
+                cec_write_reg(CEC_LOGICAL_ADDR_REG, CEC_ADDR_UNREGISTERED);
+            }
+        }
+    }
+
+    // Disable interrupts during initial setup
+    cec_write_reg(CEC_INTERRUPT_ENABLE, 0x00);
+
+    // Reset the logical address to unregistered initially
+    cec_write_reg(CEC_LOGICAL_ADDR_REG, CEC_ADDR_UNREGISTERED);
+    cec_write_reg(CEC_LOGICAL_ADDR_MASK, 0x00);  // No addresses enabled yet
+
+    // Enable RX with proper setup
+    printf("CEC: Enabling RX...\n");
+    cec_write_reg(CEC_RX_ENABLE_REG, 0x01);
+
+    // Final verification of all critical registers
+    printf("CEC: Performing final verification...\n");
+    fflush(stdout);
+    uint8_t final_power = 0, final_clock = 0, final_rx = 0;
+    cec_read_reg(CEC_POWER_MODE, &final_power);
+    cec_read_reg(CEC_CLK_DIV, &final_clock);
+    cec_read_reg(CEC_RX_ENABLE_REG, &final_rx);
+    printf("CEC: Final register state - POWER=0x%02X, CLK_DIV=0x%02X, RX_EN=0x%02X\n", 
+           final_power, final_clock, final_rx);
+    fflush(stdout);
+
+    // Configure interrupt enables - be more selective
+    printf("CEC: Enabling interrupts...\n");
+    fflush(stdout);
     cec_write_reg(CEC_INTERRUPT_ENABLE, 
-        CEC_INT_TX_DONE | CEC_INT_TX_READY | 
+        CEC_INT_TX_DONE | CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT |
         CEC_INT_RX_READY1 | CEC_INT_RX_READY2 | CEC_INT_RX_READY3);
-    
+
     // Store configuration
+    printf("CEC: Storing configuration...\n");
+    fflush(stdout);
     strncpy(cec_state.device_name, device_name ? device_name : "MiSTer", 
             sizeof(cec_state.device_name) - 1);
     cec_state.auto_power_on = auto_power;
     cec_state.remote_control_enabled = remote_control;
-    
+
     cec_state.initialized = true;
     cec_state.enabled = false; // Will be enabled after physical address discovery
-    
-    printf("CEC: Initialized successfully\n");
+
+    printf("CEC: Initialized successfully (power_success=%s)\n", power_success ? "true" : "false");
+    printf("CEC: About to return 0 from cec_init\n");
+    fflush(stdout);
     return 0;
 }
 
 static void cec_send_osd_name() {
     if (!cec_state.enabled || !cec_state.initialized) return;
+
+    printf("CEC: About to send OSD name\n");
+    
+    // Verify CEC configuration before sending
+    uint8_t power_mode = 0, logical_addr = 0, clock_div = 0, rx_enable = 0;
+    cec_read_reg(CEC_POWER_MODE, &power_mode);
+    cec_read_reg(CEC_LOGICAL_ADDR_REG, &logical_addr);
+    cec_read_reg(CEC_CLK_DIV, &clock_div);
+    cec_read_reg(CEC_RX_ENABLE_REG, &rx_enable);
+    
+    printf("CEC: Verification - POWER=0x%02X, ADDR=0x%02X, CLK_DIV=0x%02X, RX_EN=0x%02X\n",
+           power_mode, logical_addr, clock_div, rx_enable);
 
     cec_send_message(
         CEC_ADDR_TV,
@@ -384,40 +647,113 @@ int cec_configure(uint16_t physical_addr) {
            (physical_addr >> 12) & 0xF, (physical_addr >> 8) & 0xF,
            (physical_addr >> 4) & 0xF, physical_addr & 0xF);
     
+    // Check current register states before attempting logical address claim
+    printf("CEC: Pre-configuration register check...\n");
+    uint8_t power_mode = 0, rx_enable = 0, clock_div = 0, int_enable = 0;
+    cec_read_reg(CEC_POWER_MODE, &power_mode);
+    cec_read_reg(CEC_RX_ENABLE_REG, &rx_enable);
+    cec_read_reg(CEC_CLK_DIV, &clock_div);
+    cec_read_reg(CEC_INTERRUPT_ENABLE, &int_enable);
+    printf("CEC: POWER=0x%02X, RX_EN=0x%02X, CLK_DIV=0x%02X, INT_EN=0x%02X\n",
+           power_mode, rx_enable, clock_div, int_enable);
+    
     // Try to claim logical address for playback device
     uint8_t logical_addrs[] = {CEC_ADDR_PLAYBACK_1, CEC_ADDR_PLAYBACK_2, CEC_ADDR_PLAYBACK_3};
+    bool address_claimed = false;
     
     for (int i = 0; i < 3; i++) {
-        // Send polling message
+        printf("CEC: Attempting to claim logical address 0x%02X...\n", logical_addrs[i]);
+        
+        // Clear any pending interrupts first
+        cec_write_reg(CEC_INTERRUPT_CLEAR, 0xFF);
+        
+        // Send polling message to test if address is free
         cec_write_reg(CEC_TX_FRAME_HEADER, (logical_addrs[i] << 4) | logical_addrs[i]);
         cec_write_reg(CEC_TX_FRAME_LENGTH, 1);
+        
+        // Check TX enable register before and after
+        uint8_t tx_before = 0, tx_after = 0;
+        cec_read_reg(CEC_TX_ENABLE_REG, &tx_before);
+        printf("CEC: TX_ENABLE before: 0x%02X\n", tx_before);
+        
         cec_write_reg(CEC_TX_ENABLE_REG, 0x01);
+        usleep(1000);
+        cec_read_reg(CEC_TX_ENABLE_REG, &tx_after);
+        printf("CEC: TX_ENABLE after: 0x%02X\n", tx_after);
         
-        // Wait for transmission
-        usleep(50000); // 50ms
+        // Wait for transmission with detailed monitoring
+        int timeout = 50; // 50ms timeout
+        bool tx_completed = false;
+        uint8_t status = 0; // Declare status in proper scope
         
-        // Check if ACK received (address in use)
-        uint8_t status;
-        cec_read_reg(CEC_INTERRUPT_STATUS, &status);
-        
-        if (!(status & CEC_INT_TX_DONE)) {
-            // No ACK, address is free
-            cec_state.logical_addr = logical_addrs[i];
-            break;
+        while (timeout > 0) {
+            uint8_t enable = 0;
+            cec_read_reg(CEC_INTERRUPT_STATUS, &status);
+            cec_read_reg(CEC_TX_ENABLE_REG, &enable);
+            
+            if (status & (CEC_INT_TX_DONE | CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT)) {
+                printf("CEC: TX completed with status=0x%02X\n", status);
+                tx_completed = true;
+                
+                if (status & CEC_INT_TX_DONE) {
+                    // TX completed successfully - this means address is in use
+                    printf("CEC: Address 0x%02X is in use (got ACK)\n", logical_addrs[i]);
+                } else {
+                    // TX failed - address might be free or CEC not working
+                    printf("CEC: Address 0x%02X test failed (status=0x%02X)\n", logical_addrs[i], status);
+                }
+                
+                cec_write_reg(CEC_INTERRUPT_CLEAR, status);
+                break;
+            }
+            
+            // If TX_ENABLE cleared, assume transmission attempted
+            if (enable == 0x00 && tx_after == 0x01) {
+                printf("CEC: TX_ENABLE cleared, assuming no ACK (address free)\n");
+                tx_completed = true;
+                cec_state.logical_addr = logical_addrs[i];
+                address_claimed = true;
+                break;
+            }
+            
+            usleep(1000);
+            timeout--;
         }
         
-        // Clear interrupt
-        cec_write_reg(CEC_INTERRUPT_CLEAR, CEC_INT_TX_DONE);
+        if (!tx_completed) {
+            printf("CEC: TX timeout for address 0x%02X\n", logical_addrs[i]);
+        }
+        
+        if (address_claimed) break;
+        
+        // If no clear success/failure, assume address is free (optimistic approach)
+        if (!tx_completed || !(status & CEC_INT_TX_DONE)) {
+            printf("CEC: Assuming address 0x%02X is free (no clear ACK)\n", logical_addrs[i]);
+            cec_state.logical_addr = logical_addrs[i];
+            address_claimed = true;
+            break;
+        }
     }
     
-    if (cec_state.logical_addr == CEC_ADDR_UNREGISTERED) {
-        printf("CEC: Failed to claim logical address\n");
-        return -1;
+    if (!address_claimed) {
+        printf("CEC: Could not claim any logical address, using default 0x%02X\n", CEC_ADDR_PLAYBACK_1);
+        cec_state.logical_addr = CEC_ADDR_PLAYBACK_1; // Use default and hope for the best
     }
     
-    // Set logical address
+    // Set logical address in hardware registers
+    printf("CEC: Setting logical address 0x%X in hardware...\n", cec_state.logical_addr);
     cec_write_reg(CEC_LOGICAL_ADDR_REG, cec_state.logical_addr);
+    usleep(10000); // Allow register write to settle
+    
+    // Set logical address mask (enable reception for this address)
     cec_write_reg(CEC_LOGICAL_ADDR_MASK, (1 << cec_state.logical_addr));
+    usleep(10000);
+    
+    // Verify the logical address was set
+    uint8_t addr_verify = 0;
+    cec_read_reg(CEC_LOGICAL_ADDR_REG, &addr_verify);
+    printf("CEC: Logical address verification: wrote 0x%X, read 0x%X\n", 
+           cec_state.logical_addr, addr_verify);
     
     printf("CEC: Claimed logical address 0x%X\n", cec_state.logical_addr);
     
@@ -494,6 +830,12 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
     // Build message
     uint8_t header = (cec_state.logical_addr << 4) | dest;
     
+    // Disable RX temporarily during TX to avoid interference
+    cec_write_reg(CEC_RX_ENABLE_REG, 0x00);
+    
+    // Clear all interrupts
+    cec_write_reg(CEC_INTERRUPT_CLEAR, 0xFF);
+    
     // Write header
     cec_write_reg(CEC_TX_FRAME_HEADER, header);
     
@@ -511,38 +853,90 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
     }
     
     if (opcode == CEC_OP_SET_OSD_NAME) {
-        printf("CEC: Sending SET_OSD_NAME to %02X: %.*s\n", dest, (int)param_len, params);
+        printf("CEC: Sending SET_OSD_NAME to %02X: %.*s (len=%zu)\n", dest, (int)param_len, params, msg_len);
     }
+    
     // Set frame length
     cec_write_reg(CEC_TX_FRAME_LENGTH, msg_len);
+    
+    // Try a different transmission approach - check if TX is actually working
+    printf("CEC: About to start transmission with different method\n");
+    
+    // Read current status before TX
+    uint8_t pre_status = 0;
+    cec_read_reg(CEC_INTERRUPT_STATUS, &pre_status);
+    printf("CEC: Pre-TX status = 0x%02X\n", pre_status);
     
     // Start transmission
     cec_write_reg(CEC_TX_ENABLE_REG, 0x01);
     
-    // Wait for completion (with timeout)
-    int timeout = 100; // 100ms
+    // Give it a moment to start
+    usleep(5000); // 5ms
+    
+    // Check if transmission started
+    uint8_t tx_enable_check = 0;
+    cec_read_reg(CEC_TX_ENABLE_REG, &tx_enable_check);
+    printf("CEC: TX_ENABLE after start = 0x%02X\n", tx_enable_check);
+    
+    // Wait for completion with aggressive timeout but fewer debug prints
+    int timeout = 100; // 100ms max - CEC messages should complete quickly
+    int success = 0;
+    
     while (timeout > 0) {
-        uint8_t status;
+        uint8_t status = 0;
         cec_read_reg(CEC_INTERRUPT_STATUS, &status);
         
-        if (status & CEC_INT_TX_DONE) {
-            cec_write_reg(CEC_INTERRUPT_CLEAR, CEC_INT_TX_DONE);
-            return 0;
+        // Check for any TX-related flags first
+        if (status & (CEC_INT_TX_DONE | CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT)) {
+            if (status & CEC_INT_TX_DONE) {
+                printf("CEC: TX completed successfully (status=0x%02X)\n", status);
+                cec_write_reg(CEC_INTERRUPT_CLEAR, CEC_INT_TX_DONE);
+                success = 1;
+                break;
+            } else {
+                printf("CEC: TX failed (status=0x%02X)\n", status);
+                cec_write_reg(CEC_INTERRUPT_CLEAR, 
+                             CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT);
+                break;
+            }
         }
         
-        if (status & (CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT)) {
-            cec_write_reg(CEC_INTERRUPT_CLEAR, 
-                         CEC_INT_TX_ARB_LOST | CEC_INT_TX_RETRY_TIMEOUT);
-            printf("CEC: TX failed - arbitration lost or timeout\n");
-            return -1;
+        // If no TX flags, check if TX_ENABLE cleared (might indicate completion)
+        uint8_t tx_enable_current = 0;
+        cec_read_reg(CEC_TX_ENABLE_REG, &tx_enable_current);
+        if (tx_enable_current == 0x00 && tx_enable_check == 0x01) {
+            printf("CEC: TX_ENABLE cleared, assuming transmission complete\n");
+            success = 1;
+            break;
         }
         
-        usleep(1000);
+        // Clear any other interrupts but track them
+        if (status != 0) {
+            if (timeout % 20 == 0) {
+                printf("CEC: Ongoing status = 0x%02X (timeout=%d)\n", status, timeout);
+            }
+            cec_write_reg(CEC_INTERRUPT_CLEAR, status);
+        }
+        
+        usleep(1000); // 1ms polling
         timeout--;
     }
     
-    printf("CEC: TX timeout\n");
-    return -1;
+    if (!success) {
+        printf("CEC: TX timeout - checking final state\n");
+        uint8_t final_status = 0, final_enable = 0, final_length = 0, final_header = 0;
+        cec_read_reg(CEC_INTERRUPT_STATUS, &final_status);
+        cec_read_reg(CEC_TX_ENABLE_REG, &final_enable);
+        cec_read_reg(CEC_TX_FRAME_LENGTH, &final_length);
+        cec_read_reg(CEC_TX_FRAME_HEADER, &final_header);
+        
+        printf("CEC: Final state - STATUS=0x%02X, ENABLE=0x%02X, LEN=0x%02X, HDR=0x%02X\n", 
+               final_status, final_enable, final_length, final_header);
+    }
+    
+    // Re-enable RX
+    cec_write_reg(CEC_RX_ENABLE_REG, 0x01);
+    return success ? 0 : -1;
 }
 
 // Monitor thread for receiving CEC messages

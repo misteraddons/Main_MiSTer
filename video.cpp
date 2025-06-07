@@ -1130,27 +1130,40 @@ static void hdmi_config_set_spd(bool val)
 	}
 }
 
+// Forward declarations
+static int get_active_edid();
+
 static void hdmi_config_cec_init()
 {
+	printf("CEC: Checking config - cec_enable=%d\n", cfg.cec_enable);
+	
 	// Only initialize CEC if enabled in config
 	if (!cfg.cec_enable) {
 		printf("CEC: Disabled in configuration\n");
 		return;
 	}
-
+		printf("CEC: Starting initialization...\n");
+	
 	// Initialize CEC hardware
-	if (cec_init(cfg.cec_device_name[0] ? cfg.cec_device_name : "MiSTer", 
-	             cfg.cec_auto_power, cfg.cec_remote_control) < 0) {
+	printf("CEC: About to call cec_init\n");
+	int cec_result = cec_init(cfg.cec_device_name[0] ? cfg.cec_device_name : "MiSTer", 
+	                          cfg.cec_auto_power, cfg.cec_remote_control);
+	printf("CEC: cec_init returned: %d\n", cec_result);
+	if (cec_result < 0) {
 		printf("CEC: Failed to initialize\n");
 		return;
 	}
 
+	printf("CEC: Using device name: '%s'\n", cfg.cec_device_name[0] ? cfg.cec_device_name : "MiSTer");
+	
 	cec_initialized = true;
 	printf("CEC: Hardware initialized\n");
-
 	// If we already have a physical address from EDID, configure CEC
 	if (cec_physical_address != 0x0000) {
+		printf("CEC: Configuring with physical address %04X\n", cec_physical_address);
 		cec_configure(cec_physical_address);
+	} else {
+		printf("CEC: No physical address from EDID, waiting for EDID update\n");
 	}
 }
 
