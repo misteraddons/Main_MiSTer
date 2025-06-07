@@ -511,6 +511,11 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
 
     printf("CEC: Main ADV7513 I2C opened successfully\n");
 
+    // Ensure CEC module is powered up by writing 0x00 to main register 0xE2 per suggestion
+    printf("CEC: Power-up CEC by writing main reg 0xE2=0x00\n");
+    i2c_smbus_write_byte_data(cec_state.i2c_fd, 0xE2, 0x00);
+    usleep(10000);
+
     // Check main ADV7513 ID registers to verify communication
     int chip_id1 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xF5);
     int chip_id2 = i2c_smbus_read_byte_data(cec_state.i2c_fd, 0xF6);
@@ -620,16 +625,14 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
 
     printf("CEC: CEC I2C opened successfully\n");
 
-    // CRITICAL: CEC Reset sequence per your guidance
-    // Write 0x01 to 0x50 in CEC registers, then write 0x00 to reset CEC system
-    printf("CEC: Performing CEC reset sequence (0x50: 0x01 -> 0x00)...\n");
+    // CRITICAL: Reset the CEC system by toggling reset register 0x50
+    printf("CEC: Performing suggested CEC reset (0x50: 0x01 -> 0x00)\n");
     fflush(stdout);
-    cec_write_reg(CEC_RESET_REG, 0x01);  // Assert reset
+    cec_write_reg(CEC_RESET_REG, 0x01);  // Assert CEC reset
     usleep(10000);  // Hold reset for 10ms
-    cec_write_reg(CEC_RESET_REG, 0x00);  // Release reset
-    usleep(20000);  // Allow 20ms for reset to complete
-    printf("CEC: CEC reset sequence completed\n");
-    fflush(stdout);
+    cec_write_reg(CEC_RESET_REG, 0x00);  // Release CEC reset
+    usleep(20000);  // Allow time for CEC module to reinitialize
+    printf("CEC: Suggested CEC reset completed\n");
 
     // Test CEC I2C communication by reading the correct power mode register
     int test_result = i2c_smbus_read_byte_data(cec_state.cec_i2c_fd, CEC_POWER_MODE);
@@ -665,9 +668,9 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
         
     // Calculate correct clock divider based on ADV7513 datasheet
     // Per section 4.8.7: "The default settings for these registers are for a 12MHz input clock"
-    // Since we have a 12MHz external CEC clock, use default divider value (no modification needed)
-    // The ADV7513 default register settings are already configured for 12MHz
-    uint8_t clock_div = 0x00;  // Use default divider for 12MHz input clock
+    // Since we have a 12MHz external CEC clock, use the actual default divider value (15)
+    // The hardware default is 0x0F (15 decimal) which is correct for 12MHz input
+    uint8_t clock_div = 0x0F;  // Use actual default divider (15) for 12MHz input clock
     uint8_t power_mode = 0x01; // Always active
     uint8_t new_4e_value = (clock_div << 2) | power_mode;
     
@@ -840,7 +843,7 @@ int cec_init(const char* device_name, bool auto_power, bool remote_control) {
         uint8_t addr_4c_verify = 0;
         if (cec_read_reg(CEC_LOGICAL_ADDR_REG, &addr_4c_verify) == 0) {
             uint8_t logical_addr_read = (addr_4c_verify >> 4) & 0x0F;
-            printf("CEC: Datasheet logical address (0x4C[7:4]): wrote 0x%02X, read 0x%02X (addr=0x%X)\n", 
+            printf("CEC: Datasheet logical address (0x4C[7:4]): wrote 0x%X, read 0x%X (addr=0x%X)\n", 
                    addr_4c, addr_4c_verify, logical_addr_read);
             
             if (logical_addr_read == CEC_ADDR_UNREGISTERED) {
