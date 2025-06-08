@@ -1708,14 +1708,14 @@ static int cec_send_message(uint8_t dest, uint8_t opcode, const uint8_t* params,
     
     // 6. Pre-transmission verification - ensure CEC is ready
     printf("CEC: Verifying CEC readiness before transmission\n");
-    uint8_t power_check = 0, arb_check = 0, clock_check = 0;
+    uint8_t arb_check = 0;
     cec_read_reg(CEC_POWER_MODE, &power_check);
     cec_read_reg(CEC_ARBITRATION_ENABLE, &arb_check);
     cec_read_reg(CEC_CLOCK_DIVIDER_POWER_MODE, &clock_check);
     
-    uint8_t actual_power = power_check & 0x03;
+    actual_power = power_check & 0x03;
     bool arb_enabled = (arb_check & 0x80) != 0;
-    uint8_t actual_clock = (clock_check >> 2) & 0x3F;
+    actual_clock = (clock_check >> 2) & 0x3F;
     
     printf("CEC: Pre-TX state - Power=0x%02X, Arbitration=%s (0x%02X), Clock_div=%d\n", 
            actual_power, arb_enabled ? "ENABLED" : "DISABLED", arb_check, actual_clock);
