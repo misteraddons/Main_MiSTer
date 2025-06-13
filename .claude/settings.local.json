@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git reset:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(sudo cp:*)",
+      "Bash(export SSHPASS=1)"
+    ],
+    "deny": []
+  }
+}

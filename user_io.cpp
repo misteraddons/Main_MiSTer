@@ -32,6 +32,7 @@
 #include "cheats.h"
 #include "video.h"
 #include "audio.h"
+#include "hdmi_cec.h"
 #include "shmem.h"
 #include "ide.h"
 #include "ide_cdrom.h"
@@ -1420,6 +1421,12 @@ void user_io_init(const char *path, const char *xml)
 	}
 
 	video_init();
+	
+	// Initialize HDMI CEC
+	printf("About to call hdmi_cec_init()...\n");
+	hdmi_cec_init();
+	printf("hdmi_cec_init() completed.\n");
+	
 	if (strlen(cfg.font)) LoadFont(cfg.font);
 	load_volume();
 

@@ -1377,6 +1377,7 @@ static void hdmi_config_set_csc()
 
 static void hdmi_config_init()
 {
+	printf("hdmi_config_init() called - configuring ADV7513 with CEC registers\n");
 	int ypbpr = (cfg.vga_mode_int == 1) && cfg.direct_video;
 
 	// address, value
@@ -1514,6 +1515,11 @@ static void hdmi_config_init()
 		0x07, 0x01,				//
 		0x08, 0x22,				// Set CTS Value 74250
 		0x09, 0x0A,				//
+
+		// CEC Configuration (ADV7513 Programming Guide)
+		0xE1, 0x78,				// CEC I2C slave address (0x3C << 1)
+		0x43, 0x7E,				// EDID I2C slave address (0x3F << 1)
+		0x45, 0x70,				// Packet memory I2C slave address (0x38 << 1)
 	};
 
 	int fd = i2c_open(0x39, 0);

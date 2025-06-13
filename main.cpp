@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#include "hdmi_cec.h"
 
 const char *version = "$VER:" VDATE;
 
@@ -86,6 +87,9 @@ int main(int argc, char *argv[])
 		input_poll(0);
 		HandleUI();
 		OsdUpdate();
+		
+		// Monitor CEC status periodically
+		hdmi_cec_monitor_status();
 	}
 #endif
 	return 0;

@@ -28,3 +28,6 @@ host
 *.user
 .vs
 MiSTer
+.claude/settings.local.json
+.claude/settings.local.json
+CLAUDE.md
