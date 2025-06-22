@@ -1,0 +1,32 @@
+diff --git a/input.cpp b/input.cpp
+index 1fc63d7..45c4811 100644
+--- a/input.cpp
++++ b/input.cpp
+@@ -31,6 +31,7 @@
+ #include "profiling.h"
+ #include "gamecontroller_db.h"
+ #include "str_util.h"
++#include "i2c_joystick.h"
+ 
+ #define NUMDEV 30
+ #define NUMPLAYERS 6
+@@ -4686,6 +4687,9 @@ static int input_test(int getchar)
+ 
+ 		pool[NUMDEV + 2].fd = open(LED_MONITOR, O_RDONLY | O_CLOEXEC);
+ 		pool[NUMDEV + 2].events = POLLPRI;
++
++		// Initialize I2C joystick system
++		i2c_joystick_init();
+ 
+ 		state++;
+ 	}
+@@ -5796,6 +5800,9 @@ int input_poll(int getchar)
+ 	if (getchar) return ret;
+ 
+ 	uinp_check_key();
++	
++	// Poll I2C joystick inputs
++	i2c_joystick_poll();
+ 
+ 	static int prev_dx = 0;
+ 	static int prev_dy = 0;
