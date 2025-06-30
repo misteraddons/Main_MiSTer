@@ -7012,6 +7012,12 @@ void HandleUI(void)
 						n++;
 					}
 				}
+				
+				// Display CRT icon if analog IO board is detected
+				if (fpga_get_io_type() == 0)
+				{
+					str[n++] = 0x97; // CRT/analog icon
+				}
 
 				str[22] = ' ';
 			}
