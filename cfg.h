@@ -20,6 +20,7 @@ typedef struct {
 	uint8_t dvi_mode;
 	uint8_t hdmi_limited;
 	uint8_t direct_video;
+	uint8_t dv_ypbpr_full;
 	uint8_t video_info;
 	float refresh_min;
 	float refresh_max;
