@@ -6987,6 +6987,28 @@ void HandleUI(void)
 						str[n] = 0x92;
 						break;
 					}
+					n++;
+					
+					// Secondary SDRAM icon (if dual SDRAM is detected)
+					if (user_io_is_dualsdr() && (user_io_get_sdram_cfg() & 0x0800))
+					{
+						switch ((user_io_get_sdram_cfg() >> 8) & 7)
+						{
+						case 7:
+							str[n] = 0x95;
+							break;
+						case 3:
+							str[n] = 0x94;
+							break;
+						case 1:
+							str[n] = 0x93;
+							break;
+						default:
+							str[n] = 0x92;
+							break;
+						}
+						n++;
+					}
 				}
 
 				str[22] = ' ';
