@@ -6972,7 +6972,9 @@ void HandleUI(void)
 				if (hci_get_route(0) >= 0) str[n++] = 4;
 				if (user_io_get_sdram_cfg() & 0x8000)
 				{
-					switch (user_io_get_sdram_cfg() & 7)
+					uint16_t sdram_cfg = user_io_get_sdram_cfg();
+					
+					switch (sdram_cfg & 7)
 					{
 					case 7:
 						str[n] = 0x95;
@@ -6990,9 +6992,13 @@ void HandleUI(void)
 					n++;
 					
 					// Secondary SDRAM icon (if dual SDRAM is detected)
-					if (user_io_is_dualsdr() && (user_io_get_sdram_cfg() & 0x0800))
+					if (user_io_is_dualsdr())
 					{
-						switch ((user_io_get_sdram_cfg() >> 8) & 7)
+						// For dual SDRAM, assume second module has same size as first for now
+						// This matches what the previous commits mentioned about showing same capacity
+						uint8_t sec_size = sdram_cfg & 7;  // Same as primary for now
+						
+						switch (sec_size)
 						{
 						case 7:
 							str[n] = 0x95;

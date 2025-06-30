@@ -1338,6 +1338,11 @@ void user_io_init(const char *path, const char *xml)
 		dual_sdr = 1;
 		core_type = CORE_TYPE_8BIT;
 	}
+	// Also check for the actual core type reported by dual SDRAM systems
+	else if (core_type == 0xA4)
+	{
+		dual_sdr = 1;
+	}
 
 	if ((core_type != CORE_TYPE_8BIT) &&
 		(core_type != CORE_TYPE_SHARPMZ))
