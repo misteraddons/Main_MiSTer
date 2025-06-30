@@ -3699,6 +3699,8 @@ static int bg_has_picture = 0;
 extern uint8_t  _binary_logo_png_start[], _binary_logo_png_end[];
 void video_menu_bg(int n, int idle)
 {
+	static Imlib_Image logo = 0;
+	
 	bg_has_picture = 0;
 	menu_bg = n;
 	if (n)
@@ -3707,7 +3709,6 @@ void video_menu_bg(int n, int idle)
 		//printf("n = %d\n", n);
 
 		Imlib_Load_Error error;
-		static Imlib_Image logo = 0;
 		if (!logo)
 		{
 			unlink("/tmp/logo.png");
@@ -3770,6 +3771,12 @@ void video_menu_bg(int n, int idle)
 				imlib_context_set_image(menubg);
 				imlib_free_image();
 				menubg = 0;
+			}
+			// Also invalidate logo which is cached below as a static variable
+			if (logo) {
+				imlib_context_set_image(logo);
+				imlib_free_image();
+				logo = 0;
 			}
 			cached_width = fb_width;
 			cached_height = fb_height;
