@@ -1378,6 +1378,7 @@ static void hdmi_config_set_csc()
 static void hdmi_config_init()
 {
 	int ypbpr = (cfg.vga_mode_int == 1) && cfg.direct_video;
+	printf("HDMI config: ypbpr=%d (vga_mode_int=%d, direct_video=%d)\n", ypbpr, cfg.vga_mode_int, cfg.direct_video);
 
 	// address, value
 	uint8_t init_data[] = {
@@ -1845,6 +1846,90 @@ static int is_edid_valid()
 	static const uint8_t magic[] = { 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00 };
 	if (sizeof(edid) < sizeof(magic)) return 0;
 	return !memcmp(edid, magic, sizeof(magic));
+}
+
+static int should_auto_enable_direct_video()
+{
+	if (!is_edid_valid()) return 0;
+	
+	// Check preferred resolution from EDID
+	uint8_t *x = edid + 0x36;
+	int pixclk_khz = (x[0] + (x[1] << 8)) * 10;
+	if (pixclk_khz < 10000) return 0;
+	
+	int hact = (x[2] + ((x[4] & 0xf0) << 4));
+	int vact = (x[5] + ((x[7] & 0xf0) << 4));
+	
+	// Common resolutions for HDMI DACs that benefit from direct video
+	if (hact == 1024 && vact == 768) {
+		printf("EDID: Detected 1024x768 - likely HDMI DAC, auto-enabling direct video.\n");
+		return 1;
+	}
+	
+	// Other non-standard HDMI resolutions that indicate analog converters
+	if ((hact == 800 && vact == 600) || 
+	    (hact == 1280 && vact == 1024) ||
+	    (hact == 1600 && vact == 1200)) {
+		printf("EDID: Detected %dx%d - non-standard HDMI resolution, auto-enabling direct video.\n", hact, vact);
+		return 1;
+	}
+	
+	return 0;
+}
+
+static int detect_pc_crt_resolution()
+{
+	if (!is_edid_valid()) return 0;
+	
+	// Check preferred resolution from EDID
+	uint8_t *x = edid + 0x36;
+	int pixclk_khz = (x[0] + (x[1] << 8)) * 10;
+	if (pixclk_khz < 10000) return 0;
+	
+	int hact = (x[2] + ((x[4] & 0xf0) << 4));
+	int vact = (x[5] + ((x[7] & 0xf0) << 4));
+	
+	// Calculate refresh rate
+	int hbl = (x[3] + ((x[4] & 0x0f) << 8));
+	int vbl = (x[6] + ((x[7] & 0x0f) << 8));
+	int htotal = hact + hbl;
+	int vtotal = vact + vbl;
+	float refresh = (pixclk_khz * 1000.0f) / (htotal * vtotal);
+	
+	printf("EDID: Checking PC CRT resolution %dx%d @ %.1fHz\n", hact, vact, refresh);
+	
+	// Common PC CRT resolutions with high refresh rates
+	// 640x480 @ 85Hz+ indicates PC CRT
+	if (hact == 640 && vact == 480 && refresh > 80) {
+		printf("EDID: Detected 640x480 @ %.1fHz - PC CRT monitor\n", refresh);
+		return 1;
+	}
+	
+	// 800x600 @ 85Hz+ indicates PC CRT
+	if (hact == 800 && vact == 600 && refresh > 80) {
+		printf("EDID: Detected 800x600 @ %.1fHz - PC CRT monitor\n", refresh);
+		return 2;
+	}
+	
+	// 1024x768 @ 85Hz+ indicates PC CRT (not HDMI DAC)
+	if (hact == 1024 && vact == 768 && refresh > 80) {
+		printf("EDID: Detected 1024x768 @ %.1fHz - PC CRT monitor\n", refresh);
+		return 3;
+	}
+	
+	// 1280x1024 @ 75Hz+ indicates PC CRT
+	if (hact == 1280 && vact == 1024 && refresh > 70) {
+		printf("EDID: Detected 1280x1024 @ %.1fHz - PC CRT monitor\n", refresh);
+		return 4;
+	}
+	
+	// 1600x1200 @ 70Hz+ indicates PC CRT
+	if (hact == 1600 && vact == 1200 && refresh > 65) {
+		printf("EDID: Detected 1600x1200 @ %.1fHz - PC CRT monitor\n", refresh);
+		return 5;
+	}
+	
+	return 0;
 }
 
 static int get_active_edid()
@@ -2509,6 +2594,86 @@ void video_init()
 	fb_init();
 	hdmi_config_init();
 	hdmi_config_set_hdr();
+	
+	// Auto-detect and enable direct video BEFORE video_mode_load
+	// This ensures the correct mode is selected based on cfg.direct_video
+	// Note: cfg_parse() has already run, so all config values are available
+	if (cfg.direct_video_auto && !cfg.direct_video) {
+		printf("Direct video auto-detection starting: mode=%d, vga_mode=%s(%d), csync=%d\n", 
+			cfg.direct_video_auto, cfg.vga_mode, cfg.vga_mode_int, cfg.csync);
+			
+		// Only get EDID if not already valid
+		if (!is_edid_valid()) {
+			get_active_edid();
+		}
+		
+		if (should_auto_enable_direct_video()) {
+			cfg.direct_video = 1;
+			printf("Auto-detected HDMI DAC, enabling direct video.\n");
+			
+			if (cfg.direct_video_auto == 1) {
+				// Mode 1: Only set direct_video=1, preserve user's vga_mode and composite_sync
+				printf("Auto-enabled direct video (mode 1: direct video only).\n");
+				printf("  Preserving user settings: vga_mode=%s(%d), composite_sync=%d\n", 
+					cfg.vga_mode, cfg.vga_mode_int, cfg.csync);
+				// IMPORTANT: Mode 1 should NOT modify any settings except direct_video
+			}
+			else if (cfg.direct_video_auto == 2) {
+				// Mode 2: Full auto mode for 15kHz RGB with composite sync
+				printf("Auto-enabled direct video (mode 2: 240p/15kHz RGB with composite sync).\n");
+				
+				cfg.vga_mode_int = 0; // RGB mode
+				strcpy(cfg.vga_mode, "rgb");
+				cfg.csync = 1; // Enable composite sync
+				
+				printf("  Set: vga_mode=rgb, composite_sync=1\n");
+			}
+			else if (cfg.direct_video_auto == 3) {
+				// Mode 3: PC CRT mode for 31kHz RGB with separate sync
+				printf("Auto-enabled direct video (mode 3: 480p/31kHz RGB with separate sync).\n");
+				
+				cfg.vga_mode_int = 0; // RGB mode
+				strcpy(cfg.vga_mode, "rgb");
+				cfg.csync = 0; // Disable composite sync (use separate H/V)
+				cfg.forced_scandoubler = 1; // Enable forced scandoubler for 31kHz
+				
+				printf("  Set: vga_mode=rgb, composite_sync=0, forced_scandoubler=1\n");
+			}
+			
+			// Debug output of final settings
+			printf("Final settings: direct_video=%d, vga_mode=%s(%d), composite_sync=%d, forced_scandoubler=%d\n",
+				cfg.direct_video, cfg.vga_mode, cfg.vga_mode_int, cfg.csync, cfg.forced_scandoubler);
+			
+			// Re-initialize HDMI config now that direct_video and vga_mode are set
+			printf("Re-initializing HDMI config with updated settings...\n");
+			hdmi_config_init();
+		}
+	}
+	// Mode 4: Auto-detect PC CRT and set appropriate resolution
+	else if (cfg.direct_video_auto == 4) {
+		// Only get EDID if not already valid
+		if (!is_edid_valid()) {
+			get_active_edid();
+		}
+		
+		int pc_crt_type = detect_pc_crt_resolution();
+		if (pc_crt_type) {
+			printf("Auto-enabled direct video (mode 4: PC CRT auto-resolution).\n");
+			
+			// Enable direct video with settings for PC CRT
+			cfg.direct_video = 1;
+			cfg.vga_mode_int = 0; // RGB mode
+			strcpy(cfg.vga_mode, "rgb");
+			cfg.csync = 0; // Separate H/V sync for PC CRTs
+			cfg.forced_scandoubler = 1; // Always use 31kHz+ for PC CRTs
+			
+			// TODO: Set custom video mode based on detected resolution
+			// For now, just use standard 480p mode
+			printf("  Set: vga_mode=rgb, composite_sync=0, forced_scandoubler=1\n");
+			printf("  TODO: Implement custom resolution support for PC CRT type %d\n", pc_crt_type);
+		}
+	}
+	
 	video_mode_load();
 
 	has_gamma = spi_uio_cmd(UIO_SET_GAMMA);
