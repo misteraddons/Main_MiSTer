@@ -1465,6 +1465,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			}
 #endif
 			struct dirent64 _de = {};
+			int isZip = 0;
+
 			if (z)
 			{
 				mz_zip_reader_get_filename(z, i, &_de.d_name[0], sizeof(_de.d_name));
@@ -1634,6 +1636,7 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 						{
 							// Fake that zip-file is a directory.
 							de->d_type = DT_DIR;
+							isZip = 1;
 							found = 1;
 						}
 						if (!found && is_minimig() && !memcmp(extension, "HDF", 3))
@@ -1681,6 +1684,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			      direntext_t dext;
 				    memset(&dext, 0, sizeof(dext));
 				    memcpy(&dext.de, de, sizeof(dext.de));
+				    if (isZip)
+				        dext.flags |= DT_EXT_ZIP;
 				    get_display_name(&dext, extension, options);
 				    DirItem.push_back(dext);
         }

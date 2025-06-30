@@ -1278,37 +1278,38 @@ void HandleUI(void)
 	{
 		if (down)
 		{
-            if((menumask >= ((uint64_t)1 << (menusub + 1))))	// Any active entries left?
-            {
-			    do
-			    {
-				    menusub++;
-			    } while ((menumask & ((uint64_t)1 << menusub)) == 0);
-            }
-            else
-            {
-                menusub = 0; // jump to first item
-            }
+			if((menumask >= ((uint64_t)1 << (menusub + 1))))	// Any active entries left?
+			{
+				do
+				{
+					menusub++;
+				} while ((menumask & ((uint64_t)1 << menusub)) == 0);
+			} else {
+				menusub = 0; // jump to first item
+				while ((menumask & ((uint64_t)1 << menusub )) == 0) menusub++;
+			}
 
-            menustate = parentstate;
+			menustate = parentstate;
 		}
 
 		if (up)
 		{
-            if (menusub > 0)
-            {
-			    do
-			    {
-				    --menusub;
-			    } while ((menumask & ((uint64_t)1 << menusub)) == 0);
-            }
-            else
-            {
-                do
-                {
-                    menusub++;
-                } while ((menumask & ((uint64_t)(~0) << (menusub + 1))) != 0); // jump to last item
-            }
+			if (menusub > 0)
+			{
+				do
+				{
+					--menusub;
+				} while (menusub != 0 && (menumask & ((uint64_t)1 << menusub)) == 0);
+				if (menusub == 0 && (menumask & 1) == 0) { //If the first menu entry is disabled...
+					while ((menumask & ((uint64_t)(~0) << (menusub + 1))) != 0) menusub++; 
+					//Go to to last item 
+				}
+			} else {
+				do
+				{
+					menusub++;
+				} while ((menumask & ((uint64_t)(~0) << (menusub + 1))) != 0); // jump to last item
+			}
 			menustate = parentstate;
 		}
 	}
@@ -2226,7 +2227,7 @@ void HandleUI(void)
 						if (is_x86() || is_pcxt()) strcpy(Selected_tmp, x86_get_image_path(ioctl_index));
 						if (is_psx() && (ioctl_index == 2 || ioctl_index == 3)) fs_Options |= SCANO_SAVES;
 
-						if (is_saturn() || is_pce() || is_megacd() || is_x86() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_neogeo())
+						if (is_saturn() || is_pce() || is_megacd() || is_x86() || is_cdi() || (is_psx() && !(fs_Options & SCANO_SAVES)) || is_neogeo())
 						{
 							//look for CHD too
 							if (!strcasestr(ext, "CHD"))
@@ -2491,6 +2492,10 @@ void HandleUI(void)
 			{
 				psx_mount_cd(user_io_ext_idx(selPath, fs_pFileExt) << 6 | (menusub + 1), ioctl_index, selPath);
 				cheats_init(selPath, 0);
+			}
+			else if (is_cdi())
+			{
+				cdi_mount_cd(ioctl_index, selPath);
 			}
 			else if (is_saturn())
 			{
@@ -5864,24 +5869,20 @@ void HandleUI(void)
 		{
 			if (menusub == 0)
 			{
+				int cpu = minimig_config.cpu & 3;
+				if (minus)
+				{
+					cpu = (cpu == 0) ? 3 : (cpu == 3) ? 1 : 0;
+				}
+				else
+				{
+					cpu = (cpu == 0) ? 1 : (cpu == 1) ? 3 : 0;
+				}
+
 				menustate = MENU_MINIMIG_CHIPSET1;
-				minimig_config.cpu = (minimig_config.cpu & 0xfc) | ((minimig_config.cpu & 1) ? 0 : 3);
+				minimig_config.cpu = (minimig_config.cpu & 0xfc) | cpu;
 				minimig_ConfigCPU(minimig_config.cpu);
 			}
-			/*
-			else if (menusub == 1 && (minimig_config.cpu & 0x2))
-			{
-				menustate = MENU_MINIMIG_CHIPSET1;
-				minimig_config.cpu ^= 4;
-				minimig_ConfigCPU(minimig_config.cpu);
-			}
-			else if (menusub == 2 && (minimig_config.cpu & 0x2))
-			{
-				menustate = MENU_MINIMIG_CHIPSET1;
-				minimig_config.cpu ^= 8;
-				minimig_ConfigCPU(minimig_config.cpu);
-			}
-			*/
 			else if (menusub == 1 && (minimig_config.cpu & 0x2))
 			{
 				menustate = MENU_MINIMIG_CHIPSET1;
@@ -7106,6 +7107,10 @@ void PrintDirectory(int expand)
 			{
 				strncpy(s + 1, flist_DirItem(k)->altname+1, len-1);
 			}
+			else if (flist_DirItem(k)->flags & DT_EXT_ZIP)
+			{
+				strncpy(s + 1, flist_DirItem(k)->altname, len-4); // strip .zip extension, see below
+			}
 			else
 			{
 				strncpy(s + 1, flist_DirItem(k)->altname, len); // display only name
@@ -7120,7 +7125,10 @@ void PrintDirectory(int expand)
 				}
 				else
 				{
-					strcpy(&s[22], " <DIR>");
+					if (flist_DirItem(k)->flags & DT_EXT_ZIP) // mark ZIP archive with different suffix
+						strcpy(&s[22], " <ZIP>");
+					else
+						strcpy(&s[22], " <DIR>");
 				}
 				len2 = 0;
 			}
@@ -7301,7 +7309,7 @@ int menu_allow_cfg_switch()
 
 void menu_process_save()
 {
-	menu_save_timer = GetTimer(1000);
+	menu_save_timer = GetTimer(500);
 }
 
 static char pchar[] = { 0x8C, 0x8E, 0x8F, 0x90, 0x91, 0x7F };
