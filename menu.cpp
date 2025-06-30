@@ -6992,9 +6992,16 @@ void HandleUI(void)
 					// Display second SDRAM icon if dual SDRAM is detected
 					if (user_io_is_dualsdr())
 					{
-						// For now, assume second SDRAM is same size as first
-						// TODO: Get actual size of second SDRAM from FPGA
-						switch (user_io_get_sdram_cfg() & 7)
+						// Check for secondary SDRAM size in upper bits (bits 3-5)
+						// If FPGA doesn't provide separate size, fall back to primary size
+						uint16_t sdram_cfg = user_io_get_sdram_cfg();
+						uint8_t secondary_size = (sdram_cfg >> 3) & 7;
+						
+						// If secondary size is 0, assume same as primary
+						if (secondary_size == 0)
+							secondary_size = sdram_cfg & 7;
+						
+						switch (secondary_size)
 						{
 						case 7:
 							str[n] = 0x95;
