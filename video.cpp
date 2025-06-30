@@ -3356,6 +3356,7 @@ int video_fb_state()
 	return fb_enabled;
 }
 
+static void video_menu_bg_invalidate();
 
 static void video_fb_config()
 {
@@ -3376,8 +3377,18 @@ static void video_fb_config()
 	const int fb_scale_x = fb_scale;
 	const int fb_scale_y = v_cur.param.pr == 0 ? fb_scale : fb_scale * 2;
 
-	fb_width = v_cur.item[1] / fb_scale_x;
-	fb_height = v_cur.item[5] / fb_scale_y;
+	int new_fb_width = v_cur.item[1] / fb_scale_x;
+	int new_fb_height = v_cur.item[5] / fb_scale_y;
+
+	// Check if framebuffer dimensions changed (e.g., due to HDMI hot-swap)
+	if (fb_width != new_fb_width || fb_height != new_fb_height) {
+		printf("Framebuffer dimensions changed: %dx%d -> %dx%d, invalidating menu background cache\n", 
+			fb_width, fb_height, new_fb_width, new_fb_height);
+		video_menu_bg_invalidate();
+	}
+
+	fb_width = new_fb_width;
+	fb_height = new_fb_height;
 
 	brd_x = cfg.vscale_border / fb_scale_x;
 	brd_y = cfg.vscale_border / fb_scale_y;
@@ -3385,6 +3396,15 @@ static void video_fb_config()
 	if (fb_enabled) video_fb_enable(1, fb_num);
 
 	fb_write_module_params();
+}
+
+static void video_menu_bg_invalidate()
+{
+	// This function is called to invalidate cached menu background images
+	// when framebuffer dimensions change (e.g., after HDMI hot-swap)
+	// The actual static variables are in video_menu_bg() and will be
+	// reset to 0 on next call, forcing recreation with new dimensions
+	menu_bg = 0; // Force menu background regeneration
 }
 
 static void draw_checkers()
@@ -3726,6 +3746,36 @@ void video_menu_bg(int n, int idle)
 
 		static Imlib_Image menubg = 0;
 		static Imlib_Image bg1 = 0, bg2 = 0;
+		static Imlib_Image curtain = 0;
+		static int cached_width = 0, cached_height = 0;
+
+		// Check if we need to invalidate cached images due to dimension changes
+		if (menu_bg == 0 || cached_width != fb_width || cached_height != fb_height) {
+			if (bg1) {
+				imlib_context_set_image(bg1);
+				imlib_free_image();
+				bg1 = 0;
+			}
+			if (bg2) {
+				imlib_context_set_image(bg2);
+				imlib_free_image();
+				bg2 = 0;
+			}
+			if (curtain) {
+				imlib_context_set_image(curtain);
+				imlib_free_image();
+				curtain = 0;
+			}
+			if (menubg) {
+				imlib_context_set_image(menubg);
+				imlib_free_image();
+				menubg = 0;
+			}
+			cached_width = fb_width;
+			cached_height = fb_height;
+			printf("Menu background images invalidated and will be recreated with new dimensions %dx%d\n", fb_width, fb_height);
+		}
+
 		if (!bg1) bg1 = imlib_create_image_using_data(fb_width, fb_height, (uint32_t*)(fb_base + (FB_SIZE * 1)));
 		if (!bg1) printf("Warning: bg1 is 0\n");
 		if (!bg2) bg2 = imlib_create_image_using_data(fb_width, fb_height, (uint32_t*)(fb_base + (FB_SIZE * 2)));
@@ -3734,7 +3784,6 @@ void video_menu_bg(int n, int idle)
 		Imlib_Image *bg = (menu_bgn == 1) ? &bg1 : &bg2;
 		//printf("*bg = %p\n", *bg);
 
-		static Imlib_Image curtain = 0;
 		if (!curtain)
 		{
 			curtain = imlib_create_image(fb_width, fb_height);
