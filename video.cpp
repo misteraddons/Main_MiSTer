@@ -1877,6 +1877,18 @@ static int should_auto_enable_direct_video()
 	return 0;
 }
 
+static int get_hpd_state()
+{
+	int fd = i2c_open(0x39, 0);
+	if (fd < 0) return -1;
+	
+	int hpd_state = i2c_smbus_read_byte_data(fd, 0x42);
+	i2c_close(fd);
+	
+	if (hpd_state < 0) return -1;
+	return (hpd_state & 0x20) ? 1 : 0;
+}
+
 static int detect_pc_crt_resolution()
 {
 	if (!is_edid_valid()) return 0;
@@ -2683,6 +2695,102 @@ void video_init()
 	video_set_mode(&v_def, 0);
 }
 
+static void check_hdmi_hotplug_and_redetect()
+{
+	static int last_hpd_state = -1;
+	static int hpd_stable_count = 0;
+	
+	// Only check if auto-detection is enabled
+	if (!cfg.direct_video_auto) return;
+	
+	int current_hpd = get_hpd_state();
+	if (current_hpd < 0) return; // Error reading HPD
+	
+	// Initialize on first run
+	if (last_hpd_state < 0) {
+		last_hpd_state = current_hpd;
+		return;
+	}
+	
+	// Check if HPD state changed
+	if (current_hpd != last_hpd_state) {
+		printf("HDMI HPD state changed: %d -> %d\n", last_hpd_state, current_hpd);
+		last_hpd_state = current_hpd;
+		hpd_stable_count = 0;
+		
+		// Clear EDID when disconnected
+		if (!current_hpd) {
+			bzero(edid, sizeof(edid));
+		}
+		return;
+	}
+	
+	// If connected and state has been stable, check if we need to re-detect
+	if (current_hpd && hpd_stable_count < 10) {
+		hpd_stable_count++;
+		
+		// After stable for ~1 second (assuming 10Hz polling), re-run detection
+		if (hpd_stable_count == 10) {
+			printf("HDMI connection stable, checking for EDID changes...\n");
+			
+			// Get new EDID
+			if (get_active_edid()) {
+				// Check if we should enable direct video
+				int was_direct = cfg.direct_video;
+				int old_vga_mode = cfg.vga_mode_int;
+				int old_csync = cfg.csync;
+				int old_scandoubler = cfg.forced_scandoubler;
+				
+				// Reset direct_video to allow re-detection
+				cfg.direct_video = 0;
+				
+				if (should_auto_enable_direct_video()) {
+					cfg.direct_video = 1;
+					printf("HDMI hot-plug: Auto-detected HDMI DAC, enabling direct video.\n");
+					
+					if (cfg.direct_video_auto == 1) {
+						// Mode 1: Only set direct_video=1
+						printf("Direct video auto mode 1: Only enabling direct_video\n");
+					}
+					else if (cfg.direct_video_auto == 2) {
+						// Mode 2: 240p/15kHz RGB
+						cfg.vga_mode_int = 0; // RGB mode
+						strcpy(cfg.vga_mode, "rgb");
+						cfg.csync = 1; // Composite sync
+						printf("Direct video auto mode 2: 240p/15kHz RGB (composite sync)\n");
+					}
+					else if (cfg.direct_video_auto == 3) {
+						// Mode 3: 480p/31kHz RGB  
+						cfg.vga_mode_int = 0; // RGB mode
+						strcpy(cfg.vga_mode, "rgb");
+						cfg.csync = 0; // Separate H/V sync
+						cfg.forced_scandoubler = 1;
+						printf("Direct video auto mode 3: 480p/31kHz RGB (PC CRT)\n");
+					}
+					
+					// Re-initialize HDMI config if settings changed
+					if (was_direct != cfg.direct_video || 
+					    old_vga_mode != cfg.vga_mode_int ||
+					    old_csync != cfg.csync ||
+					    old_scandoubler != cfg.forced_scandoubler) {
+						printf("Re-initializing HDMI config after hot-plug...\n");
+						hdmi_config_init();
+						video_mode_load();
+						video_set_mode(&v_def, 0);
+					}
+				}
+				else if (was_direct) {
+					// Was using direct video but new display doesn't need it
+					printf("HDMI hot-plug: Standard HDMI display detected, disabling direct video.\n");
+					cfg.direct_video = 0;
+					hdmi_config_init();
+					video_mode_load();
+					video_set_mode(&v_def, 0);
+				}
+			}
+		}
+	}
+}
 
 static int api1_5 = 0;
 int hasAPI1_5()
@@ -3057,6 +3165,9 @@ static void set_yc_mode()
 void video_mode_adjust()
 {
 	static bool force = false;
+
+	// Check for HDMI hot-plug events and re-run auto-detection if needed
+	check_hdmi_hotplug_and_redetect();
 
 	VideoInfo video_info;
 
