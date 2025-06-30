@@ -2773,19 +2773,37 @@ static void check_hdmi_hotplug_and_redetect()
 					    old_vga_mode != cfg.vga_mode_int ||
 					    old_csync != cfg.csync ||
 					    old_scandoubler != cfg.forced_scandoubler) {
-						printf("Re-initializing HDMI config after hot-plug...\n");
-						hdmi_config_init();
-						video_mode_load();
-						video_set_mode(&v_def, 0);
+						printf("Re-initializing video system after hot-plug...\n");
+						
+						// Reinitialize video system components to match initial startup sequence
+						fb_init();                    // Re-initialize framebuffer
+						hdmi_config_init();          // Re-initialize HDMI configuration
+						hdmi_config_set_hdr();       // Re-set HDR configuration
+						video_mode_load();           // Reload video mode configuration
+						
+						// Check gamma support (like in video_init)
+						has_gamma = spi_uio_cmd(UIO_SET_GAMMA);
+						
+						video_cfg_init();            // Re-load video configs (scaler, gamma, shadow mask)
+						video_set_mode(&v_def, 0);   // Set the video mode
 					}
 				}
 				else if (was_direct) {
 					// Was using direct video but new display doesn't need it
 					printf("HDMI hot-plug: Standard HDMI display detected, disabling direct video.\n");
 					cfg.direct_video = 0;
-					hdmi_config_init();
-					video_mode_load();
-					video_set_mode(&v_def, 0);
+					
+					// Full reinitialization for consistency
+					fb_init();                    // Re-initialize framebuffer
+					hdmi_config_init();          // Re-initialize HDMI configuration
+					hdmi_config_set_hdr();       // Re-set HDR configuration
+					video_mode_load();           // Reload video mode configuration
+					
+					// Check gamma support (like in video_init)
+					has_gamma = spi_uio_cmd(UIO_SET_GAMMA);
+					
+					video_cfg_init();            // Re-load video configs (scaler, gamma, shadow mask)
+					video_set_mode(&v_def, 0);   // Set the video mode
 				}
 			}
 		}
