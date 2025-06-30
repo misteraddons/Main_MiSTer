@@ -6987,6 +6987,30 @@ void HandleUI(void)
 						str[n] = 0x92;
 						break;
 					}
+					n++;
+					
+					// Display second SDRAM icon if dual SDRAM is detected
+					if (user_io_is_dualsdr())
+					{
+						// For now, assume second SDRAM is same size as first
+						// TODO: Get actual size of second SDRAM from FPGA
+						switch (user_io_get_sdram_cfg() & 7)
+						{
+						case 7:
+							str[n] = 0x95;
+							break;
+						case 3:
+							str[n] = 0x94;
+							break;
+						case 1:
+							str[n] = 0x93;
+							break;
+						default:
+							str[n] = 0x92;
+							break;
+						}
+						n++;
+					}
 				}
 
 				str[22] = ' ';
