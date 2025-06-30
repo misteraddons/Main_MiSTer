@@ -6379,13 +6379,14 @@ void HandleUI(void)
 			}
 		}
 		OsdWrite(m++, "");
-		OsdWrite(m++, " Remap keyboard            \x16", menusub == 1);
-		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 2);
-		OsdWrite(m++, " Scripts                   \x16", menusub == 3);
-		OsdWrite(m++, " Help                      \x16", menusub == 4);
+		OsdWrite(m++, " MiSTer Settings           \x16", menusub == 1);
+		OsdWrite(m++, " Remap keyboard            \x16", menusub == 2);
+		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 3);
+		OsdWrite(m++, " Scripts                   \x16", menusub == 4);
+		OsdWrite(m++, " Help                      \x16", menusub == 5);
 		OsdWrite(m++, "");
 		cr = m;
-		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
+		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 6);
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
@@ -6410,16 +6411,22 @@ void HandleUI(void)
 				break;
 
 			case 1:
+				// MiSTer Settings
+				SettingsMenu();
+				menustate = MENU_SYSTEM1;
+				break;
+
+			case 2:
 				start_map_setting(0);
 				menustate = MENU_KBDMAP;
 				menusub = 0;
 				break;
 
-			case 2:
+			case 3:
 				menustate = MENU_JOYSYSMAP;
 				break;
 
-			case 3:
+			case 4:
 				{
 					uint8_t confirm[32] = {};
 					int match = 0;
@@ -6446,13 +6453,13 @@ void HandleUI(void)
 				}
 				break;
 
-			case 4:
+			case 5:
 				strcpy(Selected_tmp, DOCS_DIR);
 				FileCreatePath(Selected_tmp);
 				SelectFile(Selected_tmp, "PDFTXTMD ", SCANO_DIR | SCANO_TXT, MENU_DOC_FILE_SELECTED, MENU_NONE1);
 				break;
 
-			case 5:
+			case 6:
 				{
 					reboot_req = 1;
 
@@ -6463,10 +6470,6 @@ void HandleUI(void)
 					p = s + 5 - off;
 					MenuWrite(cr, p, 1, 0);
 				}
-				break;
-
-			case 6:
-				menustate = MENU_NONE1;
 				break;
 			}
 		}
