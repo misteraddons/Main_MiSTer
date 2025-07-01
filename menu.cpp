@@ -7000,79 +7000,92 @@ void HandleUI(void)
 					}
 					n++;
 					
-					// Mutually exclusive: either show secondary SDRAM (digital IO) or CRT icon (analog IO)
+					// Show secondary SDRAM and/or video output icons
 					int io_type = fpga_get_io_type();
 					int dual_sdr = user_io_is_dualsdr();
-					printf("IO type: %d, Dual SDRAM: %d\n", io_type, dual_sdr);
+					int direct_video = cfg.direct_video;
 					
+					// Print IO debug info only once
+					static int io_debug_printed = 0;
+					int should_debug = !io_debug_printed;
+					if (should_debug)
+					{
+						printf("IO type: %d, Dual SDRAM: %d, Direct Video: %d\n", io_type, dual_sdr, direct_video);
+					}
+					
+					// Position 10: Secondary SDRAM OR Analog IO (CRT icon) OR blank
 					if (io_type == 0)
 					{
-						// Analog IO board detected - show CRT icon
-						printf("Adding CRT icon at position %d\n", n);
-						str[n++] = 0x97; // CRT/analog icon
+						// Analog IO board - show CRT icon at position 10
+						if (should_debug) printf("Analog IO board detected - adding CRT icon at position %d\n", n);
+						str[n++] = 0x97; // CRT icon at position 10
 					}
 					else if (dual_sdr)
 					{
-						// Digital IO board with dual SDRAM core - check hardware present flag
+						// Digital IO board - check for secondary SDRAM
 						uint8_t sec_bits = (sdram_cfg >> 3) & 7;  // Capacity bits [5:3]
 						uint8_t sec_present = (sdram_cfg >> 6) & 1; // Hardware present flag bit 6
 						
-						printf("Secondary SDRAM check: sec_bits=%d, sec_present=%d, sdram_cfg=0x%04X\n", sec_bits, sec_present, sdram_cfg);
+						if (should_debug) printf("Secondary SDRAM check: sec_bits=%d, sec_present=%d, sdram_cfg=0x%04X\n", sec_bits, sec_present, sdram_cfg);
 						
 						// Check bit 6 (hardware present flag) for proper secondary SDRAM detection
 						if (sec_present)
 						{
-							// Secondary SDRAM detected - show icon
-							uint8_t sec_size;
-							
-							// Use secondary SDRAM size from bits [5:3]
-							sec_size = sec_bits;
+							// Secondary SDRAM detected - show icon at position 10
+							uint8_t sec_size = sec_bits;
 						
-						switch (sec_size)
-						{
-						case 7:
-							str[n] = 0x95; // 128MB
-							break;
-						case 6:
-							str[n] = 0x95; // 128MB (alternate)
-							break;
-						case 3:
-							str[n] = 0x94; // 64MB
-							break;
-						case 1:
-							str[n] = 0x93; // 32MB
-							break;
-						default:
-							str[n] = 0x92; // none
-							break;
-						}
-						n++;
-						printf("Adding secondary SDRAM icon 0x%02X at position %d\n", str[n-1], n-1);
+							switch (sec_size)
+							{
+							case 7:
+								str[n] = 0x95; // 128MB
+								break;
+							case 6:
+								str[n] = 0x95; // 128MB (alternate)
+								break;
+							case 3:
+								str[n] = 0x94; // 64MB
+								break;
+							case 1:
+								str[n] = 0x93; // 32MB
+								break;
+							default:
+								str[n] = 0x92; // none
+								break;
+							}
+							n++;
+							if (should_debug) printf("Adding secondary SDRAM icon 0x%02X at position %d\n", str[n-1], n-1);
 						}
 						else
 						{
-							printf("Secondary SDRAM not detected - no icon added\n");
+							if (should_debug) printf("Secondary SDRAM not detected - no icon added\n");
 						}
 					}
+					else
+					{
+						// Digital IO board, no dual SDRAM core - no icon at position 10
+						if (should_debug) printf("No analog IO or secondary SDRAM - position 10 remains blank\n");
+					}
+					
+					// Position 11: Always show video output type (HDMI or Direct Video)
+					if (direct_video)
+					{
+						if (should_debug) printf("Direct video enabled - adding direct video icon at position %d\n", n);
+						str[n++] = 0x98; // Direct Video icon
+					}
+					else
+					{
+						if (should_debug) printf("HDMI output - adding HDMI icon at position %d\n", n);
+						str[n++] = 0x99; // HDMI icon
+					}
+					
+					// Set debug flag after all debug output
+					if (should_debug) io_debug_printed = 1;
 				}
 
-				printf("Before str[22]=' ': status string positions 20-24: ");
-				for (int i = 20; i < 25 && i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
-				printf("\n");
-				
 				str[22] = ' ';
-				
-				printf("After str[22]=' ': status string positions 20-24: ");
-				for (int i = 20; i < 25 && i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
-				printf("\n");
-				
-				printf("Complete status string (length %d): ", n);
-				for (int i = 0; i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
-				printf("\n");
 				
 				// Ensure string is null terminated
 				str[n] = 0;
-				printf("Null terminated string at position %d\n", n);
 			}
 
 			OsdWrite(16, "", 1, 0);
