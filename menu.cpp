@@ -6978,8 +6978,8 @@ void HandleUI(void)
 					// Print debug info only once
 					if (!debug_printed && user_io_is_dualsdr())
 					{
-						printf("Dual SDRAM detected: cfg=0x%04X, primary_size=%d, secondary_bits=0x%X\n", 
-						       sdram_cfg, sdram_cfg & 7, (sdram_cfg >> 8) & 0xF);
+						printf("Dual SDRAM detected: cfg=0x%04X, primary_size=%d, secondary_bits=0x%X, sec_present=%d\n", 
+						       sdram_cfg, sdram_cfg & 7, (sdram_cfg >> 3) & 7, (sdram_cfg >> 6) & 1);
 						debug_printed = 1;
 					}
 					
@@ -7001,34 +7001,40 @@ void HandleUI(void)
 					n++;
 					
 					// Mutually exclusive: either show secondary SDRAM (digital IO) or CRT icon (analog IO)
-					if (fpga_get_io_type() == 0)
+					int io_type = fpga_get_io_type();
+					int dual_sdr = user_io_is_dualsdr();
+					printf("IO type: %d, Dual SDRAM: %d\n", io_type, dual_sdr);
+					
+					if (io_type == 0)
 					{
 						// Analog IO board detected - show CRT icon
 						printf("Adding CRT icon at position %d\n", n);
 						str[n++] = 0x97; // CRT/analog icon
 					}
-					else if (user_io_is_dualsdr())
+					else if (dual_sdr)
 					{
-						// Digital IO board with dual SDRAM - show secondary SDRAM icon
-						uint8_t sec_size;
+						// Digital IO board with dual SDRAM core - check hardware present flag
+						uint8_t sec_bits = (sdram_cfg >> 3) & 7;  // Capacity bits [5:3]
+						uint8_t sec_present = (sdram_cfg >> 6) & 1; // Hardware present flag bit 6
 						
-						// Check if secondary SDRAM size is reported in bits 10-8
-						uint8_t sec_bits = (sdram_cfg >> 8) & 7;
-						if (sec_bits != 0)
+						printf("Secondary SDRAM check: sec_bits=%d, sec_present=%d, sdram_cfg=0x%04X\n", sec_bits, sec_present, sdram_cfg);
+						
+						// Check bit 6 (hardware present flag) for proper secondary SDRAM detection
+						if (sec_present)
 						{
-							// Use actual secondary size if reported
+							// Secondary SDRAM detected - show icon
+							uint8_t sec_size;
+							
+							// Use secondary SDRAM size from bits [5:3]
 							sec_size = sec_bits;
-						}
-						else
-						{
-							// Fall back to primary size if secondary not reported
-							sec_size = sdram_cfg & 7;
-						}
 						
 						switch (sec_size)
 						{
 						case 7:
 							str[n] = 0x95; // 128MB
+							break;
+						case 6:
+							str[n] = 0x95; // 128MB (alternate)
 							break;
 						case 3:
 							str[n] = 0x94; // 64MB
@@ -7042,6 +7048,11 @@ void HandleUI(void)
 						}
 						n++;
 						printf("Adding secondary SDRAM icon 0x%02X at position %d\n", str[n-1], n-1);
+						}
+						else
+						{
+							printf("Secondary SDRAM not detected - no icon added\n");
+						}
 					}
 				}
 
