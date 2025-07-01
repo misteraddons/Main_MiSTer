@@ -6972,7 +6972,18 @@ void HandleUI(void)
 				if (hci_get_route(0) >= 0) str[n++] = 4;
 				if (user_io_get_sdram_cfg() & 0x8000)
 				{
-					switch (user_io_get_sdram_cfg() & 7)
+					static int debug_printed = 0;
+					uint16_t sdram_cfg = user_io_get_sdram_cfg();
+					
+					// Print debug info only once
+					if (!debug_printed && user_io_is_dualsdr())
+					{
+						printf("Dual SDRAM detected: cfg=0x%04X, primary_size=%d, secondary_bits=0x%X\n", 
+						       sdram_cfg, sdram_cfg & 7, (sdram_cfg >> 8) & 0xF);
+						debug_printed = 1;
+					}
+					
+					switch (sdram_cfg & 7)
 					{
 					case 7:
 						str[n] = 0x95;
@@ -6989,44 +7000,68 @@ void HandleUI(void)
 					}
 					n++;
 					
-					// Display second SDRAM icon if dual SDRAM is detected
-					if (user_io_is_dualsdr())
+					// Mutually exclusive: either show secondary SDRAM (digital IO) or CRT icon (analog IO)
+					if (fpga_get_io_type() == 0)
 					{
-						// Check for secondary SDRAM size in upper bits (bits 3-5)
-						// If FPGA doesn't provide separate size, fall back to primary size
-						uint16_t sdram_cfg = user_io_get_sdram_cfg();
-						uint8_t secondary_size = (sdram_cfg >> 3) & 7;
+						// Analog IO board detected - show CRT icon
+						printf("Adding CRT icon at position %d\n", n);
+						str[n++] = 0x97; // CRT/analog icon
+					}
+					else if (user_io_is_dualsdr())
+					{
+						// Digital IO board with dual SDRAM - show secondary SDRAM icon
+						uint8_t sec_size;
 						
-						// If secondary size is 0, assume same as primary
-						if (secondary_size == 0)
-							secondary_size = sdram_cfg & 7;
+						// Check if secondary SDRAM size is reported in bits 10-8
+						uint8_t sec_bits = (sdram_cfg >> 8) & 7;
+						if (sec_bits != 0)
+						{
+							// Use actual secondary size if reported
+							sec_size = sec_bits;
+						}
+						else
+						{
+							// Fall back to primary size if secondary not reported
+							sec_size = sdram_cfg & 7;
+						}
 						
-						switch (secondary_size)
+						switch (sec_size)
 						{
 						case 7:
-							str[n] = 0x95;
+							str[n] = 0x95; // 128MB
 							break;
 						case 3:
-							str[n] = 0x94;
+							str[n] = 0x94; // 64MB
 							break;
 						case 1:
-							str[n] = 0x93;
+							str[n] = 0x93; // 32MB
 							break;
 						default:
-							str[n] = 0x92;
+							str[n] = 0x92; // none
 							break;
 						}
 						n++;
+						printf("Adding secondary SDRAM icon 0x%02X at position %d\n", str[n-1], n-1);
 					}
 				}
-				
-				// Display CRT icon if analog IO board is detected
-				if (fpga_get_io_type() == 0)
-				{
-					str[n++] = 0x97; // CRT/analog icon
-				}
 
+				printf("Before str[22]=' ': status string positions 20-24: ");
+				for (int i = 20; i < 25 && i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
+				printf("\n");
+				
 				str[22] = ' ';
+				
+				printf("After str[22]=' ': status string positions 20-24: ");
+				for (int i = 20; i < 25 && i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
+				printf("\n");
+				
+				printf("Complete status string (length %d): ", n);
+				for (int i = 0; i < n; i++) printf("[%d]=0x%02X ", i, str[i]);
+				printf("\n");
+				
+				// Ensure string is null terminated
+				str[n] = 0;
+				printf("Null terminated string at position %d\n", n);
 			}
 
 			OsdWrite(16, "", 1, 0);

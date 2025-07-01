@@ -1333,6 +1333,9 @@ void user_io_init(const char *path, const char *xml)
 	io_ver = fpga_get_io_version();
 	printf("I/O Board type: %s\n", fpga_get_io_type() ? "digital" : "analogue");
 
+	// Reset dual SDRAM flag
+	dual_sdr = 0;
+	
 	if (core_type == CORE_TYPE_8BIT2)
 	{
 		dual_sdr = 1;
