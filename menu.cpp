@@ -3883,7 +3883,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x3F; // 6 video settings
+		menumask = 0x7FFF; // 15 video settings
 
 		m = 0;
 		OsdSetTitle("Video & Display", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -3908,6 +3908,35 @@ void HandleUI(void)
 			cfg.hdmi_limited == 0 ? "Off" : 
 			cfg.hdmi_limited == 1 ? "On" : "Auto");
 		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  Forced Scandoubler:   %s", cfg.forced_scandoubler ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 6);
+		
+		sprintf(s, "  VSync Adjust:         %s", 
+			cfg.vsync_adjust == 0 ? "Off" : 
+			cfg.vsync_adjust == 1 ? "Auto" : "Low Latency");
+		OsdWrite(m++, s, menusub == 7);
+		
+		sprintf(s, "  Video Brightness:     %d", cfg.video_brightness);
+		OsdWrite(m++, s, menusub == 8);
+		
+		sprintf(s, "  Video Contrast:       %d", cfg.video_contrast);
+		OsdWrite(m++, s, menusub == 9);
+		
+		sprintf(s, "  Video Saturation:     %d", cfg.video_saturation);
+		OsdWrite(m++, s, menusub == 10);
+		
+		sprintf(s, "  Composite Sync:       %s", cfg.csync ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 11);
+		
+		sprintf(s, "  VGA SOG:              %s", cfg.vga_sog ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 12);
+		
+		sprintf(s, "  HDMI Game Mode:       %s", cfg.hdmi_game_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 13);
+		
+		sprintf(s, "  VRR Mode:             %s", cfg.vrr_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 14);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -3988,6 +4017,116 @@ void HandleUI(void)
 					changed = 1;
 				}
 				break;
+				
+			case 6: // Forced Scandoubler
+				if (select || left || right)
+				{
+					cfg.forced_scandoubler = !cfg.forced_scandoubler;
+					changed = 1;
+				}
+				break;
+				
+			case 7: // VSync Adjust
+				if (right || select)
+				{
+					cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0, 1, 2
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.vsync_adjust = (cfg.vsync_adjust + 2) % 3; // wrap around
+					changed = 1;
+				}
+				break;
+				
+			case 8: // Video Brightness
+				if (right || select)
+				{
+					if (cfg.video_brightness < 100)
+					{
+						cfg.video_brightness += 5;
+						changed = 1;
+					}
+				}
+				else if (left)
+				{
+					if (cfg.video_brightness > 0)
+					{
+						cfg.video_brightness -= 5;
+						changed = 1;
+					}
+				}
+				break;
+				
+			case 9: // Video Contrast
+				if (right || select)
+				{
+					if (cfg.video_contrast < 100)
+					{
+						cfg.video_contrast += 5;
+						changed = 1;
+					}
+				}
+				else if (left)
+				{
+					if (cfg.video_contrast > 0)
+					{
+						cfg.video_contrast -= 5;
+						changed = 1;
+					}
+				}
+				break;
+				
+			case 10: // Video Saturation
+				if (right || select)
+				{
+					if (cfg.video_saturation < 100)
+					{
+						cfg.video_saturation += 5;
+						changed = 1;
+					}
+				}
+				else if (left)
+				{
+					if (cfg.video_saturation > 0)
+					{
+						cfg.video_saturation -= 5;
+						changed = 1;
+					}
+				}
+				break;
+				
+			case 11: // Composite Sync
+				if (select || left || right)
+				{
+					cfg.csync = !cfg.csync;
+					changed = 1;
+				}
+				break;
+				
+			case 12: // VGA SOG
+				if (select || left || right)
+				{
+					cfg.vga_sog = !cfg.vga_sog;
+					changed = 1;
+				}
+				break;
+				
+			case 13: // HDMI Game Mode
+				if (select || left || right)
+				{
+					cfg.hdmi_game_mode = !cfg.hdmi_game_mode;
+					changed = 1;
+				}
+				break;
+				
+			case 14: // VRR Mode
+				if (select || left || right)
+				{
+					cfg.vrr_mode = !cfg.vrr_mode;
+					changed = 1;
+				}
+				break;
 			}
 			
 			if (changed)
@@ -4008,7 +4147,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x07; // 3 audio settings
+		menumask = 0x01; // 1 audio setting
 
 		m = 0;
 		OsdSetTitle("Audio Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4016,12 +4155,6 @@ void HandleUI(void)
 		OsdWrite(m++);
 		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 0);
-		
-		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
-		OsdWrite(m++, s, menusub == 1);
-		
-		sprintf(s, "  Rumble:               %s", cfg.rumble ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 2);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -4052,27 +4185,6 @@ void HandleUI(void)
 					changed = 1;
 				}
 				break;
-				
-			case 1: // Mouse Throttle
-				if (right || select)
-				{
-					if (cfg.mouse_throttle < 100) cfg.mouse_throttle++;
-					changed = 1;
-				}
-				else if (left)
-				{
-					if (cfg.mouse_throttle > 1) cfg.mouse_throttle--;
-					changed = 1;
-				}
-				break;
-				
-			case 2: // Rumble
-				if (select || left || right)
-				{
-					cfg.rumble = !cfg.rumble;
-					changed = 1;
-				}
-				break;
 			}
 			
 			if (changed)
@@ -4092,26 +4204,47 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x1F; // 5 input settings
+		menumask = 0x7FF; // 11 input settings
 
 		m = 0;
 		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Keyboard No Mouse:    %s", cfg.kbd_nomouse ? "On" : "Off");
+		sprintf(s, "  Disable Mouse Emu:    %s", cfg.kbd_nomouse ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 0);
 		
 		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "On" : "Off");
+		sprintf(s, "  Rumble:               %s", cfg.rumble ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  Controller Info:      %d", cfg.controller_info);
+		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "Positional" : "Name Based");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  Disable Autofire:     %s", cfg.disable_autofire ? "On" : "Off");
+		if (cfg.controller_info == 0)
+			sprintf(s, "  Controller Info:      Off");
+		else
+			sprintf(s, "  Controller Info:      %ds", cfg.controller_info);
 		OsdWrite(m++, s, menusub == 4);
+		
+		sprintf(s, "  Disable Autofire:     %s", cfg.disable_autofire ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  BT Auto Disconnect:   %dm", cfg.bt_auto_disconnect);
+		OsdWrite(m++, s, menusub == 6);
+		
+		sprintf(s, "  BT Reset Before Pair: %s", cfg.bt_reset_before_pair ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 7);
+		
+		sprintf(s, "  Wheel Force:          %d%%", cfg.wheel_force);
+		OsdWrite(m++, s, menusub == 8);
+		
+		sprintf(s, "  Wheel Range:          %d°", cfg.wheel_range);
+		OsdWrite(m++, s, menusub == 9);
+		
+		sprintf(s, "  Sniper Mode:          %s", cfg.sniper_mode ? "Swapped" : "Normal");
+		OsdWrite(m++, s, menusub == 10);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -4156,7 +4289,15 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 2: // Gamepad Defaults
+			case 2: // Rumble
+				if (select || left || right)
+				{
+					cfg.rumble = !cfg.rumble;
+					changed = 1;
+				}
+				break;
+				
+			case 3: // Gamepad Defaults
 				if (select || left || right)
 				{
 					cfg.gamepad_defaults = !cfg.gamepad_defaults;
@@ -4164,23 +4305,84 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 3: // Controller Info
+			case 4: // Controller Info (in seconds, 0 = disabled)
 				if (right || select)
 				{
-					cfg.controller_info = (cfg.controller_info + 1) % 11; // 0-10
+					if (cfg.controller_info == 0)
+						cfg.controller_info = 5;
+					else if (cfg.controller_info < 60)
+						cfg.controller_info += 5;
 					changed = 1;
 				}
 				else if (left)
 				{
-					cfg.controller_info = (cfg.controller_info + 10) % 11;
+					if (cfg.controller_info <= 5)
+						cfg.controller_info = 0;
+					else
+						cfg.controller_info -= 5;
 					changed = 1;
 				}
 				break;
 				
-			case 4: // Disable Autofire
+			case 5: // Disable Autofire
 				if (select || left || right)
 				{
 					cfg.disable_autofire = !cfg.disable_autofire;
+					changed = 1;
+				}
+				break;
+				
+			case 6: // BT Auto Disconnect (in minutes)
+				if (right || select)
+				{
+					if (cfg.bt_auto_disconnect < 120) cfg.bt_auto_disconnect += 5;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.bt_auto_disconnect > 0) cfg.bt_auto_disconnect -= 5;
+					changed = 1;
+				}
+				break;
+				
+			case 7: // BT Reset Before Pair
+				if (select || left || right)
+				{
+					cfg.bt_reset_before_pair = !cfg.bt_reset_before_pair;
+					changed = 1;
+				}
+				break;
+				
+			case 8: // Wheel Force (0-100%)
+				if (right || select)
+				{
+					if (cfg.wheel_force < 100) cfg.wheel_force += 10;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.wheel_force > 0) cfg.wheel_force -= 10;
+					changed = 1;
+				}
+				break;
+				
+			case 9: // Wheel Range (degrees)
+				if (right || select)
+				{
+					if (cfg.wheel_range < 1080) cfg.wheel_range += 90;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.wheel_range > 90) cfg.wheel_range -= 90;
+					changed = 1;
+				}
+				break;
+				
+			case 10: // Sniper Mode
+				if (select || left || right)
+				{
+					cfg.sniper_mode = !cfg.sniper_mode;
 					changed = 1;
 				}
 				break;
@@ -4203,7 +4405,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x3F; // 6 system settings
+		menumask = 0x1FF; // 9 system settings
 
 		m = 0;
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4215,7 +4417,7 @@ void HandleUI(void)
 		sprintf(s, "  Boot Timeout:         %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Recents:              %s", cfg.recents ? "On" : "Off");
+		sprintf(s, "  Recent Files:         %s", cfg.recents ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  FB Size:              %d", cfg.fb_size);
@@ -4226,6 +4428,15 @@ void HandleUI(void)
 		
 		sprintf(s, "  OSD Timeout:          %ds", cfg.osd_timeout);
 		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  OSD Rotate:           %s", cfg.osd_rotate ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 6);
+		
+		sprintf(s, "  Browse Expand:        %s", cfg.browse_expand ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 7);
+		
+		sprintf(s, "  Logo:                 %s", cfg.logo ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 8);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -4310,6 +4521,30 @@ void HandleUI(void)
 				{
 					if (cfg.osd_timeout > 0) cfg.osd_timeout -= 60; // decrement by 1 minute
 					if (cfg.osd_timeout < 0) cfg.osd_timeout = 0;
+					changed = 1;
+				}
+				break;
+				
+			case 6: // OSD Rotate
+				if (select || left || right)
+				{
+					cfg.osd_rotate = !cfg.osd_rotate;
+					changed = 1;
+				}
+				break;
+				
+			case 7: // Browse Expand
+				if (select || left || right)
+				{
+					cfg.browse_expand = !cfg.browse_expand;
+					changed = 1;
+				}
+				break;
+				
+			case 8: // Logo
+				if (select || left || right)
+				{
+					cfg.logo = !cfg.logo;
 					changed = 1;
 				}
 				break;
