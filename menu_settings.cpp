@@ -7,7 +7,7 @@
 #include "user_io.h"
 #include "cfg.h"
 #include "input.h"
-#include "osd_settings.h"
+// #include "osd_settings.h" // Replaced with unified cfg system
 #include "hardware.h"
 #include "fpga_io.h"
 
@@ -25,7 +25,7 @@ static settings_menu_state_t current_state = SETTINGS_STATE_CATEGORIES;
 static int selected_category = 0;
 static int selected_setting = 0;
 static int setting_scroll = 0;
-static const osd_setting_def_t* current_setting = NULL;
+static const ini_var_t* current_setting = NULL;
 static bool settings_changed = false;
 static bool needs_reboot = false;
 
@@ -46,7 +46,7 @@ static void HandleEditSettingInput();
 static void HandleConfirmSaveInput();
 static void LoadCurrentSettingValue();
 static void SaveCurrentSettingValue();
-static const char* GetSettingValueString(const osd_setting_def_t* setting);
+static const char* GetSettingValueString(const ini_var_t* setting);
 
 // Main settings menu entry point
 void SettingsMenu()
@@ -150,7 +150,7 @@ static void DrawCategoriesMenu()
     // Categories
     for (int i = 0; i < CAT_COUNT; i++)
     {
-        const osd_category_info_t* cat_info = osd_get_category_info((osd_category_t)i);
+        const osd_category_info_t* cat_info = cfg_get_category_info((osd_category_t)i);
         
         // Format with icon if available
         if (cat_info->icon && strlen(cat_info->icon) > 0)
@@ -183,14 +183,30 @@ static void DrawSettingsList()
 {
     char s[64];
     
-    const osd_category_info_t* cat_info = osd_get_category_info((osd_category_t)selected_category);
+    const osd_category_info_t* cat_info = cfg_get_category_info((osd_category_t)selected_category);
     
     // Title with category name
     snprintf(s, sizeof(s), "%.20s", cat_info->name);
     OsdSetTitle(s, OSD_ARROW_LEFT);
     
+    // Get settings for this category - we need to manually filter from cfg.cpp
+    static const ini_var_t* category_settings[100];
     int count = 0;
-    const osd_setting_def_t* settings = osd_get_settings_for_category((osd_category_t)selected_category, &count);
+    
+    // Filter settings by category from the global ini_vars array
+    extern const ini_var_t ini_vars[];
+    extern const int nvars;
+    
+    for (int i = 0; i < nvars; i++)
+    {
+        if (ini_vars[i].category == selected_category)
+        {
+            category_settings[count++] = &ini_vars[i];
+            if (count >= 100) break;
+        }
+    }
+    
+    const ini_var_t** settings = (const ini_var_t**)category_settings;
     
     // Adjust scroll position
     if (selected_setting < setting_scroll)
@@ -203,23 +219,26 @@ static void DrawSettingsList()
     // Settings list
     for (int i = setting_scroll; i < count && line < 14; i++)
     {
-        const osd_setting_def_t* setting = &settings[i];
+        const ini_var_t* setting = settings[i];
         const char* value_str = GetSettingValueString(setting);
         
+        // Use display_name if available, otherwise use name
+        const char* display_name = setting->display_name ? setting->display_name : setting->name;
+        
         // Format setting line: "Name: Value"
-        int name_len = strlen(setting->display_name);
+        int name_len = strlen(display_name);
         int value_len = strlen(value_str);
         int max_name = 25 - value_len;
         
         if (name_len > max_name)
         {
-            strncpy(s, setting->display_name, max_name - 2);
+            strncpy(s, display_name, max_name - 2);
             s[max_name - 2] = '\0';
             strcat(s, "..");
         }
         else
         {
-            strcpy(s, setting->display_name);
+            strcpy(s, display_name);
         }
         
         strcat(s, ":");
@@ -317,25 +336,15 @@ static void DrawEditSetting()
     // Current value and editing interface
     switch (current_setting->type)
     {
-        case TYPE_BOOL:
+        case INI_UINT8:
+        case INI_INT8:
+        case INI_UINT16:
+        case INI_INT16:
+        case INI_UINT32:
+        case INI_INT32:
         {
-            OsdWrite(line++, "Value:", 0, 0);
-            for (int i = 0; i < 2; i++)
-            {
-                snprintf(s, sizeof(s), "  %s", current_setting->enum_options[i]);
-                OsdWrite(line++, s, i == edit_int, 0);
-            }
-            break;
-        }
-        
-        case TYPE_INT:
-        case TYPE_HEX:
-        {
-            if (current_setting->type == TYPE_HEX)
-                snprintf(s, sizeof(s), "Value: 0x%X", edit_int);
-            else
-                snprintf(s, sizeof(s), "Value: %d%s", edit_int, 
-                        current_setting->unit ? current_setting->unit : "");
+            snprintf(s, sizeof(s), "Value: %d%s", edit_int, 
+                    current_setting->unit ? current_setting->unit : "");
             OsdWrite(line++, s, 1, 0);
             
             snprintf(s, sizeof(s), "Range: %lld - %lld", 
@@ -344,7 +353,20 @@ static void DrawEditSetting()
             break;
         }
         
-        case TYPE_FLOAT:
+        case INI_HEX8:
+        case INI_HEX16:
+        case INI_HEX32:
+        {
+            snprintf(s, sizeof(s), "Value: 0x%X", edit_int);
+            OsdWrite(line++, s, 1, 0);
+            
+            snprintf(s, sizeof(s), "Range: 0x%llX - 0x%llX", 
+                    current_setting->min, current_setting->max);
+            OsdWrite(line++, s, 0, 0);
+            break;
+        }
+        
+        case INI_FLOAT:
         {
             snprintf(s, sizeof(s), "Value: %.2f%s", edit_float,
                     current_setting->unit ? current_setting->unit : "");
@@ -356,22 +378,11 @@ static void DrawEditSetting()
             break;
         }
         
-        case TYPE_STRING:
+        case INI_STRING:
         {
             snprintf(s, sizeof(s), "Value: %.20s", edit_string);
             OsdWrite(line++, s, 1, 0);
             OsdWrite(line++, "(String editing not implemented)", 0, 0);
-            break;
-        }
-        
-        case TYPE_ENUM:
-        {
-            OsdWrite(line++, "Options:", 0, 0);
-            for (int i = 0; i < current_setting->enum_count && line < 14; i++)
-            {
-                snprintf(s, sizeof(s), "  %s", current_setting->enum_options[i]);
-                OsdWrite(line++, s, i == edit_enum, 0);
-            }
             break;
         }
         
@@ -389,16 +400,19 @@ static void DrawEditSetting()
     // Help text based on setting type
     switch (current_setting->type)
     {
-        case TYPE_BOOL:
-        case TYPE_ENUM:
-            strcpy(s, " \x16\x17:Change \x1B:Save ESC:Cancel");
-            break;
-        case TYPE_INT:
-        case TYPE_FLOAT:
-        case TYPE_HEX:
+        case INI_UINT8:
+        case INI_INT8:
+        case INI_UINT16:
+        case INI_INT16:
+        case INI_UINT32:
+        case INI_INT32:
+        case INI_FLOAT:
+        case INI_HEX8:
+        case INI_HEX16:
+        case INI_HEX32:
             strcpy(s, " \x16\x17:±1 \x15\x14:±10 \x1B:Save ESC:Cancel");
             break;
-        case TYPE_STRING:
+        case INI_STRING:
             strcpy(s, " \x1B:Save ESC:Cancel (Edit N/A)");
             break;
         default:
@@ -503,8 +517,21 @@ static void HandleSettingsListInput()
     
     if (input)
     {
+        // Get settings for this category from the global ini_vars array
+        static const ini_var_t* category_settings[100];
         int count = 0;
-        const osd_setting_def_t* settings = osd_get_settings_for_category((osd_category_t)selected_category, &count);
+        
+        extern const ini_var_t ini_vars[];
+        extern const int nvars;
+        
+        for (int i = 0; i < nvars; i++)
+        {
+            if (ini_vars[i].category == selected_category)
+            {
+                category_settings[count++] = &ini_vars[i];
+                if (count >= 100) break;
+            }
+        }
         
         if (input & JOY_UP)
         {
@@ -520,7 +547,7 @@ static void HandleSettingsListInput()
         {
             if (count > 0)
             {
-                current_setting = &settings[selected_setting];
+                current_setting = category_settings[selected_setting];
                 LoadCurrentSettingValue();
                 current_state = SETTINGS_STATE_EDIT_SETTING;
             }
@@ -550,15 +577,15 @@ static void HandleEditSettingInput()
     {
         switch (current_setting->type)
         {
-            case TYPE_BOOL:
-                if (input & (JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT))
-                {
-                    edit_int = !edit_int;
-                }
-                break;
-                
-            case TYPE_INT:
-            case TYPE_HEX:
+            case INI_UINT8:
+            case INI_INT8:
+            case INI_UINT16:
+            case INI_INT16:
+            case INI_UINT32:
+            case INI_INT32:
+            case INI_HEX8:
+            case INI_HEX16:
+            case INI_HEX32:
                 if (input & JOY_UP)
                 {
                     if (edit_int < current_setting->max)
@@ -589,7 +616,7 @@ static void HandleEditSettingInput()
                 }
                 break;
                 
-            case TYPE_FLOAT:
+            case INI_FLOAT:
                 if (input & JOY_UP)
                 {
                     if (edit_float + 0.1f <= current_setting->max)
@@ -616,23 +643,6 @@ static void HandleEditSettingInput()
                     if (edit_float - 1.0f >= current_setting->min)
                     {
                         edit_float -= 1.0f;
-                    }
-                }
-                break;
-                
-            case TYPE_ENUM:
-                if (input & JOY_UP)
-                {
-                    if (edit_enum > 0)
-                    {
-                        edit_enum--;
-                    }
-                }
-                else if (input & JOY_DOWN)
-                {
-                    if (edit_enum < current_setting->enum_count - 1)
-                    {
-                        edit_enum++;
                     }
                 }
                 break;
@@ -688,28 +698,31 @@ static void LoadCurrentSettingValue()
     
     switch (current_setting->type)
     {
-        case TYPE_BOOL:
-        case TYPE_ENUM:
-            edit_int = *(uint8_t*)current_setting->var_ptr;
+        case INI_UINT8:
+        case INI_INT8:
+            edit_int = *(uint8_t*)current_setting->var;
             edit_enum = edit_int;
             break;
             
-        case TYPE_INT:
-        case TYPE_HEX:
-            if (current_setting->max <= 0xFF)
-                edit_int = *(uint8_t*)current_setting->var_ptr;
-            else if (current_setting->max <= 0xFFFF)
-                edit_int = *(uint16_t*)current_setting->var_ptr;
-            else
-                edit_int = *(uint32_t*)current_setting->var_ptr;
+        case INI_UINT16:
+        case INI_INT16:
+            edit_int = *(uint16_t*)current_setting->var;
             break;
             
-        case TYPE_FLOAT:
-            edit_float = *(float*)current_setting->var_ptr;
+        case INI_UINT32:
+        case INI_INT32:
+        case INI_HEX8:
+        case INI_HEX16:
+        case INI_HEX32:
+            edit_int = *(uint32_t*)current_setting->var;
             break;
             
-        case TYPE_STRING:
-            strncpy(edit_string, (char*)current_setting->var_ptr, sizeof(edit_string) - 1);
+        case INI_FLOAT:
+            edit_float = *(float*)current_setting->var;
+            break;
+            
+        case INI_STRING:
+            strncpy(edit_string, (char*)current_setting->var, sizeof(edit_string) - 1);
             edit_string[sizeof(edit_string) - 1] = '\0';
             break;
             
@@ -724,27 +737,30 @@ static void SaveCurrentSettingValue()
     
     switch (current_setting->type)
     {
-        case TYPE_BOOL:
-        case TYPE_ENUM:
-            *(uint8_t*)current_setting->var_ptr = edit_int;
+        case INI_UINT8:
+        case INI_INT8:
+            *(uint8_t*)current_setting->var = edit_int;
             break;
             
-        case TYPE_INT:
-        case TYPE_HEX:
-            if (current_setting->max <= 0xFF)
-                *(uint8_t*)current_setting->var_ptr = edit_int;
-            else if (current_setting->max <= 0xFFFF)
-                *(uint16_t*)current_setting->var_ptr = edit_int;
-            else
-                *(uint32_t*)current_setting->var_ptr = edit_int;
+        case INI_UINT16:
+        case INI_INT16:
+            *(uint16_t*)current_setting->var = edit_int;
             break;
             
-        case TYPE_FLOAT:
-            *(float*)current_setting->var_ptr = edit_float;
+        case INI_UINT32:
+        case INI_INT32:
+        case INI_HEX8:
+        case INI_HEX16:
+        case INI_HEX32:
+            *(uint32_t*)current_setting->var = edit_int;
             break;
             
-        case TYPE_STRING:
-            strcpy((char*)current_setting->var_ptr, edit_string);
+        case INI_FLOAT:
+            *(float*)current_setting->var = edit_float;
+            break;
+            
+        case INI_STRING:
+            strcpy((char*)current_setting->var, edit_string);
             break;
             
         default:
@@ -752,58 +768,71 @@ static void SaveCurrentSettingValue()
     }
 }
 
-static const char* GetSettingValueString(const osd_setting_def_t* setting)
+static const char* GetSettingValueString(const ini_var_t* setting)
 {
     static char value_str[32];
     
     switch (setting->type)
     {
-        case TYPE_BOOL:
+        case INI_UINT8:
+        case INI_INT8:
         {
-            int val = *(uint8_t*)setting->var_ptr;
-            return setting->enum_options[val ? 1 : 0];
-        }
-        
-        case TYPE_INT:
-        {
-            int val;
-            if (setting->max <= 0xFF)
-                val = *(uint8_t*)setting->var_ptr;
-            else if (setting->max <= 0xFFFF)
-                val = *(uint16_t*)setting->var_ptr;
-            else
-                val = *(uint32_t*)setting->var_ptr;
-                
+            int val = *(uint8_t*)setting->var;
             snprintf(value_str, sizeof(value_str), "%d%s", val, 
                     setting->unit ? setting->unit : "");
             return value_str;
         }
         
-        case TYPE_HEX:
+        case INI_UINT16:
+        case INI_INT16:
         {
-            int val;
-            if (setting->max <= 0xFF)
-                val = *(uint8_t*)setting->var_ptr;
-            else if (setting->max <= 0xFFFF)
-                val = *(uint16_t*)setting->var_ptr;
-            else
-                val = *(uint32_t*)setting->var_ptr;
-                
-            snprintf(value_str, sizeof(value_str), "0x%X", val);
+            int val = *(uint16_t*)setting->var;
+            snprintf(value_str, sizeof(value_str), "%d%s", val, 
+                    setting->unit ? setting->unit : "");
             return value_str;
         }
         
-        case TYPE_FLOAT:
+        case INI_UINT32:
+        case INI_INT32:
         {
-            float val = *(float*)setting->var_ptr;
+            int val = *(uint32_t*)setting->var;
+            snprintf(value_str, sizeof(value_str), "%d%s", val, 
+                    setting->unit ? setting->unit : "");
+            return value_str;
+        }
+        
+        case INI_HEX8:
+        {
+            int val = *(uint8_t*)setting->var;
+            snprintf(value_str, sizeof(value_str), "0x%02X", val);
+            return value_str;
+        }
+        
+        case INI_HEX16:
+        {
+            int val = *(uint16_t*)setting->var;
+            snprintf(value_str, sizeof(value_str), "0x%04X", val);
+            return value_str;
+        }
+        
+        case INI_HEX32:
+        {
+            int val = *(uint32_t*)setting->var;
+            snprintf(value_str, sizeof(value_str), "0x%08X", val);
+            return value_str;
+        }
+        
+        case INI_FLOAT:
+        {
+            float val = *(float*)setting->var;
             snprintf(value_str, sizeof(value_str), "%.2f%s", val, 
                     setting->unit ? setting->unit : "");
             return value_str;
         }
         
-        case TYPE_STRING:
+        case INI_STRING:
         {
-            const char* str = (const char*)setting->var_ptr;
+            const char* str = (const char*)setting->var;
             if (strlen(str) > 8)
             {
                 strncpy(value_str, str, 5);
@@ -812,14 +841,6 @@ static const char* GetSettingValueString(const osd_setting_def_t* setting)
                 return value_str;
             }
             return str;
-        }
-        
-        case TYPE_ENUM:
-        {
-            int val = *(uint8_t*)setting->var_ptr;
-            if (val < setting->enum_count)
-                return setting->enum_options[val];
-            return "?";
         }
         
         default:

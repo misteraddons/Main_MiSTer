@@ -115,6 +115,56 @@ int cfg_save(uint8_t alt);
 void cfg_error(const char *fmt, ...);
 bool cfg_check_errors(char *msg, size_t max_len);
 
+// Setting categories for OSD menu organization
+typedef enum {
+	CAT_VIDEO_DISPLAY = 0,
+	CAT_AUDIO,
+	CAT_INPUT_CONTROLLERS,
+	CAT_SYSTEM_BOOT,
+	CAT_NETWORK_STORAGE,
+	CAT_ADVANCED,
+	CAT_COUNT
+} osd_category_t;
+
+// Category information
+typedef struct {
+	const char* name;
+	const char* icon;           // Optional icon character
+	const char* description;
+} osd_category_info_t;
+
+// Variable types for ini_var_t
+typedef enum
+{
+	INI_UINT8 = 0, INI_INT8, INI_UINT16, INI_INT16, INI_UINT32, INI_INT32, INI_HEX8, INI_HEX16, INI_HEX32, INI_FLOAT, INI_STRING, INI_UINT32ARR, INI_HEX32ARR, INI_STRINGARR
+} ini_vartypes_t;
+
+// Structure for unified settings definition
+typedef struct
+{
+	const char* name;
+	void* var;
+	ini_vartypes_t type;
+	int64_t min;
+	int64_t max;
+	// OSD metadata fields
+	const char* display_name;
+	const char* description;
+	osd_category_t category;
+	const char* unit;
+	bool requires_reboot;
+} ini_var_t;
+
+// Get category and setting information
+const osd_category_info_t* cfg_get_category_info(osd_category_t category);
+int cfg_get_settings_for_category(osd_category_t category, const void*** vars, const char*** names, const char*** descriptions);
+const char* cfg_get_setting_display_name(const char* ini_name);
+const char* cfg_get_setting_description(const char* ini_name);
+
+// External access to ini_vars array and count
+extern const ini_var_t ini_vars[];
+extern const int nvars;
+
 struct yc_mode
 {
 	char key[64];
