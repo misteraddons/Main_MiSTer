@@ -599,6 +599,12 @@ void cfg_parse()
 		ini_parse(altcfg(), video_get_core_mode_name(0));
 	}
 
+	// Handle legacy ypbpr=1 setting by converting to new vga_mode
+	if (cfg.vga_mode_int == 1 && strlen(cfg.vga_mode) == 0)
+	{
+		strcpy(cfg.vga_mode, "ypbpr");
+	}
+	
 	if (strlen(cfg.vga_mode))
 	{
 		if (!strcasecmp(cfg.vga_mode, "rgb")) cfg.vga_mode_int = 0;

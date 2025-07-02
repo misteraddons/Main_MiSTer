@@ -3966,25 +3966,49 @@ void HandleUI(void)
 				if (right || select)
 				{
 					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+					{
 						strcpy(cfg.vga_mode, "ypbpr");
+						cfg.vga_mode_int = 1;
+					}
 					else if (!strcasecmp(cfg.vga_mode, "ypbpr"))
+					{
 						strcpy(cfg.vga_mode, "svideo");
+						cfg.vga_mode_int = 2;
+					}
 					else if (!strcasecmp(cfg.vga_mode, "svideo"))
+					{
 						strcpy(cfg.vga_mode, "cvbs");
+						cfg.vga_mode_int = 3;
+					}
 					else
+					{
 						strcpy(cfg.vga_mode, "rgb");
+						cfg.vga_mode_int = 0;
+					}
 					changed = 1;
 				}
 				else if (left)
 				{
 					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+					{
 						strcpy(cfg.vga_mode, "cvbs");
+						cfg.vga_mode_int = 3;
+					}
 					else if (!strcasecmp(cfg.vga_mode, "cvbs"))
+					{
 						strcpy(cfg.vga_mode, "svideo");
+						cfg.vga_mode_int = 2;
+					}
 					else if (!strcasecmp(cfg.vga_mode, "svideo"))
+					{
 						strcpy(cfg.vga_mode, "ypbpr");
+						cfg.vga_mode_int = 1;
+					}
 					else
+					{
 						strcpy(cfg.vga_mode, "rgb");
+						cfg.vga_mode_int = 0;
+					}
 					changed = 1;
 				}
 				break;
@@ -4528,9 +4552,9 @@ void HandleUI(void)
 
 		OsdWrite(m++);
 		if (cfg.video_info == 0)
-		sprintf(s, "  Video Info:           0s");
-	else
-		sprintf(s, "  Video Info:           %ds", cfg.video_info);
+			sprintf(s, "  Video Info:           0s");
+		else
+			sprintf(s, "  Video Info:           %ds", cfg.video_info);
 		OsdWrite(m++, s, menusub == 0);
 		
 		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
