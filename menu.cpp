@@ -4040,6 +4040,8 @@ void HandleUI(void)
 			
 			if (changed)
 			{
+				// Send updated configuration to hardware
+				user_io_send_buttons(1);
 				menustate = MENU_SETTINGS_ANALOG1;
 			}
 		}
