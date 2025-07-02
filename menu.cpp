@@ -4527,7 +4527,10 @@ void HandleUI(void)
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Video Info:           %d", cfg.video_info);
+		if (cfg.video_info == 0)
+		sprintf(s, "  Video Info:           0s");
+	else
+		sprintf(s, "  Video Info:           %ds", cfg.video_info);
 		OsdWrite(m++, s, menusub == 0);
 		
 		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
