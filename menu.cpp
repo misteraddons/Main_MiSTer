@@ -79,6 +79,9 @@ enum MENU
 	MENU_MISC1,
 	MENU_MISC2,
 
+	MENU_SETTINGS1,
+	MENU_SETTINGS2,
+
 	MENU_SELECT_INI1,
 	MENU_SELECT_INI2,
 
@@ -3762,6 +3765,129 @@ void HandleUI(void)
 		}
 		break;
 
+	case MENU_SETTINGS1:
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x0F; // 4 categories
+
+		m = 0;
+		OsdSetTitle("MiSTer Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		OsdWrite(m++, "  Select Category:");
+		OsdWrite(m++);
+		
+		// Categories
+		OsdWrite(m++, "  \x16 Video & Display", menusub == 0);
+		OsdWrite(m++, "  \x16 Audio", menusub == 1);
+		OsdWrite(m++, "  \x16 Input & Controls", menusub == 2);
+		OsdWrite(m++, "  \x16 System & Storage", menusub == 3);
+		
+		OsdWrite(m++);
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS2;
+		break;
+
+	case MENU_SETTINGS2:
+		if (menu)
+		{
+			// Check if we're in a submenu (parentstate will be different)
+			if (parentstate == MENU_SETTINGS1)
+			{
+				// We're in a submenu, go back to settings categories
+				menustate = MENU_SETTINGS1;
+			}
+			else
+			{
+				// We're at the top level, go back to system menu
+				menustate = MENU_SYSTEM1;
+			}
+			break;
+		}
+		else if (select)
+		{
+			// Save current state and show submenu
+			parentstate = MENU_SETTINGS1;
+			
+			switch (menusub)
+			{
+			case 0:
+				// Video & Display settings
+				OsdSetTitle("Video & Display", OSD_ARROW_LEFT);
+				OsdWrite(0, "");
+				OsdWrite(1, "  Video Mode:           Auto");
+				OsdWrite(2, "  VGA Scaler:           Off");
+				OsdWrite(3, "  Scandoubler FX:       None");
+				OsdWrite(4, "  Video Info:           Off");
+				OsdWrite(5, "  HDMI Audio 96kHz:     Off");
+				OsdWrite(6, "  DVI Mode:             Off");
+				OsdWrite(7, "  Direct Video:         Off");
+				OsdWrite(8, "");
+				OsdWrite(9, "  [Settings are read-only]");
+				OsdWrite(10, "");
+				OsdWrite(11, "  Press MENU to go back");
+				for (int i = 12; i < 16; i++) OsdWrite(i, "");
+				break;
+				
+			case 1:
+				// Audio settings
+				OsdSetTitle("Audio", OSD_ARROW_LEFT);
+				OsdWrite(0, "");
+				OsdWrite(1, "  Master Volume:        50%");
+				OsdWrite(2, "  Core Volume:          100%");
+				OsdWrite(3, "  HDMI Audio 96kHz:     Off");
+				OsdWrite(4, "  Audio Filter:         None");
+				OsdWrite(5, "");
+				OsdWrite(6, "  [Settings are read-only]");
+				OsdWrite(7, "");
+				OsdWrite(8, "  Press MENU to go back");
+				for (int i = 9; i < 16; i++) OsdWrite(i, "");
+				break;
+				
+			case 2:
+				// Input & Controls settings
+				OsdSetTitle("Input & Controls", OSD_ARROW_LEFT);
+				OsdWrite(0, "");
+				OsdWrite(1, "  Keyboard Mapping:     US");
+				OsdWrite(2, "  Mouse Throttle:       10");
+				OsdWrite(3, "  Joystick Mapping:     Default");
+				OsdWrite(4, "  Gamepad Defaults:     On");
+				OsdWrite(5, "");
+				OsdWrite(6, "  [Settings are read-only]");
+				OsdWrite(7, "");
+				OsdWrite(8, "  Press MENU to go back");
+				for (int i = 9; i < 16; i++) OsdWrite(i, "");
+				break;
+				
+			case 3:
+				// System & Storage settings
+				OsdSetTitle("System & Storage", OSD_ARROW_LEFT);
+				OsdWrite(0, "");
+				OsdWrite(1, "  Boot Screen:          On");
+				OsdWrite(2, "  Boot Core:            None");
+				OsdWrite(3, "  Boot Timeout:         10s");
+				OsdWrite(4, "  Storage Device:       SD");
+				OsdWrite(5, "  Recents:              On");
+				OsdWrite(6, "");
+				OsdWrite(7, "  [Settings are read-only]");
+				OsdWrite(8, "");
+				OsdWrite(9, "  Press MENU to go back");
+				for (int i = 10; i < 16; i++) OsdWrite(i, "");
+				break;
+			}
+			
+			// Stay in MENU_SETTINGS2 but now we're in submenu mode
+		}
+		break;
+
 	case MENU_JOYRESET:
 		OsdWrite(3);
 		OsdWrite(4, "       Reset to default");
@@ -6412,8 +6538,8 @@ void HandleUI(void)
 
 			case 1:
 				// MiSTer Settings
-				SettingsMenu();
-				menustate = MENU_SYSTEM1;
+				menustate = MENU_SETTINGS1;
+				menusub = 0;
 				break;
 
 			case 2:

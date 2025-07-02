@@ -51,6 +51,14 @@ static const char* GetSettingValueString(const osd_setting_def_t* setting);
 // Main settings menu entry point
 void SettingsMenu()
 {
+    printf("*** SettingsMenu() called - returning immediately ***\n");
+    
+    // TEMPORARY: Just return immediately to avoid freeze
+    // TODO: Implement proper settings menu without conflicts
+    return;
+    
+    // OLD CODE BELOW - COMMENTED OUT
+    /*
     // Initialize state
     current_state = SETTINGS_STATE_CATEGORIES;
     selected_category = 0;
@@ -59,8 +67,11 @@ void SettingsMenu()
     settings_changed = false;
     needs_reboot = false;
     
+    printf("*** Starting settings menu loop ***\n");
+    
     // Menu loop
-    while (current_state != SETTINGS_STATE_EXIT)
+    int loop_count = 0;
+    while (current_state != SETTINGS_STATE_EXIT && loop_count < 100) // Reduced limit for testing
     {
         // Draw current screen
         switch (current_state)
@@ -85,6 +96,11 @@ void SettingsMenu()
         // Small delay for responsiveness
         usleep(50000);
         
+        loop_count++;
+        if (loop_count % 20 == 0) {
+            printf("*** Settings menu loop: %d, state: %d ***\n", loop_count, current_state);
+        }
+        
         // Handle input based on current state
         switch (current_state)
         {
@@ -104,6 +120,13 @@ void SettingsMenu()
                 break;
         }
     }
+    
+    if (loop_count >= 100) {
+        printf("*** Settings menu loop limit reached - exiting ***\n");
+    }
+    
+    printf("*** SettingsMenu() exiting ***\n");
+    */
 }
 
 // Draw categories selection menu
@@ -415,8 +438,16 @@ static void DrawConfirmSave()
 // Input handlers
 static void HandleCategoriesInput()
 {
+    static int debug_count = 0;
+    debug_count++;
+    
+    if (debug_count % 50 == 0) {
+        printf("*** HandleCategoriesInput: debug_count=%d ***\n", debug_count);
+    }
+    
     if (user_io_menu_button())
     {
+        printf("*** Menu button pressed - exiting ***\n");
         if (settings_changed)
             current_state = SETTINGS_STATE_CONFIRM_SAVE;
         else
@@ -426,6 +457,10 @@ static void HandleCategoriesInput()
     
     static uint32_t last_input = 0;
     uint32_t input = user_io_user_button();
+    
+    if (debug_count % 50 == 0) {
+        printf("*** HandleCategoriesInput: input=0x%08X, last_input=0x%08X ***\n", input, last_input);
+    }
     
     // Debounce input
     if (input == last_input) return;
