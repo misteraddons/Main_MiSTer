@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dos2unix:*)"
+      "Bash(dos2unix:*)",
+      "Bash(sshpass -p 1 scp bin/MiSTer root@192.168.1.121:/media/fat/)",
+      "Bash(sshpass -p 1 scp -o StrictHostKeyChecking=no bin/MiSTer root@192.168.1.121:/media/fat/)",
+      "Bash(sshpass -p 1 scp -o StrictHostKeyChecking=no bin/MiSTer root@192.168.1.121:/media/fat/MiSTer_new)"
     ],
     "deny": []
   }
