@@ -2836,8 +2836,8 @@ void user_io_send_buttons(char force)
 	if (cfg.vga_sog) map |= CONF_VGA_SOG;
 	if (cfg.csync) map |= CONF_CSYNC;
 	if (cfg.vga_mode_int == 1) map |= CONF_YPBPR;
-	if (cfg.vga_mode_int == 2) map |= CONF_VGA_SVIDEO;
-	if (cfg.vga_mode_int == 3) map |= CONF_VGA_CVBS;
+	// Note: S-Video (vga_mode_int==2) and CVBS (vga_mode_int==3) modes 
+	// are not yet implemented in hardware - they default to RGB output
 	if (cfg.forced_scandoubler) map |= CONF_FORCED_SCANDOUBLER;
 	if (cfg.hdmi_audio_96k) map |= CONF_AUDIO_96K;
 	if (cfg.dvi_mode == 1) map |= CONF_DVI;

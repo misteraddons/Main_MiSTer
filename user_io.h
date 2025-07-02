@@ -149,8 +149,6 @@
 #define CONF_HDMI_LIMITED2      0b0000100000000000
 #define CONF_VGA_FB             0b0001000000000000
 #define CONF_DIRECT_VIDEO2      0b0010000000000000
-#define CONF_VGA_SVIDEO         0b0100000000000000
-#define CONF_VGA_CVBS           0b1000000000000000
 
 // core type value should be unlikely to be returned by broken cores
 #define CORE_TYPE_UNKNOWN   0x55
