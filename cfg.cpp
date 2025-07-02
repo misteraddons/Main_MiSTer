@@ -376,6 +376,10 @@ static void ini_parse_var(char* buf)
 		case INI_STRING:
 			memset(var->var, 0, var->max);
 			snprintf((char*)(var->var), var->max, "%s", buf+i);
+			if (!strcasecmp(var->name, "VGA_MODE"))
+			{
+				printf("DEBUG: Loaded VGA_MODE=\"%s\" from INI file\n", (char*)var->var);
+			}
 			break;
 
 		case INI_STRINGARR:
@@ -427,6 +431,10 @@ static void ini_parse_var(char* buf)
 			if (!strcasecmp(var->name, "DEBUG"))
 			{
 				stdout = cfg.debug ? orig_stdout : dev_null;
+			}
+			if (!strcasecmp(var->name, "YPBPR"))
+			{
+				printf("DEBUG: Loaded YPBPR=%d from INI file\n", cfg.vga_mode_int);
 			}
 			break;
 		}
@@ -609,14 +617,32 @@ void cfg_parse()
 	if (cfg.vga_mode_int == 1 && strlen(cfg.vga_mode) == 0)
 	{
 		strcpy(cfg.vga_mode, "ypbpr");
+		printf("DEBUG: Legacy YPBPR=1 converted to vga_mode=\"ypbpr\"\n");
 	}
 	
 	if (strlen(cfg.vga_mode))
 	{
-		if (!strcasecmp(cfg.vga_mode, "rgb")) cfg.vga_mode_int = 0;
-		if (!strcasecmp(cfg.vga_mode, "ypbpr")) cfg.vga_mode_int = 1;
-		if (!strcasecmp(cfg.vga_mode, "svideo")) cfg.vga_mode_int = 2;
-		if (!strcasecmp(cfg.vga_mode, "cvbs")) cfg.vga_mode_int = 3;
+		printf("DEBUG: Processing vga_mode=\"%s\"\n", cfg.vga_mode);
+		if (!strcasecmp(cfg.vga_mode, "rgb")) {
+			cfg.vga_mode_int = 0;
+			printf("DEBUG: Set vga_mode_int=0 (RGB)\n");
+		}
+		if (!strcasecmp(cfg.vga_mode, "ypbpr")) {
+			cfg.vga_mode_int = 1;
+			printf("DEBUG: Set vga_mode_int=1 (YPbPr)\n");
+		}
+		if (!strcasecmp(cfg.vga_mode, "svideo")) {
+			cfg.vga_mode_int = 2;
+			printf("DEBUG: Set vga_mode_int=2 (S-Video)\n");
+		}
+		if (!strcasecmp(cfg.vga_mode, "cvbs")) {
+			cfg.vga_mode_int = 3;
+			printf("DEBUG: Set vga_mode_int=3 (CVBS)\n");
+		}
+	}
+	else
+	{
+		printf("DEBUG: No vga_mode string set, using vga_mode_int=%d\n", cfg.vga_mode_int);
 	}
 }
 

@@ -10,6 +10,7 @@
 // #include "osd_settings.h" // Replaced with unified cfg system
 #include "hardware.h"
 #include "fpga_io.h"
+#include "menu_column_positions.h"
 
 // Menu states
 typedef enum {
@@ -173,10 +174,12 @@ static void DrawCategoriesMenu()
     
     // Help text
     if (settings_changed)
-        OsdWrite(15, " \x16\x17:Select \x1B:Enter ESC:Save&Exit", 0, 0);
+        OsdWrite(15, " \x12\x13:Select \x1B:Enter ESC:Save&Exit", 0, 0);
     else
-        OsdWrite(15, " \x16\x17:Select \x1B:Enter ESC:Exit", 0, 0);
+        OsdWrite(15, " \x12\x13:Select \x1B:Enter ESC:Exit", 0, 0);
 }
+
+// Note: Column positions are now pre-computed in menu_column_positions.h
 
 // Draw settings list for selected category
 static void DrawSettingsList()
@@ -208,6 +211,13 @@ static void DrawSettingsList()
     
     const ini_var_t** settings = (const ini_var_t**)category_settings;
     
+    // Use pre-computed value column position for this category
+    int value_column_pos = category_value_column_pos[selected_category];
+    
+    // Debug output to show pre-computed positioning
+    printf("DEBUG: Category \"%s\" - Pre-computed value column position: %d (longest name: %d chars)\n", 
+           cat_info->name, value_column_pos, category_longest_name[selected_category]);
+    
     // Adjust scroll position
     if (selected_setting < setting_scroll)
         setting_scroll = selected_setting;
@@ -225,15 +235,18 @@ static void DrawSettingsList()
         // Use display_name if available, otherwise use name
         const char* display_name = setting->display_name ? setting->display_name : setting->name;
         
-        // Format setting line: "Name: Value"
+        // Format setting line with dynamic positioning
         int name_len = strlen(display_name);
         int value_len = strlen(value_str);
-        int max_name = 25 - value_len;
         
-        if (name_len > max_name)
+        // Check if name fits in available space
+        int max_name_space = value_column_pos - 1; // Leave 1 char for colon
+        
+        if (name_len > max_name_space)
         {
-            strncpy(s, display_name, max_name - 2);
-            s[max_name - 2] = '\0';
+            // Truncate name if too long
+            strncpy(s, display_name, max_name_space - 2);
+            s[max_name_space - 2] = '\0';
             strcat(s, "..");
         }
         else
@@ -243,14 +256,26 @@ static void DrawSettingsList()
         
         strcat(s, ":");
         
-        // Right-align value
-        int total_len = strlen(s) + value_len + 1;
-        while (total_len < 27)
+        // Pad to value column position
+        int current_len = strlen(s);
+        while (current_len < value_column_pos && current_len < 26)
         {
             strcat(s, " ");
-            total_len++;
+            current_len++;
         }
-        strcat(s, value_str);
+        
+        // Add value, ensuring we don't exceed screen width
+        int remaining_space = 28 - current_len; // 28 total chars, leaving 2 for reboot indicator
+        if (value_len > remaining_space)
+        {
+            // Truncate value if necessary
+            strncat(s, value_str, remaining_space - 2);
+            strcat(s, "..");
+        }
+        else
+        {
+            strcat(s, value_str);
+        }
         
         // Add reboot indicator
         if (setting->requires_reboot)
@@ -268,12 +293,12 @@ static void DrawSettingsList()
     // Help text
     if (count > 12)
     {
-        snprintf(s, sizeof(s), " \x16\x17:Select(%d/%d) \x1B:Edit ESC:Back", 
+        snprintf(s, sizeof(s), " \x12\x13:Select(%d/%d) \x1B:Edit ESC:Back", 
                 selected_setting + 1, count);
     }
     else
     {
-        strcpy(s, " \x16\x17:Select \x1B:Edit ESC:Back");
+        strcpy(s, " \x12\x13:Select \x1B:Edit ESC:Back");
     }
     OsdWrite(15, s, 0, 0);
 }
@@ -410,7 +435,7 @@ static void DrawEditSetting()
         case INI_HEX8:
         case INI_HEX16:
         case INI_HEX32:
-            strcpy(s, " \x16\x17:±1 \x15\x14:±10 \x1B:Save ESC:Cancel");
+            strcpy(s, " \x12\x13:±1 \x11\x10:±10 \x1B:Save ESC:Cancel");
             break;
         case INI_STRING:
             strcpy(s, " \x1B:Save ESC:Cancel (Edit N/A)");
@@ -446,7 +471,7 @@ static void DrawConfirmSave()
         OsdWrite(line, "", 0, 0);
     }
     
-    OsdWrite(15, " \x16\x17:Select \x1B:Confirm", 0, 0);
+    OsdWrite(15, " \x12\x13:Select \x1B:Confirm", 0, 0);
 }
 
 // Input handlers

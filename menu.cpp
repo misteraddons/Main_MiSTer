@@ -3901,31 +3901,30 @@ void HandleUI(void)
 		OsdSetTitle("Analog Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  VGA Scaler:           %s", cfg.vga_scaler ? "On" : "Off");
+		sprintf(s, "  Analog Res.:   %s", cfg.vga_scaler ? "Scaled" : "Native");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  Direct Video:         %s", cfg.direct_video ? "On" : "Off");
+		sprintf(s, "  HDMI Mode:     %s", cfg.direct_video ? "HDMI DAC" : "HDMI");
 		OsdWrite(m++, s, menusub == 1);
-		
 		const char *vga_mode_str = "RGB";
 		if (cfg.vga_mode_int == 1) vga_mode_str = "YPbPr";
 		else if (cfg.vga_mode_int == 2) vga_mode_str = "S-Video";
 		else if (cfg.vga_mode_int == 3) vga_mode_str = "CVBS";
-		sprintf(s, "  VGA Mode:             %s", vga_mode_str);
+		sprintf(s, "  Analog Mode:   %s", vga_mode_str);
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  Composite Sync:       %s", cfg.csync ? "On" : "Off");
+		sprintf(s, "  Sync:          %s", cfg.csync ? "Composite" : "Separate");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  VGA SOG:              %s", cfg.vga_sog ? "On" : "Off");
+		sprintf(s, "  Sync on Green: %s", cfg.vga_sog ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  Forced Scandoubler:   %s", cfg.forced_scandoubler ? "On" : "Off");
+		sprintf(s, "  15kHz \x11 31kHz: %s", cfg.forced_scandoubler ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		OsdWrite(m++, "  MENU:Back");
+		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		//OsdWrite(m++, "  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -3965,6 +3964,7 @@ void HandleUI(void)
 			case 2: // VGA Mode
 				if (right || select)
 				{
+					int old_mode = cfg.vga_mode_int;
 					cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Cycle 0->1->2->3->0
 					// Update string representation to match
 					switch (cfg.vga_mode_int)
@@ -3974,10 +3974,19 @@ void HandleUI(void)
 						case 2: strcpy(cfg.vga_mode, "svideo"); break;
 						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 					}
+					printf("DEBUG: Menu navigation (right/select) changed vga_mode: %d->%d (\"%s\")\n", 
+						   old_mode, cfg.vga_mode_int, cfg.vga_mode);
+					// Force video mode reconfiguration for S-Video/CVBS modes
+					if (cfg.vga_mode_int >= 2) {
+						extern void video_mode_adjust();
+						video_mode_adjust();
+						printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
+					}
 					changed = 1;
 				}
 				else if (left)
 				{
+					int old_mode = cfg.vga_mode_int;
 					cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Cycle 0->3->2->1->0
 					// Update string representation to match
 					switch (cfg.vga_mode_int)
@@ -3986,6 +3995,14 @@ void HandleUI(void)
 						case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
 						case 2: strcpy(cfg.vga_mode, "svideo"); break;
 						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
+					}
+					printf("DEBUG: Menu navigation (left) changed vga_mode: %d->%d (\"%s\")\n", 
+						   old_mode, cfg.vga_mode_int, cfg.vga_mode);
+					// Force video mode reconfiguration for S-Video/CVBS modes
+					if (cfg.vga_mode_int >= 2) {
+						extern void video_mode_adjust();
+						video_mode_adjust();
+						printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
 					}
 					changed = 1;
 				}
@@ -4042,52 +4059,52 @@ void HandleUI(void)
 		OsdSetTitle("HDMI Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  HDMI Game Mode:       %s", cfg.hdmi_game_mode ? "On" : "Off");
+		sprintf(s, "  Game Mode:   %s", cfg.hdmi_game_mode ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  VRR Mode:             %s", cfg.vrr_mode ? "On" : "Off");
+		sprintf(s, "  VRR Mode:    %s", cfg.vrr_mode ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		sprintf(s, "  96kHz Audio: %s", cfg.hdmi_audio_96k ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  DVI Mode:             %s", cfg.dvi_mode ? "On" : "Off");
+		sprintf(s, "  DVI Mode:    %s", cfg.dvi_mode ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  HDMI Limited:         %s", 
-			cfg.hdmi_limited == 0 ? "Off" : 
-			cfg.hdmi_limited == 1 ? "On" : "Auto");
+		sprintf(s, "  RGB Range:   %s", 
+			cfg.hdmi_limited == 0 ? "Full (0-255)" : 
+			cfg.hdmi_limited == 1 ? "Lim. (16-235)" : "Lim. (16-255)");
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  VSync Adjust:         %s", 
-			cfg.vsync_adjust == 0 ? "Off" : 
-			cfg.vsync_adjust == 1 ? "Auto" : "Low Latency");
+		sprintf(s, "  VSync:       %s", 
+			cfg.vsync_adjust == 0 ? "3 Buffer 60Hz" : 
+			cfg.vsync_adjust == 1 ? "3 Buffer Match" : "1 Buffer Match");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  Video Brightness:     %d", cfg.video_brightness);
+		sprintf(s, "  Brightness:  %d", cfg.video_brightness);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  Video Contrast:       %d", cfg.video_contrast);
+		sprintf(s, "  Contrast:    %d", cfg.video_contrast);
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Video Saturation:     %d", cfg.video_saturation);
+		sprintf(s, "  Saturation:  %d", cfg.video_saturation);
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, "  Video Hue:            %d", cfg.video_hue);
+		sprintf(s, "  Hue:         %d", cfg.video_hue);
 		OsdWrite(m++, s, menusub == 9);
 		
 		const char *vscale_str = "Fit";
 		if (cfg.vscale_mode == 1) vscale_str = "Integer";
-		else if (cfg.vscale_mode == 2) vscale_str = "0.5x Int";
-		else if (cfg.vscale_mode == 3) vscale_str = "0.25x Int";
-		else if (cfg.vscale_mode == 4) vscale_str = "Int CAR";
-		else if (cfg.vscale_mode == 5) vscale_str = "Int DAR";
-		sprintf(s, "  VScale Mode:          %s", vscale_str);
+		else if (cfg.vscale_mode == 2) vscale_str = "0.25x Step";
+		else if (cfg.vscale_mode == 3) vscale_str = "0.5x Step";
+		else if (cfg.vscale_mode == 4) vscale_str = "Core Int.";
+		else if (cfg.vscale_mode == 5) vscale_str = "Display Int.";
+		sprintf(s, "  Vert. Scale: %s", vscale_str);
 		OsdWrite(m++, s, menusub == 10);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		OsdWrite(m++, "  MENU:Back");
+		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		//OsdWrite(m++, "  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4283,8 +4300,8 @@ void HandleUI(void)
 		OsdWrite(m++, "  (HDMI Audio moved to HDMI Video)");
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		OsdWrite(m++, "  MENU:Back");
+		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		//OsdWrite(m++, "  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4330,7 +4347,7 @@ void HandleUI(void)
 		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Disable Mouse Emu:    %s", cfg.kbd_nomouse ? "On" : "Off");
+		sprintf(s, "  Mouse Emulation:      %s", cfg.kbd_nomouse ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 0);
 		
 		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
@@ -4339,7 +4356,7 @@ void HandleUI(void)
 		sprintf(s, "  Rumble:               %s", cfg.rumble ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "Positional" : "Name Based");
+		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "Pos." : "Name");
 		OsdWrite(m++, s, menusub == 3);
 		
 		if (cfg.controller_info == 0)
@@ -4348,7 +4365,7 @@ void HandleUI(void)
 			sprintf(s, "  Controller Info:      %ds", cfg.controller_info);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  Disable Autofire:     %s", cfg.disable_autofire ? "On" : "Off");
+		sprintf(s, "  Autofire:             %s", cfg.disable_autofire ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 5);
 		
 		sprintf(s, "  BT Auto Disconnect:   %dm", cfg.bt_auto_disconnect);
@@ -4363,12 +4380,12 @@ void HandleUI(void)
 		sprintf(s, "  Wheel Range:          %d°", cfg.wheel_range);
 		OsdWrite(m++, s, menusub == 9);
 		
-		sprintf(s, "  Sniper Mode:          %s", cfg.sniper_mode ? "Swapped" : "Normal");
+		sprintf(s, "  Sniper Mode:          %s", cfg.sniper_mode ? "Swap" : "Norm");
 		OsdWrite(m++, s, menusub == 10);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		OsdWrite(m++, "  MENU:Back");
+		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		//OsdWrite(m++, "  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4565,8 +4582,8 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 9);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		OsdWrite(m++, "  MENU:Back");
+		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		//OsdWrite(m++, "  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -6418,7 +6435,7 @@ void HandleUI(void)
 
 			m = 4;
 			strcpy(s,      " Joystick Swap:          ");
-			strcat(s, (minimig_config.autofire & 0x8) ? " ON" : "OFF");
+			strcat(s, (minimig_config.autofire & 0x8) ? "On" : "OFF");
 			MenuWrite(m++, s, menusub == 4, 0);
 			MenuWrite(m++),
 
