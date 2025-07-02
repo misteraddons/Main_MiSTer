@@ -81,6 +81,14 @@ enum MENU
 
 	MENU_SETTINGS1,
 	MENU_SETTINGS2,
+	MENU_SETTINGS_VIDEO1,
+	MENU_SETTINGS_VIDEO2,
+	MENU_SETTINGS_AUDIO1,
+	MENU_SETTINGS_AUDIO2,
+	MENU_SETTINGS_INPUT1,
+	MENU_SETTINGS_INPUT2,
+	MENU_SETTINGS_SYSTEM1,
+	MENU_SETTINGS_SYSTEM2,
 
 	MENU_SELECT_INI1,
 	MENU_SELECT_INI2,
@@ -3774,8 +3782,8 @@ void HandleUI(void)
 
 		OsdSetSize(16);
 		helptext_idx = 0;
-		parentstate = menustate;
-		menumask = 0x0F; // 4 categories
+		parentstate = MENU_SYSTEM1;  // Set parent to system menu, not self
+		menumask = 0x1F; // 4 categories + save
 
 		m = 0;
 		OsdSetTitle("MiSTer Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -3791,26 +3799,37 @@ void HandleUI(void)
 		OsdWrite(m++, "  \x16 System & Storage", menusub == 3);
 		
 		OsdWrite(m++);
+		OsdWrite(m++, "  Save All Settings", menusub == 4);
+		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
 		menustate = MENU_SETTINGS2;
 		break;
 
 	case MENU_SETTINGS2:
+		menumask = 0; // Disable general navigation - we handle it ourselves
 		if (menu)
 		{
-			// Check if we're in a submenu (parentstate will be different)
-			if (parentstate == MENU_SETTINGS1)
-			{
-				// We're in a submenu, go back to settings categories
-				menustate = MENU_SETTINGS1;
-			}
-			else
-			{
-				// We're at the top level, go back to system menu
-				menustate = MENU_SYSTEM1;
-			}
+			// Always go back to system menu from main settings categories
+			menustate = MENU_SYSTEM1;
+			menusub = 1; // Return to MiSTer Settings option
 			break;
+		}
+		else if (up)
+		{
+			if (menusub > 0) 
+				menusub--;
+			else 
+				menusub = 4; // wrap to last item (Save All Settings)
+			menustate = MENU_SETTINGS1; // refresh display
+		}
+		else if (down)
+		{
+			if (menusub < 4) 
+				menusub++;
+			else 
+				menusub = 0; // wrap to first item
+			menustate = MENU_SETTINGS1; // refresh display
 		}
 		else if (select)
 		{
@@ -3820,71 +3839,486 @@ void HandleUI(void)
 			switch (menusub)
 			{
 			case 0:
-				// Video & Display settings
-				OsdSetTitle("Video & Display", OSD_ARROW_LEFT);
-				OsdWrite(0, "");
-				OsdWrite(1, "  Video Mode:           Auto");
-				OsdWrite(2, "  VGA Scaler:           Off");
-				OsdWrite(3, "  Scandoubler FX:       None");
-				OsdWrite(4, "  Video Info:           Off");
-				OsdWrite(5, "  HDMI Audio 96kHz:     Off");
-				OsdWrite(6, "  DVI Mode:             Off");
-				OsdWrite(7, "  Direct Video:         Off");
-				OsdWrite(8, "");
-				OsdWrite(9, "  [Settings are read-only]");
-				OsdWrite(10, "");
-				OsdWrite(11, "  Press MENU to go back");
-				for (int i = 12; i < 16; i++) OsdWrite(i, "");
+				// Video & Display settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_VIDEO1;
+				menusub = 0;
 				break;
 				
 			case 1:
-				// Audio settings
-				OsdSetTitle("Audio", OSD_ARROW_LEFT);
-				OsdWrite(0, "");
-				OsdWrite(1, "  Master Volume:        50%");
-				OsdWrite(2, "  Core Volume:          100%");
-				OsdWrite(3, "  HDMI Audio 96kHz:     Off");
-				OsdWrite(4, "  Audio Filter:         None");
-				OsdWrite(5, "");
-				OsdWrite(6, "  [Settings are read-only]");
-				OsdWrite(7, "");
-				OsdWrite(8, "  Press MENU to go back");
-				for (int i = 9; i < 16; i++) OsdWrite(i, "");
+				// Audio settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_AUDIO1;
+				menusub = 0;
 				break;
 				
 			case 2:
-				// Input & Controls settings
-				OsdSetTitle("Input & Controls", OSD_ARROW_LEFT);
-				OsdWrite(0, "");
-				OsdWrite(1, "  Keyboard Mapping:     US");
-				OsdWrite(2, "  Mouse Throttle:       10");
-				OsdWrite(3, "  Joystick Mapping:     Default");
-				OsdWrite(4, "  Gamepad Defaults:     On");
-				OsdWrite(5, "");
-				OsdWrite(6, "  [Settings are read-only]");
-				OsdWrite(7, "");
-				OsdWrite(8, "  Press MENU to go back");
-				for (int i = 9; i < 16; i++) OsdWrite(i, "");
+				// Input & Controls settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_INPUT1;
+				menusub = 0;
 				break;
 				
 			case 3:
-				// System & Storage settings
-				OsdSetTitle("System & Storage", OSD_ARROW_LEFT);
-				OsdWrite(0, "");
-				OsdWrite(1, "  Boot Screen:          On");
-				OsdWrite(2, "  Boot Core:            None");
-				OsdWrite(3, "  Boot Timeout:         10s");
-				OsdWrite(4, "  Storage Device:       SD");
-				OsdWrite(5, "  Recents:              On");
-				OsdWrite(6, "");
-				OsdWrite(7, "  [Settings are read-only]");
-				OsdWrite(8, "");
-				OsdWrite(9, "  Press MENU to go back");
-				for (int i = 10; i < 16; i++) OsdWrite(i, "");
+				// System & Storage settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_SYSTEM1;
+				menusub = 0;
+				break;
+				
+			case 4:
+				// Save All Settings
+				cfg_save(0);
+				menustate = MENU_SETTINGS1; // Refresh display
 				break;
 			}
 			
 			// Stay in MENU_SETTINGS2 but now we're in submenu mode
+		}
+		break;
+
+	case MENU_SETTINGS_VIDEO1:
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x3F; // 6 video settings
+
+		m = 0;
+		OsdSetTitle("Video & Display", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		sprintf(s, "  VGA Scaler:           %s", cfg.vga_scaler ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 0);
+		
+		sprintf(s, "  Video Info:           %d", cfg.video_info);
+		OsdWrite(m++, s, menusub == 1);
+		
+		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 2);
+		
+		sprintf(s, "  DVI Mode:             %s", cfg.dvi_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 3);
+		
+		sprintf(s, "  Direct Video:         %s", cfg.direct_video ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 4);
+		
+		sprintf(s, "  HDMI Limited:         %s", 
+			cfg.hdmi_limited == 0 ? "Off" : 
+			cfg.hdmi_limited == 1 ? "On" : "Auto");
+		OsdWrite(m++, s, menusub == 5);
+		
+		OsdWrite(m++);
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		OsdWrite(m++, "  MENU:Back");
+		
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS_VIDEO2;
+		break;
+
+	case MENU_SETTINGS_VIDEO2:
+		if (menu)
+		{
+			menustate = MENU_SETTINGS1;
+			menusub = 0; // Return to Video & Display category
+			break;
+		}
+		else if (select || left || right)
+		{
+			int changed = 0;
+			
+			switch (menusub)
+			{
+			case 0: // VGA Scaler
+				if (select || left || right)
+				{
+					cfg.vga_scaler = !cfg.vga_scaler;
+					changed = 1;
+				}
+				break;
+				
+			case 1: // Video Info
+				if (right || select)
+				{
+					cfg.video_info = (cfg.video_info + 1) % 11; // 0-10
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.video_info = (cfg.video_info + 10) % 11; // wrap around
+					changed = 1;
+				}
+				break;
+				
+			case 2: // HDMI Audio 96kHz
+				if (select || left || right)
+				{
+					cfg.hdmi_audio_96k = !cfg.hdmi_audio_96k;
+					changed = 1;
+				}
+				break;
+				
+			case 3: // DVI Mode
+				if (select || left || right)
+				{
+					cfg.dvi_mode = !cfg.dvi_mode;
+					changed = 1;
+				}
+				break;
+				
+			case 4: // Direct Video
+				if (select || left || right)
+				{
+					cfg.direct_video = !cfg.direct_video;
+					changed = 1;
+				}
+				break;
+				
+			case 5: // HDMI Limited
+				if (right || select)
+				{
+					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0, 1, 2
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.hdmi_limited = (cfg.hdmi_limited + 2) % 3; // wrap around
+					changed = 1;
+				}
+				break;
+			}
+			
+			if (changed)
+			{
+				// Refresh the display to show new values (no auto-save)
+				menustate = MENU_SETTINGS_VIDEO1;
+			}
+		}
+		break;
+
+	case MENU_SETTINGS_AUDIO1:
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x07; // 3 audio settings
+
+		m = 0;
+		OsdSetTitle("Audio Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 0);
+		
+		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
+		OsdWrite(m++, s, menusub == 1);
+		
+		sprintf(s, "  Rumble:               %s", cfg.rumble ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 2);
+		
+		OsdWrite(m++);
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		OsdWrite(m++, "  MENU:Back");
+		
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS_AUDIO2;
+		break;
+
+	case MENU_SETTINGS_AUDIO2:
+		if (menu)
+		{
+			menustate = MENU_SETTINGS1;
+			menusub = 1; // Return to Audio category
+			break;
+		}
+		else if (select || left || right)
+		{
+			int changed = 0;
+			
+			switch (menusub)
+			{
+			case 0: // HDMI Audio 96kHz
+				if (select || left || right)
+				{
+					cfg.hdmi_audio_96k = !cfg.hdmi_audio_96k;
+					changed = 1;
+				}
+				break;
+				
+			case 1: // Mouse Throttle
+				if (right || select)
+				{
+					if (cfg.mouse_throttle < 100) cfg.mouse_throttle++;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.mouse_throttle > 1) cfg.mouse_throttle--;
+					changed = 1;
+				}
+				break;
+				
+			case 2: // Rumble
+				if (select || left || right)
+				{
+					cfg.rumble = !cfg.rumble;
+					changed = 1;
+				}
+				break;
+			}
+			
+			if (changed)
+			{
+				menustate = MENU_SETTINGS_AUDIO1;
+			}
+		}
+		break;
+
+	case MENU_SETTINGS_INPUT1:
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x1F; // 5 input settings
+
+		m = 0;
+		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		sprintf(s, "  Keyboard No Mouse:    %s", cfg.kbd_nomouse ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 0);
+		
+		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
+		OsdWrite(m++, s, menusub == 1);
+		
+		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 2);
+		
+		sprintf(s, "  Controller Info:      %d", cfg.controller_info);
+		OsdWrite(m++, s, menusub == 3);
+		
+		sprintf(s, "  Disable Autofire:     %s", cfg.disable_autofire ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 4);
+		
+		OsdWrite(m++);
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		OsdWrite(m++, "  MENU:Back");
+		
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS_INPUT2;
+		break;
+
+	case MENU_SETTINGS_INPUT2:
+		if (menu)
+		{
+			menustate = MENU_SETTINGS1;
+			menusub = 2; // Return to Input & Controls category
+			break;
+		}
+		else if (select || left || right)
+		{
+			int changed = 0;
+			
+			switch (menusub)
+			{
+			case 0: // Keyboard No Mouse
+				if (select || left || right)
+				{
+					cfg.kbd_nomouse = !cfg.kbd_nomouse;
+					changed = 1;
+				}
+				break;
+				
+			case 1: // Mouse Throttle
+				if (right || select)
+				{
+					if (cfg.mouse_throttle < 100) cfg.mouse_throttle++;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.mouse_throttle > 1) cfg.mouse_throttle--;
+					changed = 1;
+				}
+				break;
+				
+			case 2: // Gamepad Defaults
+				if (select || left || right)
+				{
+					cfg.gamepad_defaults = !cfg.gamepad_defaults;
+					changed = 1;
+				}
+				break;
+				
+			case 3: // Controller Info
+				if (right || select)
+				{
+					cfg.controller_info = (cfg.controller_info + 1) % 11; // 0-10
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.controller_info = (cfg.controller_info + 10) % 11;
+					changed = 1;
+				}
+				break;
+				
+			case 4: // Disable Autofire
+				if (select || left || right)
+				{
+					cfg.disable_autofire = !cfg.disable_autofire;
+					changed = 1;
+				}
+				break;
+			}
+			
+			if (changed)
+			{
+				menustate = MENU_SETTINGS_INPUT1;
+			}
+		}
+		break;
+
+	case MENU_SETTINGS_SYSTEM1:
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x3F; // 6 system settings
+
+		m = 0;
+		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 0);
+		
+		sprintf(s, "  Boot Timeout:         %ds", cfg.bootcore_timeout);
+		OsdWrite(m++, s, menusub == 1);
+		
+		sprintf(s, "  Recents:              %s", cfg.recents ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 2);
+		
+		sprintf(s, "  FB Size:              %d", cfg.fb_size);
+		OsdWrite(m++, s, menusub == 3);
+		
+		sprintf(s, "  FB Terminal:          %s", cfg.fb_terminal ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 4);
+		
+		sprintf(s, "  OSD Timeout:          %ds", cfg.osd_timeout);
+		OsdWrite(m++, s, menusub == 5);
+		
+		OsdWrite(m++);
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		OsdWrite(m++, "  MENU:Back");
+		
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS_SYSTEM2;
+		break;
+
+	case MENU_SETTINGS_SYSTEM2:
+		if (menu)
+		{
+			menustate = MENU_SETTINGS1;
+			menusub = 3; // Return to System & Storage category
+			break;
+		}
+		else if (select || left || right)
+		{
+			int changed = 0;
+			
+			switch (menusub)
+			{
+			case 0: // Boot Screen
+				if (select || left || right)
+				{
+					cfg.bootscreen = !cfg.bootscreen;
+					changed = 1;
+				}
+				break;
+				
+			case 1: // Boot Timeout
+				if (right || select)
+				{
+					if (cfg.bootcore_timeout < 30) cfg.bootcore_timeout++;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.bootcore_timeout > 2) cfg.bootcore_timeout--;
+					changed = 1;
+				}
+				break;
+				
+			case 2: // Recents
+				if (select || left || right)
+				{
+					cfg.recents = !cfg.recents;
+					changed = 1;
+				}
+				break;
+				
+			case 3: // FB Size
+				if (right || select)
+				{
+					cfg.fb_size = (cfg.fb_size + 1) % 5; // 0-4
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.fb_size = (cfg.fb_size + 4) % 5;
+					changed = 1;
+				}
+				break;
+				
+			case 4: // FB Terminal
+				if (select || left || right)
+				{
+					cfg.fb_terminal = !cfg.fb_terminal;
+					changed = 1;
+				}
+				break;
+				
+			case 5: // OSD Timeout
+				if (right || select)
+				{
+					if (cfg.osd_timeout < 3600) cfg.osd_timeout += 60; // increment by 1 minute
+					if (cfg.osd_timeout > 3600) cfg.osd_timeout = 3600;
+					changed = 1;
+				}
+				else if (left)
+				{
+					if (cfg.osd_timeout > 0) cfg.osd_timeout -= 60; // decrement by 1 minute
+					if (cfg.osd_timeout < 0) cfg.osd_timeout = 0;
+					changed = 1;
+				}
+				break;
+			}
+			
+			if (changed)
+			{
+				menustate = MENU_SETTINGS_SYSTEM1;
+			}
 		}
 		break;
 
@@ -6456,7 +6890,7 @@ void HandleUI(void)
 
 		m = 0;
 		OsdSetTitle("System Settings", OSD_ARROW_LEFT);
-		menumask = 0x7F;
+		menumask = 0xFF;
 
 		OsdWrite(m++);
 		sprintf(s, "       MiSTer v%s", version + 5);
@@ -6518,7 +6952,7 @@ void HandleUI(void)
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 6);
+		OsdWrite(15, STD_EXIT, menusub == 7);
 		menustate = MENU_SYSTEM2;
 		break;
 
