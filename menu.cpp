@@ -3908,9 +3908,9 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 1);
 		
 		const char *vga_mode_str = "RGB";
-		if (!strcasecmp(cfg.vga_mode, "ypbpr")) vga_mode_str = "YPbPr";
-		else if (!strcasecmp(cfg.vga_mode, "svideo")) vga_mode_str = "S-Video";
-		else if (!strcasecmp(cfg.vga_mode, "cvbs")) vga_mode_str = "CVBS";
+		if (cfg.vga_mode_int == 1) vga_mode_str = "YPbPr";
+		else if (cfg.vga_mode_int == 2) vga_mode_str = "S-Video";
+		else if (cfg.vga_mode_int == 3) vga_mode_str = "CVBS";
 		sprintf(s, "  VGA Mode:             %s", vga_mode_str);
 		OsdWrite(m++, s, menusub == 2);
 		
@@ -3965,49 +3965,27 @@ void HandleUI(void)
 			case 2: // VGA Mode
 				if (right || select)
 				{
-					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+					cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Cycle 0->1->2->3->0
+					// Update string representation to match
+					switch (cfg.vga_mode_int)
 					{
-						strcpy(cfg.vga_mode, "ypbpr");
-						cfg.vga_mode_int = 1;
-					}
-					else if (!strcasecmp(cfg.vga_mode, "ypbpr"))
-					{
-						strcpy(cfg.vga_mode, "svideo");
-						cfg.vga_mode_int = 2;
-					}
-					else if (!strcasecmp(cfg.vga_mode, "svideo"))
-					{
-						strcpy(cfg.vga_mode, "cvbs");
-						cfg.vga_mode_int = 3;
-					}
-					else
-					{
-						strcpy(cfg.vga_mode, "rgb");
-						cfg.vga_mode_int = 0;
+						case 0: strcpy(cfg.vga_mode, "rgb"); break;
+						case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
+						case 2: strcpy(cfg.vga_mode, "svideo"); break;
+						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 					}
 					changed = 1;
 				}
 				else if (left)
 				{
-					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+					cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Cycle 0->3->2->1->0
+					// Update string representation to match
+					switch (cfg.vga_mode_int)
 					{
-						strcpy(cfg.vga_mode, "cvbs");
-						cfg.vga_mode_int = 3;
-					}
-					else if (!strcasecmp(cfg.vga_mode, "cvbs"))
-					{
-						strcpy(cfg.vga_mode, "svideo");
-						cfg.vga_mode_int = 2;
-					}
-					else if (!strcasecmp(cfg.vga_mode, "svideo"))
-					{
-						strcpy(cfg.vga_mode, "ypbpr");
-						cfg.vga_mode_int = 1;
-					}
-					else
-					{
-						strcpy(cfg.vga_mode, "rgb");
-						cfg.vga_mode_int = 0;
+						case 0: strcpy(cfg.vga_mode, "rgb"); break;
+						case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
+						case 2: strcpy(cfg.vga_mode, "svideo"); break;
+						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 					}
 					changed = 1;
 				}
