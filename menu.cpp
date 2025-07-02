@@ -89,6 +89,10 @@ enum MENU
 	MENU_SETTINGS_INPUT2,
 	MENU_SETTINGS_SYSTEM1,
 	MENU_SETTINGS_SYSTEM2,
+	MENU_SETTINGS_ANALOG1,
+	MENU_SETTINGS_ANALOG2,
+	MENU_SETTINGS_HDMI1,
+	MENU_SETTINGS_HDMI2,
 
 	MENU_SELECT_INI1,
 	MENU_SELECT_INI2,
@@ -3793,13 +3797,14 @@ void HandleUI(void)
 		OsdWrite(m++);
 		
 		// Categories
-		OsdWrite(m++, "  \x16 Video & Display", menusub == 0);
-		OsdWrite(m++, "  \x16 Audio", menusub == 1);
-		OsdWrite(m++, "  \x16 Input & Controls", menusub == 2);
-		OsdWrite(m++, "  \x16 System & Storage", menusub == 3);
+		OsdWrite(m++, "  \x16 Analog Video", menusub == 0);
+		OsdWrite(m++, "  \x16 HDMI Video", menusub == 1);
+		OsdWrite(m++, "  \x16 Audio", menusub == 2);
+		OsdWrite(m++, "  \x16 Input & Controls", menusub == 3);
+		OsdWrite(m++, "  \x16 System & Storage", menusub == 4);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  Save All Settings", menusub == 4);
+		OsdWrite(m++, "  Save All Settings", menusub == 5);
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -3820,12 +3825,12 @@ void HandleUI(void)
 			if (menusub > 0) 
 				menusub--;
 			else 
-				menusub = 4; // wrap to last item (Save All Settings)
+				menusub = 5; // wrap to last item (Save All Settings)
 			menustate = MENU_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < 4) 
+			if (menusub < 5) 
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -3839,30 +3844,36 @@ void HandleUI(void)
 			switch (menusub)
 			{
 			case 0:
-				// Video & Display settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_VIDEO1;
+				// Analog Video settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_ANALOG1;
 				menusub = 0;
 				break;
 				
 			case 1:
+				// HDMI Video settings - go to dedicated submenu
+				menustate = MENU_SETTINGS_HDMI1;
+				menusub = 0;
+				break;
+				
+			case 2:
 				// Audio settings - go to dedicated submenu
 				menustate = MENU_SETTINGS_AUDIO1;
 				menusub = 0;
 				break;
 				
-			case 2:
+			case 3:
 				// Input & Controls settings - go to dedicated submenu
 				menustate = MENU_SETTINGS_INPUT1;
 				menusub = 0;
 				break;
 				
-			case 3:
+			case 4:
 				// System & Storage settings - go to dedicated submenu
 				menustate = MENU_SETTINGS_SYSTEM1;
 				menusub = 0;
 				break;
 				
-			case 4:
+			case 5:
 				// Save All Settings
 				cfg_save(0);
 				menustate = MENU_SETTINGS1; // Refresh display
@@ -3873,7 +3884,8 @@ void HandleUI(void)
 		}
 		break;
 
-	case MENU_SETTINGS_VIDEO1:
+	case MENU_SETTINGS_ANALOG1:
+	{
 		if (video_fb_state())
 		{
 			menustate = MENU_NONE1;
@@ -3883,60 +3895,33 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x7FFF; // 15 video settings
+		menumask = 0x3F; // 6 analog settings
 
 		m = 0;
-		OsdSetTitle("Video & Display", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+		OsdSetTitle("Analog Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
 		sprintf(s, "  VGA Scaler:           %s", cfg.vga_scaler ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  Video Info:           %d", cfg.video_info);
+		sprintf(s, "  Direct Video:         %s", cfg.direct_video ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		const char *vga_mode_str = "RGB";
+		if (!strcasecmp(cfg.vga_mode, "ypbpr")) vga_mode_str = "YPbPr";
+		else if (!strcasecmp(cfg.vga_mode, "svideo")) vga_mode_str = "S-Video";
+		else if (!strcasecmp(cfg.vga_mode, "cvbs")) vga_mode_str = "CVBS";
+		sprintf(s, "  VGA Mode:             %s", vga_mode_str);
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  DVI Mode:             %s", cfg.dvi_mode ? "On" : "Off");
+		sprintf(s, "  Composite Sync:       %s", cfg.csync ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  Direct Video:         %s", cfg.direct_video ? "On" : "Off");
+		sprintf(s, "  VGA SOG:              %s", cfg.vga_sog ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  HDMI Limited:         %s", 
-			cfg.hdmi_limited == 0 ? "Off" : 
-			cfg.hdmi_limited == 1 ? "On" : "Auto");
-		OsdWrite(m++, s, menusub == 5);
-		
 		sprintf(s, "  Forced Scandoubler:   %s", cfg.forced_scandoubler ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 6);
-		
-		sprintf(s, "  VSync Adjust:         %s", 
-			cfg.vsync_adjust == 0 ? "Off" : 
-			cfg.vsync_adjust == 1 ? "Auto" : "Low Latency");
-		OsdWrite(m++, s, menusub == 7);
-		
-		sprintf(s, "  Video Brightness:     %d", cfg.video_brightness);
-		OsdWrite(m++, s, menusub == 8);
-		
-		sprintf(s, "  Video Contrast:       %d", cfg.video_contrast);
-		OsdWrite(m++, s, menusub == 9);
-		
-		sprintf(s, "  Video Saturation:     %d", cfg.video_saturation);
-		OsdWrite(m++, s, menusub == 10);
-		
-		sprintf(s, "  Composite Sync:       %s", cfg.csync ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 11);
-		
-		sprintf(s, "  VGA SOG:              %s", cfg.vga_sog ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 12);
-		
-		sprintf(s, "  HDMI Game Mode:       %s", cfg.hdmi_game_mode ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 13);
-		
-		sprintf(s, "  VRR Mode:             %s", cfg.vrr_mode ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 14);
+		OsdWrite(m++, s, menusub == 5);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -3944,14 +3929,15 @@ void HandleUI(void)
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
-		menustate = MENU_SETTINGS_VIDEO2;
+		menustate = MENU_SETTINGS_ANALOG2;
 		break;
+	}
 
-	case MENU_SETTINGS_VIDEO2:
+	case MENU_SETTINGS_ANALOG2:
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 0; // Return to Video & Display category
+			menusub = 0; // Return to Analog Video category
 			break;
 		}
 		else if (select || left || right)
@@ -3968,15 +3954,168 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 1: // Video Info
+			case 1: // Direct Video
+				if (select || left || right)
+				{
+					cfg.direct_video = !cfg.direct_video;
+					changed = 1;
+				}
+				break;
+				
+			case 2: // VGA Mode
 				if (right || select)
 				{
-					cfg.video_info = (cfg.video_info + 1) % 11; // 0-10
+					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+						strcpy(cfg.vga_mode, "ypbpr");
+					else if (!strcasecmp(cfg.vga_mode, "ypbpr"))
+						strcpy(cfg.vga_mode, "svideo");
+					else if (!strcasecmp(cfg.vga_mode, "svideo"))
+						strcpy(cfg.vga_mode, "cvbs");
+					else
+						strcpy(cfg.vga_mode, "rgb");
 					changed = 1;
 				}
 				else if (left)
 				{
-					cfg.video_info = (cfg.video_info + 10) % 11; // wrap around
+					if (!strcasecmp(cfg.vga_mode, "rgb") || strlen(cfg.vga_mode) == 0)
+						strcpy(cfg.vga_mode, "cvbs");
+					else if (!strcasecmp(cfg.vga_mode, "cvbs"))
+						strcpy(cfg.vga_mode, "svideo");
+					else if (!strcasecmp(cfg.vga_mode, "svideo"))
+						strcpy(cfg.vga_mode, "ypbpr");
+					else
+						strcpy(cfg.vga_mode, "rgb");
+					changed = 1;
+				}
+				break;
+				
+			case 3: // Composite Sync
+				if (select || left || right)
+				{
+					cfg.csync = !cfg.csync;
+					changed = 1;
+				}
+				break;
+				
+			case 4: // VGA SOG
+				if (select || left || right)
+				{
+					cfg.vga_sog = !cfg.vga_sog;
+					changed = 1;
+				}
+				break;
+				
+			case 5: // Forced Scandoubler
+				if (select || left || right)
+				{
+					cfg.forced_scandoubler = !cfg.forced_scandoubler;
+					changed = 1;
+				}
+				break;
+			}
+			
+			if (changed)
+			{
+				menustate = MENU_SETTINGS_ANALOG1;
+			}
+		}
+		break;
+
+	case MENU_SETTINGS_HDMI1:
+	{
+		if (video_fb_state())
+		{
+			menustate = MENU_NONE1;
+			break;
+		}
+
+		OsdSetSize(16);
+		helptext_idx = 0;
+		parentstate = menustate;
+		menumask = 0x7FF; // 11 HDMI settings
+
+		m = 0;
+		OsdSetTitle("HDMI Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+		OsdWrite(m++);
+		sprintf(s, "  HDMI Game Mode:       %s", cfg.hdmi_game_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 0);
+		
+		sprintf(s, "  VRR Mode:             %s", cfg.vrr_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 1);
+		
+		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 2);
+		
+		sprintf(s, "  DVI Mode:             %s", cfg.dvi_mode ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 3);
+		
+		sprintf(s, "  HDMI Limited:         %s", 
+			cfg.hdmi_limited == 0 ? "Off" : 
+			cfg.hdmi_limited == 1 ? "On" : "Auto");
+		OsdWrite(m++, s, menusub == 4);
+		
+		sprintf(s, "  VSync Adjust:         %s", 
+			cfg.vsync_adjust == 0 ? "Off" : 
+			cfg.vsync_adjust == 1 ? "Auto" : "Low Latency");
+		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  Video Brightness:     %d", cfg.video_brightness);
+		OsdWrite(m++, s, menusub == 6);
+		
+		sprintf(s, "  Video Contrast:       %d", cfg.video_contrast);
+		OsdWrite(m++, s, menusub == 7);
+		
+		sprintf(s, "  Video Saturation:     %d", cfg.video_saturation);
+		OsdWrite(m++, s, menusub == 8);
+		
+		sprintf(s, "  Video Hue:            %d", cfg.video_hue);
+		OsdWrite(m++, s, menusub == 9);
+		
+		const char *vscale_str = "Fit";
+		if (cfg.vscale_mode == 1) vscale_str = "Integer";
+		else if (cfg.vscale_mode == 2) vscale_str = "0.5x Int";
+		else if (cfg.vscale_mode == 3) vscale_str = "0.25x Int";
+		else if (cfg.vscale_mode == 4) vscale_str = "Int CAR";
+		else if (cfg.vscale_mode == 5) vscale_str = "Int DAR";
+		sprintf(s, "  VScale Mode:          %s", vscale_str);
+		OsdWrite(m++, s, menusub == 10);
+		
+		OsdWrite(m++);
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
+		OsdWrite(m++, "  MENU:Back");
+		
+		while (m < OsdGetSize()) OsdWrite(m++);
+		
+		menustate = MENU_SETTINGS_HDMI2;
+		break;
+	}
+
+	case MENU_SETTINGS_HDMI2:
+		if (menu)
+		{
+			menustate = MENU_SETTINGS1;
+			menusub = 1; // Return to HDMI Video category
+			break;
+		}
+		else if (select || left || right)
+		{
+			int changed = 0;
+			
+			switch (menusub)
+			{
+			case 0: // HDMI Game Mode
+				if (select || left || right)
+				{
+					cfg.hdmi_game_mode = !cfg.hdmi_game_mode;
+					changed = 1;
+				}
+				break;
+				
+			case 1: // VRR Mode
+				if (select || left || right)
+				{
+					cfg.vrr_mode = !cfg.vrr_mode;
 					changed = 1;
 				}
 				break;
@@ -3997,15 +4136,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 4: // Direct Video
-				if (select || left || right)
-				{
-					cfg.direct_video = !cfg.direct_video;
-					changed = 1;
-				}
-				break;
-				
-			case 5: // HDMI Limited
+			case 4: // HDMI Limited
 				if (right || select)
 				{
 					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0, 1, 2
@@ -4018,15 +4149,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 6: // Forced Scandoubler
-				if (select || left || right)
-				{
-					cfg.forced_scandoubler = !cfg.forced_scandoubler;
-					changed = 1;
-				}
-				break;
-				
-			case 7: // VSync Adjust
+			case 5: // VSync Adjust
 				if (right || select)
 				{
 					cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0, 1, 2
@@ -4039,7 +4162,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 8: // Video Brightness
+			case 6: // Video Brightness
 				if (right || select)
 				{
 					if (cfg.video_brightness < 100)
@@ -4058,7 +4181,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 9: // Video Contrast
+			case 7: // Video Contrast
 				if (right || select)
 				{
 					if (cfg.video_contrast < 100)
@@ -4077,7 +4200,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 10: // Video Saturation
+			case 8: // Video Saturation
 				if (right || select)
 				{
 					if (cfg.video_saturation < 100)
@@ -4096,34 +4219,34 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 11: // Composite Sync
-				if (select || left || right)
+			case 9: // Video Hue
+				if (right || select)
 				{
-					cfg.csync = !cfg.csync;
-					changed = 1;
+					if (cfg.video_hue < 360)
+					{
+						cfg.video_hue += 10;
+						changed = 1;
+					}
+				}
+				else if (left)
+				{
+					if (cfg.video_hue > 0)
+					{
+						cfg.video_hue -= 10;
+						changed = 1;
+					}
 				}
 				break;
 				
-			case 12: // VGA SOG
-				if (select || left || right)
+			case 10: // VScale Mode
+				if (right || select)
 				{
-					cfg.vga_sog = !cfg.vga_sog;
+					cfg.vscale_mode = (cfg.vscale_mode + 1) % 6; // 0-5
 					changed = 1;
 				}
-				break;
-				
-			case 13: // HDMI Game Mode
-				if (select || left || right)
+				else if (left)
 				{
-					cfg.hdmi_game_mode = !cfg.hdmi_game_mode;
-					changed = 1;
-				}
-				break;
-				
-			case 14: // VRR Mode
-				if (select || left || right)
-				{
-					cfg.vrr_mode = !cfg.vrr_mode;
+					cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // wrap around
 					changed = 1;
 				}
 				break;
@@ -4131,8 +4254,7 @@ void HandleUI(void)
 			
 			if (changed)
 			{
-				// Refresh the display to show new values (no auto-save)
-				menustate = MENU_SETTINGS_VIDEO1;
+				menustate = MENU_SETTINGS_HDMI1;
 			}
 		}
 		break;
@@ -4153,8 +4275,8 @@ void HandleUI(void)
 		OsdSetTitle("Audio Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  HDMI Audio 96kHz:     %s", cfg.hdmi_audio_96k ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 0);
+		OsdWrite(m++, "  No audio settings available");
+		OsdWrite(m++, "  (HDMI Audio moved to HDMI Video)");
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -4169,7 +4291,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 1; // Return to Audio category
+			menusub = 2; // Return to Audio category
 			break;
 		}
 		else if (select || left || right)
@@ -4178,13 +4300,7 @@ void HandleUI(void)
 			
 			switch (menusub)
 			{
-			case 0: // HDMI Audio 96kHz
-				if (select || left || right)
-				{
-					cfg.hdmi_audio_96k = !cfg.hdmi_audio_96k;
-					changed = 1;
-				}
-				break;
+			// No audio settings to handle
 			}
 			
 			if (changed)
@@ -4259,7 +4375,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 2; // Return to Input & Controls category
+			menusub = 3; // Return to Input & Controls category
 			break;
 		}
 		else if (select || left || right)
@@ -4405,38 +4521,41 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x1FF; // 9 system settings
+		menumask = 0x3FF; // 10 system settings
 
 		m = 0;
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
+		sprintf(s, "  Video Info:           %d", cfg.video_info);
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  Boot Timeout:         %ds", cfg.bootcore_timeout);
+		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Recent Files:         %s", cfg.recents ? "On" : "Off");
+		sprintf(s, "  Boot Timeout:         %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  FB Size:              %d", cfg.fb_size);
+		sprintf(s, "  Recent Files:         %s", cfg.recents ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  FB Terminal:          %s", cfg.fb_terminal ? "On" : "Off");
+		sprintf(s, "  FB Size:              %d", cfg.fb_size);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  OSD Timeout:          %ds", cfg.osd_timeout);
+		sprintf(s, "  FB Terminal:          %s", cfg.fb_terminal ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  OSD Rotate:           %s", cfg.osd_rotate ? "On" : "Off");
+		sprintf(s, "  OSD Timeout:          %ds", cfg.osd_timeout);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  Browse Expand:        %s", cfg.browse_expand ? "On" : "Off");
+		sprintf(s, "  OSD Rotate:           %s", cfg.osd_rotate ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Logo:                 %s", cfg.logo ? "On" : "Off");
+		sprintf(s, "  Browse Expand:        %s", cfg.browse_expand ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 8);
+		
+		sprintf(s, "  Logo:                 %s", cfg.logo ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 9);
 		
 		OsdWrite(m++);
 		OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
@@ -4451,7 +4570,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 3; // Return to System & Storage category
+			menusub = 4; // Return to System & Storage category
 			break;
 		}
 		else if (select || left || right)
@@ -4460,7 +4579,20 @@ void HandleUI(void)
 			
 			switch (menusub)
 			{
-			case 0: // Boot Screen
+			case 0: // Video Info
+				if (right || select)
+				{
+					cfg.video_info = (cfg.video_info + 1) % 11; // 0-10
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.video_info = (cfg.video_info + 10) % 11; // wrap around
+					changed = 1;
+				}
+				break;
+				
+			case 1: // Boot Screen
 				if (select || left || right)
 				{
 					cfg.bootscreen = !cfg.bootscreen;
@@ -4468,7 +4600,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 1: // Boot Timeout
+			case 2: // Boot Timeout
 				if (right || select)
 				{
 					if (cfg.bootcore_timeout < 30) cfg.bootcore_timeout++;
@@ -4481,7 +4613,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 2: // Recents
+			case 3: // Recents
 				if (select || left || right)
 				{
 					cfg.recents = !cfg.recents;
@@ -4489,7 +4621,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 3: // FB Size
+			case 4: // FB Size
 				if (right || select)
 				{
 					cfg.fb_size = (cfg.fb_size + 1) % 5; // 0-4
@@ -4502,7 +4634,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 4: // FB Terminal
+			case 5: // FB Terminal
 				if (select || left || right)
 				{
 					cfg.fb_terminal = !cfg.fb_terminal;
@@ -4510,7 +4642,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 5: // OSD Timeout
+			case 6: // OSD Timeout
 				if (right || select)
 				{
 					if (cfg.osd_timeout < 3600) cfg.osd_timeout += 60; // increment by 1 minute
@@ -4525,7 +4657,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 6: // OSD Rotate
+			case 7: // OSD Rotate
 				if (select || left || right)
 				{
 					cfg.osd_rotate = !cfg.osd_rotate;
@@ -4533,7 +4665,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 7: // Browse Expand
+			case 8: // Browse Expand
 				if (select || left || right)
 				{
 					cfg.browse_expand = !cfg.browse_expand;
@@ -4541,7 +4673,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 8: // Logo
+			case 9: // Logo
 				if (select || left || right)
 				{
 					cfg.logo = !cfg.logo;
