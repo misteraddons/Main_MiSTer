@@ -161,6 +161,10 @@ int cfg_get_settings_for_category(osd_category_t category, const void*** vars, c
 const char* cfg_get_setting_display_name(const char* ini_name);
 const char* cfg_get_setting_description(const char* ini_name);
 
+// Help text system for menu settings
+const ini_var_t* cfg_get_ini_var(const char* name);
+const char* cfg_get_help_text(const char* setting_key);
+
 // External access to ini_vars array and count
 extern const ini_var_t ini_vars[];
 extern const int nvars;

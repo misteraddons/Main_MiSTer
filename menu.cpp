@@ -65,6 +65,65 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ide.h"
 #include "profiling.h"
 
+// Reusable scrolling help text system
+typedef struct {
+	uint32_t scroll_timer;
+	int scroll_pos;
+	int last_menusub;
+	bool end_pause;
+} scroll_state_t;
+
+// Generate scrolling help text for menu items
+// Returns formatted string in provided buffer
+static void render_scrolling_help_text(char* buffer, size_t buffer_size, const char** setting_keys, 
+	                                   int current_menusub, int max_menusub, scroll_state_t* state)
+{
+	if (current_menusub < max_menusub && setting_keys) {
+		const char* help_text = cfg_get_help_text(setting_keys[current_menusub]);
+		int help_len = strlen(help_text);
+		
+		// Reset scroll position when menu item changes
+		if (current_menusub != state->last_menusub) {
+			state->scroll_pos = 0;
+			state->end_pause = false;
+			state->scroll_timer = GetTimer(1000); // Initial delay before scrolling
+			state->last_menusub = current_menusub;
+		}
+		
+		// Only scroll if text is longer than display width (26 chars)
+		if (help_len > 26) {
+			if (CheckTimer(state->scroll_timer)) {
+				if (state->end_pause) {
+					// End pause finished, restart from beginning
+					state->scroll_pos = 0;
+					state->end_pause = false;
+					state->scroll_timer = GetTimer(1000); // 1 second delay after restarting
+				} else {
+					state->scroll_pos++;
+					if (state->scroll_pos > help_len - 26) {
+						// Reached end, stay at end position and start pause
+						state->scroll_pos = help_len - 26; // Stay at the end
+						state->end_pause = true;
+						state->scroll_timer = GetTimer(1000); // 1 second pause at end
+					} else {
+						state->scroll_timer = GetTimer(100); // Continue scrolling every 100ms
+					}
+				}
+			}
+			// Extract scrolled portion
+			char scrolled_text[32];
+			strncpy(scrolled_text, help_text + state->scroll_pos, 26);
+			scrolled_text[26] = '\0';
+			snprintf(buffer, buffer_size, " %s", scrolled_text);
+		} else {
+			// Text fits, no scrolling needed
+			snprintf(buffer, buffer_size, " %s", help_text);
+		}
+	} else {
+		snprintf(buffer, buffer_size, " Use \x10\x11 to change settings");
+	}
+}
+
 /*menu states*/
 enum MENU
 {
@@ -3922,9 +3981,23 @@ void HandleUI(void)
 		sprintf(s, "  15kHz \x11 31kHz: %s", cfg.forced_scandoubler ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
 		
-		OsdWrite(m++);
-		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		//OsdWrite(m++, "  MENU:Back");
+		// Analog setting keys for help text lookup
+		static const char* analog_setting_keys[] = {
+			"VGA_SCALER",           // Analog Res.
+			"DIRECT_VIDEO",         // HDMI Mode
+			"YPBPR",                // Analog Mode (uses vga_mode_int)
+			"COMPOSITE_SYNC",       // Sync
+			"VGA_SOG",              // Sync on Green
+			"FORCED_SCANDOUBLER"    // 15kHz → 31kHz
+		};
+		
+		// Scrolling help text display
+		static scroll_state_t analog_scroll_state = {0, 0, -1, false};
+		
+		render_scrolling_help_text(s, sizeof(s), analog_setting_keys, menusub, 6, &analog_scroll_state);
+		
+		while (m < OsdGetSize() - 2) OsdWrite(m++);
+		OsdWrite(m++, s);  // Help text line on next-to-last row
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4040,6 +4113,14 @@ void HandleUI(void)
 				menustate = MENU_SETTINGS_ANALOG1;
 			}
 		}
+		
+		// Periodic refresh for scrolling help text
+		static uint32_t analog_refresh_timer = 0;
+		if (CheckTimer(analog_refresh_timer))
+		{
+			menustate = MENU_SETTINGS_ANALOG1;
+			analog_refresh_timer = GetTimer(100); // Refresh every 100ms
+		}
 		break;
 
 	case MENU_SETTINGS_HDMI1:
@@ -4126,76 +4207,29 @@ void HandleUI(void)
 		sprintf(s, "  Video Mode:  %s", vmode_str);
 		OsdWrite(m++, s, menusub == 11);
 		
-		// Help text array for HDMI settings
-		static const char* hdmi_help_texts[] = {
-			"Enables low-latency mode on compatible displays for gaming",        // Game Mode
-			"Variable refresh rate reduces stuttering and tearing",             // VRR Mode  
-			"Forces 96kHz audio output over HDMI for high-quality audio",       // 96kHz Audio
-			"Disables HDMI-specific features for DVI-only displays",            // DVI Mode
-			"Controls RGB color range: Full=0-255, Limited=16-235/255",         // RGB Range
-			"VSync timing: 3 Buffer 60Hz, 3 Buffer Match, 1 Buffer Match",      // VSync
-			"Adjusts display brightness from 0-100%",                           // Brightness
-			"Adjusts display contrast from 0-100%",                             // Contrast
-			"Adjusts color saturation from 0-100%",                             // Saturation
-			"Adjusts color hue from 0-360 degrees",                             // Hue
-			"Scaling: Fit, Integer, 0.25x Step, 0.5x Step, Core Int, Display Int", // VScale Mode
-			"Video resolution: Auto uses EDID, others force specific modes"     // Video Mode
+		// HDMI setting keys for help text lookup
+		static const char* hdmi_setting_keys[] = {
+			"HDMI_GAME_MODE",    // Game Mode
+			"VRR_MODE",          // VRR Mode  
+			"HDMI_AUDIO_96K",    // 96kHz Audio
+			"DVI_MODE",          // DVI Mode
+			"HDMI_LIMITED",      // RGB Range
+			"VSYNC_ADJUST",      // VSync
+			"VIDEO_BRIGHTNESS",  // Brightness
+			"VIDEO_CONTRAST",    // Contrast
+			"VIDEO_SATURATION",  // Saturation
+			"VIDEO_HUE",         // Hue
+			"VSCALE_MODE",       // VScale Mode
+			"VIDEO_MODE"         // Video Mode
 		};
 		
 		// Scrolling help text display
-		static uint32_t help_scroll_timer = 0;
-		static int help_scroll_pos = 0;
-		static uint32_t last_menusub = 0xFFFFFFFF;
-		static bool end_pause = false;
+		static scroll_state_t hdmi_scroll_state = {0, 0, -1, false};
 		
-		if (menusub < 12) {
-			const char* help_text = hdmi_help_texts[menusub];
-			int help_len = strlen(help_text);
-			
-			// Reset scroll position when menu item changes
-			if (menusub != last_menusub) {
-				help_scroll_pos = 0;
-				end_pause = false;
-				help_scroll_timer = GetTimer(1000); // Initial delay before scrolling
-				last_menusub = menusub;
-			}
-			
-			// Only scroll if text is longer than display width (26 chars)
-			if (help_len > 26) {
-				if (CheckTimer(help_scroll_timer)) {
-					if (end_pause) {
-						// End pause finished, restart from beginning
-						help_scroll_pos = 0;
-						end_pause = false;
-						help_scroll_timer = GetTimer(1000); // 1 second delay after restarting
-					} else {
-						help_scroll_pos++;
-						if (help_scroll_pos > help_len - 26) {
-							// Reached end, stay at end position and start pause
-							help_scroll_pos = help_len - 26; // Stay at the end
-							end_pause = true;
-							help_scroll_timer = GetTimer(1000); // 1 second pause at end
-						} else {
-							help_scroll_timer = GetTimer(100); // Continue scrolling every 100ms
-						}
-					}
-				}
-				// Extract scrolled portion
-				char scrolled_text[32];
-				strncpy(scrolled_text, help_text + help_scroll_pos, 26);
-				scrolled_text[26] = '\0';
-				sprintf(s, " %s", scrolled_text);
-			} else {
-				// Text fits, no scrolling needed
-				sprintf(s, " %s", help_text);
-			}
-		} else {
-			sprintf(s, " Use \x10\x11 to change settings");
-		}
+		render_scrolling_help_text(s, sizeof(s), hdmi_setting_keys, menusub, 12, &hdmi_scroll_state);
 		
-		OsdWrite(m++);
-		OsdWrite(m++, s);  // Help text line
-		OsdWrite(m++, "  \x12\x13:Navigate  \x10\x11:Change  MENU:Back");
+		while (m < OsdGetSize() - 2) OsdWrite(m++);
+		OsdWrite(m++, s);  // Help text line on next-to-last row
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4591,9 +4625,28 @@ void HandleUI(void)
 		sprintf(s, "  Sniper Mode:          %s", cfg.sniper_mode ? "Swap" : "Norm");
 		OsdWrite(m++, s, menusub == 10);
 		
-		OsdWrite(m++);
-		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		//OsdWrite(m++, "  MENU:Back");
+		// Input setting keys for help text lookup
+		static const char* input_setting_keys[] = {
+			"KBD_NOMOUSE",           // Mouse Emulation
+			"MOUSE_THROTTLE",        // Mouse Throttle
+			"RUMBLE",                // Rumble
+			"GAMEPAD_DEFAULTS",      // Gamepad Defaults
+			"CONTROLLER_INFO",       // Controller Info
+			"DISABLE_AUTOFIRE",      // Autofire
+			"BT_AUTO_DISCONNECT",    // BT Auto Disconnect
+			"BT_RESET_BEFORE_PAIR",  // BT Reset Before Pair
+			"WHEEL_FORCE",           // Wheel Force
+			"WHEEL_RANGE",           // Wheel Range
+			"SNIPER_MODE"            // Sniper Mode
+		};
+		
+		// Scrolling help text display
+		static scroll_state_t input_scroll_state = {0, 0, -1, false};
+		
+		render_scrolling_help_text(s, sizeof(s), input_setting_keys, menusub, 11, &input_scroll_state);
+		
+		while (m < OsdGetSize() - 2) OsdWrite(m++);
+		OsdWrite(m++, s);  // Help text line on next-to-last row
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4738,6 +4791,14 @@ void HandleUI(void)
 				menustate = MENU_SETTINGS_INPUT1;
 			}
 		}
+		
+		// Periodic refresh for scrolling help text
+		static uint32_t input_refresh_timer = 0;
+		if (CheckTimer(input_refresh_timer))
+		{
+			menustate = MENU_SETTINGS_INPUT1;
+			input_refresh_timer = GetTimer(100); // Refresh every 100ms
+		}
 		break;
 
 	case MENU_SETTINGS_SYSTEM1:
@@ -4789,9 +4850,27 @@ void HandleUI(void)
 		sprintf(s, "  Logo:                 %s", cfg.logo ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 9);
 		
-		OsdWrite(m++);
-		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		//OsdWrite(m++, "  MENU:Back");
+		// System setting keys for help text lookup
+		static const char* system_setting_keys[] = {
+			"VIDEO_INFO",           // Video Info
+			"BOOTSCREEN",           // Boot Screen
+			"BOOTCORE_TIMEOUT",     // Boot Timeout
+			"RECENTS",              // Recent Files
+			"FB_SIZE",              // FB Size
+			"FB_TERMINAL",          // FB Terminal
+			"OSD_TIMEOUT",          // OSD Timeout
+			"OSD_ROTATE",           // OSD Rotate
+			"BROWSE_EXPAND",        // Browse Expand
+			"LOGO"                  // Logo
+		};
+		
+		// Scrolling help text display
+		static scroll_state_t system_scroll_state = {0, 0, -1, false};
+		
+		render_scrolling_help_text(s, sizeof(s), system_setting_keys, menusub, 10, &system_scroll_state);
+		
+		while (m < OsdGetSize() - 2) OsdWrite(m++);
+		OsdWrite(m++, s);  // Help text line on next-to-last row
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4918,6 +4997,14 @@ void HandleUI(void)
 			{
 				menustate = MENU_SETTINGS_SYSTEM1;
 			}
+		}
+		
+		// Periodic refresh for scrolling help text
+		static uint32_t system_refresh_timer = 0;
+		if (CheckTimer(system_refresh_timer))
+		{
+			menustate = MENU_SETTINGS_SYSTEM1;
+			system_refresh_timer = GetTimer(100); // Refresh every 100ms
 		}
 		break;
 

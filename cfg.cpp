@@ -41,7 +41,7 @@ const ini_var_t ini_vars[] =
 	{ "KEYRAH_MODE", (void*)(&(cfg.keyrah_mode)), INI_HEX32, 0, 0xFFFFFFFF, "Keyrah Mode", "Keyrah interface mode", CAT_ADVANCED, NULL, true },
 	{ "RESET_COMBO", (void*)(&(cfg.reset_combo)), INI_UINT8, 0, 3, "Reset Key Combo", "Keyboard combination for reset", CAT_INPUT_CONTROLLERS, NULL, false },
 	{ "KEY_MENU_AS_RGUI", (void*)(&(cfg.key_menu_as_rgui)), INI_UINT8, 0, 1, "Menu Key as Right GUI", "Use Menu key as Right GUI", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Default video mode", CAT_VIDEO_DISPLAY, NULL, true },
+	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Auto mode uses HDMI EDID to set optimal resolution. All other settings override the EDID value.", CAT_VIDEO_DISPLAY, NULL, true },
 	{ "VIDEO_MODE_PAL", (void*)(cfg.video_conf_pal), INI_STRING, 0, sizeof(cfg.video_conf_pal) - 1, "Video Mode (PAL)", "Video mode for PAL cores", CAT_VIDEO_DISPLAY, NULL, true },
 	{ "VIDEO_MODE_NTSC", (void*)(cfg.video_conf_ntsc), INI_STRING, 0, sizeof(cfg.video_conf_ntsc) - 1, "Video Mode (NTSC)", "Video mode for NTSC cores", CAT_VIDEO_DISPLAY, NULL, true },
 	{ "VIDEO_INFO", (void*)(&(cfg.video_info)), INI_UINT8, 0, 10, "Video Info Display", "Show video information on screen", CAT_VIDEO_DISPLAY, "sec", false },
@@ -62,10 +62,10 @@ const ini_var_t ini_vars[] =
 	{ "FB_SIZE", (void*)(&(cfg.fb_size)), INI_UINT8, 0, 4, "Framebuffer Size", "Linux framebuffer size", CAT_SYSTEM_BOOT, NULL, true },
 	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), INI_UINT8, 0, 1, "Framebuffer Terminal", "Enable Linux terminal on HDMI", CAT_SYSTEM_BOOT, NULL, true },
 	{ "OSD_TIMEOUT", (void*)(&(cfg.osd_timeout)), INI_INT16, 0, 3600, "OSD Timeout", "Hide OSD after inactivity", CAT_SYSTEM_BOOT, "sec", false },
-	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays", CAT_VIDEO_DISPLAY, NULL, true },
+	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays and HDMI DACs", CAT_VIDEO_DISPLAY, NULL, true },
 	{ "OSD_ROTATE", (void*)(&(cfg.osd_rotate)), INI_UINT8, 0, 2, "OSD Rotation", "Rotate OSD display", CAT_SYSTEM_BOOT, NULL, false },
 	{ "DEADZONE", (void*)(&(cfg.controller_deadzone)), INI_STRINGARR, sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone), sizeof(*cfg.controller_deadzone), "Controller Deadzone", "Analog stick deadzone configuration", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "Use default gamepad mappings", CAT_INPUT_CONTROLLERS, NULL, false },
+	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "'Name' means Xbox 'A' button is mapped to SNES 'A' button. 'Positional' means Xbox 'A' button is mapped to SNES 'B' button.", CAT_INPUT_CONTROLLERS, NULL, false },
 	{ "RECENTS", (void*)(&(cfg.recents)), INI_UINT8, 0, 1, "Recent Files", "Track recently used files", CAT_SYSTEM_BOOT, NULL, false },
 	{ "CONTROLLER_INFO", (void*)(&(cfg.controller_info)), INI_UINT8, 0, 10, "Controller Info", "Display controller information", CAT_INPUT_CONTROLLERS, "sec", false },
 	{ "REFRESH_MIN", (void*)(&(cfg.refresh_min)), INI_FLOAT, 0, 150, "Minimum Refresh Rate", "Minimum allowed refresh rate", CAT_VIDEO_DISPLAY, "Hz", false },
@@ -122,14 +122,14 @@ const ini_var_t ini_vars[] =
 	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_VIDEO_DISPLAY, NULL, false },
 	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Brightness", "Maximum HDR brightness", CAT_VIDEO_DISPLAY, "nits", false },
 	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Average Brightness", "Average HDR brightness", CAT_VIDEO_DISPLAY, "nits", false },
-	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode", CAT_VIDEO_DISPLAY, NULL, true },
+	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode.", CAT_VIDEO_DISPLAY, NULL, true },
 	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "NTSC Mode", "NTSC color encoding mode", CAT_VIDEO_DISPLAY, NULL, false },
 	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Controller Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLERS, NULL, false },
 	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_SYSTEM_BOOT, NULL, false },
 	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_SYSTEM_BOOT, "sec", false },
 	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_ADVANCED, NULL, false },
 	{ "MAIN", (void*)(&(cfg.main)), INI_STRING, 0, sizeof(cfg.main) - 1, "Main Directory", "Main MiSTer directory name", CAT_SYSTEM_BOOT, NULL, false },
-	{"VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_ADVANCED, NULL, false },
+	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_ADVANCED, NULL, false },
 };
 
 const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -140,6 +140,39 @@ const osd_category_info_t* cfg_get_category_info(osd_category_t category)
 	if (category >= 0 && category < CAT_COUNT)
 		return &category_info[category];
 	return NULL;
+}
+
+
+// Find ini_var entry by name
+const ini_var_t* cfg_get_ini_var(const char* name)
+{
+	if (!name) return NULL;
+	
+	for (int i = 0; i < nvars; i++)
+	{
+		if (!strcmp(ini_vars[i].name, name))
+		{
+			return &ini_vars[i];
+		}
+	}
+	
+	return NULL;
+}
+
+// Get help text for a setting by key name using ini_vars
+const char* cfg_get_help_text(const char* setting_key)
+{
+	if (!setting_key) return NULL;
+	
+	// Try to find in ini_vars (primary source)
+	const ini_var_t* var = cfg_get_ini_var(setting_key);
+	if (var && var->description)
+	{
+		return var->description;
+	}
+	
+	// Return default help text if no specific help found
+	return "Use left/right arrows to change this setting value";
 }
 
 
