@@ -27,4 +27,7 @@ void StoreIdx_S(int idx, const char *path);
 
 int menu_present();
 
+// Global flag to suppress automatic video adjustments during menu editing
+extern bool video_settings_menu_active;
+
 #endif

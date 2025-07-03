@@ -2891,6 +2891,11 @@ void set_yc_mode()
 
 void video_mode_adjust()
 {
+	// Skip automatic video adjustments during menu editing
+	if (video_settings_menu_active) {
+		return;
+	}
+	
 	static bool force = false;
 
 	VideoInfo video_info;

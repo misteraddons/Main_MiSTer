@@ -434,6 +434,9 @@ typedef struct {
 static settings_backup_t settings_backup = {0};
 static bool video_settings_backup_done = false;
 
+// Global flag to suppress automatic video adjustments during menu editing
+bool video_settings_menu_active = false;
+
 // Function to backup current settings when entering menu
 static void backup_video_settings(void)
 {
@@ -480,6 +483,11 @@ static int apply_all_video_settings(void)
 	user_io_send_buttons(1);
 	backup_video_settings(); // Update backup to current values
 	printf("DEBUG: All video settings applied\n");
+	
+	// Clear flag to re-enable automatic video adjustments
+	video_settings_menu_active = false;
+	video_settings_backup_done = false;
+	
 	return 1;
 }
 
@@ -4412,6 +4420,9 @@ void HandleUI(void)
 			video_settings_backup_done = true;
 		}
 		
+		// Set flag to suppress automatic video adjustments
+		video_settings_menu_active = true;
+		
 		menumask = 0x1FFF & ~(1<<5) & ~(1<<10); // 13 items (0-12), skip dividers at 5 and 10
 
 		m = 0;
@@ -4558,6 +4569,9 @@ void HandleUI(void)
 			
 			// Reset backup flag for next time
 			video_settings_backup_done = false;
+			
+			// Clear flag to re-enable automatic video adjustments
+			video_settings_menu_active = false;
 			
 			menustate = MENU_SETTINGS1;
 			menusub = 0; // Return to Analog Video category
