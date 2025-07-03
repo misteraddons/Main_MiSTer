@@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <ctype.h>
 #include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -4438,6 +4439,11 @@ void HandleUI(void)
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						extern void video_mode_adjust();
 						extern void video_cfg_reset();
+						extern void fpga_core_reset(int reset);
+						// Power cycle the video system
+						fpga_core_reset(1);  // Assert reset
+						usleep(10000);       // Wait 10ms
+						fpga_core_reset(0);  // Deassert reset
 						video_cfg_reset();
 						video_mode_adjust();
 						changed = 1;
@@ -4459,6 +4465,11 @@ void HandleUI(void)
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						extern void video_mode_adjust();
 						extern void video_cfg_reset();
+						extern void fpga_core_reset(int reset);
+						// Power cycle the video system
+						fpga_core_reset(1);  // Assert reset
+						usleep(10000);       // Wait 10ms
+						fpga_core_reset(0);  // Deassert reset
 						video_cfg_reset();
 						video_mode_adjust();
 						changed = 1;
