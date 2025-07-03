@@ -4506,16 +4506,16 @@ void HandleUI(void)
 		
 		
 		sprintf(s, "  Brightness:  %d", cfg.video_brightness);
-		OsdWrite(m++, s, menusub == 2);
-		
-		sprintf(s, "  Contrast:    %d", cfg.video_contrast);
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  Saturation:  %d", cfg.video_saturation);
+		sprintf(s, "  Contrast:    %d", cfg.video_contrast);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  Hue:         %d", cfg.video_hue);
+		sprintf(s, "  Saturation:  %d", cfg.video_saturation);
 		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  Hue:         %d", cfg.video_hue);
+		OsdWrite(m++, s, menusub == 6);
 		
 		
 		// HDMI setting keys for help text lookup
