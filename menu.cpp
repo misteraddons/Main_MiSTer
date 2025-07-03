@@ -73,6 +73,66 @@ typedef struct {
 	bool end_pause;
 } scroll_state_t;
 
+// Generate scrolling help text for menu items using direct help text array
+// Returns formatted string in provided buffer
+static void render_scrolling_help_text_direct(char* buffer, size_t buffer_size, const char** help_texts, 
+	                                          int current_menusub, int max_menusub, scroll_state_t* state)
+{
+	if (current_menusub < max_menusub && help_texts) {
+		const char* help_text = help_texts[current_menusub];
+		int help_len = strlen(help_text);
+		
+		// Reset scroll position when menu item changes
+		if (current_menusub != state->last_menusub) {
+			state->scroll_pos = 0;
+			state->end_pause = false;
+			state->scroll_timer = GetTimer(1000); // Initial delay before scrolling
+			state->last_menusub = current_menusub;
+		}
+		
+		// Only scroll if text is longer than display width (26 chars)
+		if (help_len > 26) {
+			if (CheckTimer(state->scroll_timer)) {
+				if (state->end_pause) {
+					// End pause finished, restart from beginning
+					state->scroll_pos = 0;
+					state->end_pause = false;
+					state->scroll_timer = GetTimer(1000); // 1 second delay after restarting
+				}
+				else {
+					// Normal scrolling
+					state->scroll_pos++;
+					
+					// Check if we've reached the end
+					if (state->scroll_pos >= help_len - 26) {
+						state->end_pause = true;
+						state->scroll_timer = GetTimer(1000); // 1 second pause at end
+					}
+					else {
+						state->scroll_timer = GetTimer(100); // 100ms per character
+					}
+				}
+			}
+			
+			// Create scrolled string
+			int start_pos = state->scroll_pos;
+			if (start_pos + 26 > help_len) start_pos = help_len - 26;
+			if (start_pos < 0) start_pos = 0;
+			
+			strncpy(buffer, help_text + start_pos, 26);
+			buffer[26] = '\0';
+		}
+		else {
+			// Text fits, no scrolling needed
+			strncpy(buffer, help_text, buffer_size - 1);
+			buffer[buffer_size - 1] = '\0';
+		}
+	}
+	else {
+		strcpy(buffer, "Use left/right arrows to change this setting value");
+	}
+}
+
 // Generate scrolling help text for menu items
 // Returns formatted string in provided buffer
 static void render_scrolling_help_text(char* buffer, size_t buffer_size, const char** setting_keys, 
@@ -4010,19 +4070,19 @@ void HandleUI(void)
 		bool region_disabled = (cfg.vga_mode_int < 2); // Disabled for RGB/YPbPr
 		OsdWrite(m++, s, menusub == 4, region_disabled ? 1 : 0);
 		
-		// Analog setting keys for help text lookup
-		static const char* analog_setting_keys[] = {
-			"DIRECT_VIDEO",         // HDMI Mode
-			"VGA_MODE",             // Analog Mode
-			"VGA_SCALER",           // Analog Res.
-			"COMPOSITE_SYNC",       // Sync (includes Sync-on-Green)
-			"NTSC_MODE"             // Analog Region
+		// Direct help text for each analog setting
+		static const char* analog_help_texts[] = {
+			"Direct HDMI output or HDMI DAC for analog conversion",                    // HDMI Mode
+			"RGB (VGA), YPbPr (component), S-Video, or Composite video output",       // Analog Mode  
+			"Native (no scaling), Scaled (with scaler), or Scandoubled (15kHz→31kHz)", // Analog Res
+			"Sync signal type: Separate H/V, Composite sync, or Sync-on-Green",       // Sync
+			"NTSC, PAL-60, or PAL-M color encoding for S-Video/Composite modes"       // Analog Region
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t analog_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text(s, sizeof(s), analog_setting_keys, menusub, 5, &analog_scroll_state);
+		render_scrolling_help_text_direct(s, sizeof(s), analog_help_texts, menusub, 5, &analog_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -4072,7 +4132,20 @@ void HandleUI(void)
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
 						// Auto-reset settings based on new analog mode
-						if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
+						if (cfg.vga_mode_int == 0) { // RGB: ensure valid sync state (not both)
+							if (cfg.csync && cfg.vga_sog) {
+								// Invalid state from YPbPr, reset to composite only
+								cfg.csync = 1;
+								cfg.vga_sog = 0;
+								printf("DEBUG: Reset RGB sync to composite (was both)\n");
+							}
+						}
+						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
+							cfg.csync = 1;
+							cfg.vga_sog = 1;
+							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
+						}
+						else if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
 							if (cfg.vga_scaler || cfg.forced_scandoubler) {
 								cfg.vga_scaler = 0;
 								cfg.forced_scandoubler = 0;
@@ -4083,11 +4156,6 @@ void HandleUI(void)
 								cfg.vga_sog = 0;
 								printf("DEBUG: Auto-set composite sync for S-Video/CVBS\n");
 							}
-						}
-						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
-							cfg.csync = 1;
-							cfg.vga_sog = 1;
-							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
 						}
 						
 						// Force video mode reconfiguration for S-Video/CVBS modes
@@ -4114,7 +4182,20 @@ void HandleUI(void)
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
 						// Auto-reset settings based on new analog mode
-						if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
+						if (cfg.vga_mode_int == 0) { // RGB: ensure valid sync state (not both)
+							if (cfg.csync && cfg.vga_sog) {
+								// Invalid state from YPbPr, reset to composite only
+								cfg.csync = 1;
+								cfg.vga_sog = 0;
+								printf("DEBUG: Reset RGB sync to composite (was both)\n");
+							}
+						}
+						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
+							cfg.csync = 1;
+							cfg.vga_sog = 1;
+							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
+						}
+						else if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
 							if (cfg.vga_scaler || cfg.forced_scandoubler) {
 								cfg.vga_scaler = 0;
 								cfg.forced_scandoubler = 0;
@@ -4125,11 +4206,6 @@ void HandleUI(void)
 								cfg.vga_sog = 0;
 								printf("DEBUG: Auto-set composite sync for S-Video/CVBS\n");
 							}
-						}
-						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
-							cfg.csync = 1;
-							cfg.vga_sog = 1;
-							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
 						}
 						
 						// Force video mode reconfiguration for S-Video/CVBS modes
@@ -4205,8 +4281,13 @@ void HandleUI(void)
 							cfg.csync = 0;
 							cfg.vga_sog = 1;
 						}
-						else {
+						else if (!cfg.csync && cfg.vga_sog) {
 							// Sync-on-Green -> Separate
+							cfg.csync = 0;
+							cfg.vga_sog = 0;
+						}
+						else {
+							// Invalid state (both set) -> reset to Separate
 							cfg.csync = 0;
 							cfg.vga_sog = 0;
 						}
@@ -4225,8 +4306,13 @@ void HandleUI(void)
 							cfg.csync = 1;
 							cfg.vga_sog = 0;
 						}
-						else {
+						else if (cfg.csync && !cfg.vga_sog) {
 							// Composite -> Separate
+							cfg.csync = 0;
+							cfg.vga_sog = 0;
+						}
+						else {
+							// Invalid state (both set) -> reset to Separate
 							cfg.csync = 0;
 							cfg.vga_sog = 0;
 						}
