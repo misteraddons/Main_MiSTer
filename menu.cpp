@@ -440,6 +440,105 @@ static int analog_revert_mode(void)
 	return 1;
 }
 
+// VSync helper functions
+static uint8_t vsync_old_value;
+static uint8_t vsync_new_value;
+
+static int vsync_apply_adjustment(void)
+{
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int vsync_revert_adjustment(void)
+{
+	cfg.vsync_adjust = vsync_old_value;
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+// Analog Resolution helper functions
+static uint8_t analog_res_old_scaler;
+static uint8_t analog_res_old_scandoubler;
+static uint8_t analog_res_new_scaler;
+static uint8_t analog_res_new_scandoubler;
+
+static int analog_res_apply_change(void)
+{
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int analog_res_revert_change(void)
+{
+	cfg.vga_scaler = analog_res_old_scaler;
+	cfg.forced_scandoubler = analog_res_old_scandoubler;
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+// Analog Sync helper functions
+static uint8_t analog_sync_old_csync;
+static uint8_t analog_sync_old_sog;
+static uint8_t analog_sync_new_csync;
+static uint8_t analog_sync_new_sog;
+
+static int analog_sync_apply_change(void)
+{
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int analog_sync_revert_change(void)
+{
+	cfg.csync = analog_sync_old_csync;
+	cfg.vga_sog = analog_sync_old_sog;
+	user_io_send_buttons(1);
+	return 1;
+}
+
+// VScale helper functions
+static uint8_t vscale_old_value;
+static uint8_t vscale_new_value;
+
+static int vscale_apply_change(void)
+{
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int vscale_revert_change(void)
+{
+	cfg.vscale_mode = vscale_old_value;
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+// RGB Range helper functions
+static uint8_t rgb_range_old_value;
+static uint8_t rgb_range_new_value;
+
+static int rgb_range_apply_change(void)
+{
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int rgb_range_revert_change(void)
+{
+	cfg.hdmi_limited = rgb_range_old_value;
+	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
 static uint32_t menustate = MENU_NONE1;
 static uint32_t parentstate;
 static uint32_t menusub = 0;
@@ -4426,6 +4525,10 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
+						// Save old state for confirmation
+						analog_res_old_scaler = cfg.vga_scaler;
+						analog_res_old_scandoubler = cfg.forced_scandoubler;
+						
 						// Cycle: Native -> Scaled -> Scandoubled -> Native
 						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
 							// Native -> Scaled
@@ -4442,10 +4545,32 @@ void HandleUI(void)
 							cfg.vga_scaler = 0;
 							cfg.forced_scandoubler = 0;
 						}
-						changed = 1;
+						
+						analog_res_new_scaler = cfg.vga_scaler;
+						analog_res_new_scandoubler = cfg.forced_scandoubler;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (!analog_res_old_scaler && !analog_res_old_scandoubler) ? "Native" : 
+						                       (analog_res_old_scaler && !analog_res_old_scandoubler) ? "Scaled" : "Scandoubled";
+						const char* new_name = (!analog_res_new_scaler && !analog_res_new_scandoubler) ? "Native" : 
+						                       (analog_res_new_scaler && !analog_res_new_scandoubler) ? "Scaled" : "Scandoubled";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
+						// Save old state for confirmation
+						analog_res_old_scaler = cfg.vga_scaler;
+						analog_res_old_scandoubler = cfg.forced_scandoubler;
+						
 						// Cycle: Native -> Scandoubled -> Scaled -> Native
 						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
 							// Native -> Scandoubled
@@ -4462,7 +4587,25 @@ void HandleUI(void)
 							cfg.vga_scaler = 0;
 							cfg.forced_scandoubler = 0;
 						}
-						changed = 1;
+						
+						analog_res_new_scaler = cfg.vga_scaler;
+						analog_res_new_scandoubler = cfg.forced_scandoubler;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (!analog_res_old_scaler && !analog_res_old_scandoubler) ? "Native" : 
+						                       (analog_res_old_scaler && !analog_res_old_scandoubler) ? "Scaled" : "Scandoubled";
+						const char* new_name = (!analog_res_new_scaler && !analog_res_new_scandoubler) ? "Native" : 
+						                       (analog_res_new_scaler && !analog_res_new_scandoubler) ? "Scaled" : "Scandoubled";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				// S-Video/CVBS: Resolution changes not allowed
@@ -4472,6 +4615,10 @@ void HandleUI(void)
 				if (cfg.vga_mode_int == 0) { // RGB mode: All 3 sync options
 					if (right || select)
 					{
+						// Save old state for confirmation
+						analog_sync_old_csync = cfg.csync;
+						analog_sync_old_sog = cfg.vga_sog;
+						
 						// Cycle: Separate -> Composite -> Sync-on-Green -> Separate
 						if (!cfg.csync && !cfg.vga_sog) {
 							// Separate -> Composite
@@ -4493,10 +4640,31 @@ void HandleUI(void)
 							cfg.csync = 0;
 							cfg.vga_sog = 0;
 						}
-						changed = 1;
+						
+						analog_sync_new_csync = cfg.csync;
+						analog_sync_new_sog = cfg.vga_sog;
+						
+						// Apply the change immediately
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (!analog_sync_old_csync && !analog_sync_old_sog) ? "Separate" : 
+						                       (analog_sync_old_csync && !analog_sync_old_sog) ? "Composite" : "Sync-on-Green";
+						const char* new_name = (!analog_sync_new_csync && !analog_sync_new_sog) ? "Separate" : 
+						                       (analog_sync_new_csync && !analog_sync_new_sog) ? "Composite" : "Sync-on-Green";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
+						// Save old state for confirmation
+						analog_sync_old_csync = cfg.csync;
+						analog_sync_old_sog = cfg.vga_sog;
+						
 						// Cycle: Separate -> Sync-on-Green -> Composite -> Separate
 						if (!cfg.csync && !cfg.vga_sog) {
 							// Separate -> Sync-on-Green
@@ -4518,7 +4686,24 @@ void HandleUI(void)
 							cfg.csync = 0;
 							cfg.vga_sog = 0;
 						}
-						changed = 1;
+						
+						analog_sync_new_csync = cfg.csync;
+						analog_sync_new_sog = cfg.vga_sog;
+						
+						// Apply the change immediately
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (!analog_sync_old_csync && !analog_sync_old_sog) ? "Separate" : 
+						                       (analog_sync_old_csync && !analog_sync_old_sog) ? "Composite" : "Sync-on-Green";
+						const char* new_name = (!analog_sync_new_csync && !analog_sync_new_sog) ? "Separate" : 
+						                       (analog_sync_new_csync && !analog_sync_new_sog) ? "Composite" : "Sync-on-Green";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				// YPbPr mode (vga_mode_int == 1): No sync changes allowed (always Comp + SOG)
@@ -4640,13 +4825,51 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
+						// Save old state for confirmation
+						vsync_old_value = cfg.vsync_adjust;
+						
 						cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0->1->2->0
-						changed = 1;
+						vsync_new_value = cfg.vsync_adjust;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (vsync_old_value == 0) ? "3 Buffer 60Hz" : 
+						                       (vsync_old_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
+						const char* new_name = (vsync_new_value == 0) ? "3 Buffer 60Hz" : 
+						                       (vsync_new_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
+						// Save old state for confirmation
+						vsync_old_value = cfg.vsync_adjust;
+						
 						cfg.vsync_adjust = (cfg.vsync_adjust + 2) % 3; // 0->2->1->0
-						changed = 1;
+						vsync_new_value = cfg.vsync_adjust;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* old_name = (vsync_old_value == 0) ? "3 Buffer 60Hz" : 
+						                       (vsync_old_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
+						const char* new_name = (vsync_new_value == 0) ? "3 Buffer 60Hz" : 
+						                       (vsync_new_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				break;
@@ -4656,13 +4879,49 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
+						// Save old state for confirmation
+						vscale_old_value = cfg.vscale_mode;
+						
 						cfg.vscale_mode = (cfg.vscale_mode + 1) % 6; // 0->1->2->3->4->5->0
-						changed = 1;
+						vscale_new_value = cfg.vscale_mode;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* scale_names[] = {"Fit", "Integer", "0.25x Step", "0.5x Step", "Core Integer", "Display Integer"}; 
+						const char* old_name = (vscale_old_value < 6) ? scale_names[vscale_old_value] : "???";
+						const char* new_name = (vscale_new_value < 6) ? scale_names[vscale_new_value] : "???";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
+						// Save old state for confirmation
+						vscale_old_value = cfg.vscale_mode;
+						
 						cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // 0->5->4->3->2->1->0
-						changed = 1;
+						vscale_new_value = cfg.vscale_mode;
+						
+						// Apply the change immediately
+						apply_video_settings();
+						user_io_send_buttons(1);
+						
+						// Get display names for confirmation
+						const char* scale_names[] = {"Fit", "Integer", "0.25x Step", "0.5x Step", "Core Integer", "Display Integer"}; 
+						const char* old_name = (vscale_old_value < 6) ? scale_names[vscale_old_value] : "???";
+						const char* new_name = (vscale_new_value < 6) ? scale_names[vscale_new_value] : "???";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				break;
@@ -4670,13 +4929,49 @@ void HandleUI(void)
 			case 4: // RGB Range
 				if (right || select)
 				{
+					// Save old state for confirmation
+					rgb_range_old_value = cfg.hdmi_limited;
+					
 					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0->1->2->0
-					changed = 1;
+					rgb_range_new_value = cfg.hdmi_limited;
+					
+					// Apply the change immediately
+					apply_video_settings();
+					user_io_send_buttons(1);
+					
+					// Get display names for confirmation
+					const char* range_names[] = {"Full (0-255)", "Limited (16-235)", "Limited (16-255)"};
+					const char* old_name = (rgb_range_old_value < 3) ? range_names[rgb_range_old_value] : "???";
+					const char* new_name = (rgb_range_new_value < 3) ? range_names[rgb_range_new_value] : "???";
+					
+					// Setup confirmation screen
+					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
+					return; // Exit immediately to prevent generic handler from overriding menustate
 				}
 				else if (left)
 				{
+					// Save old state for confirmation
+					rgb_range_old_value = cfg.hdmi_limited;
+					
 					cfg.hdmi_limited = (cfg.hdmi_limited + 2) % 3; // 0->2->1->0
-					changed = 1;
+					rgb_range_new_value = cfg.hdmi_limited;
+					
+					// Apply the change immediately
+					apply_video_settings();
+					user_io_send_buttons(1);
+					
+					// Get display names for confirmation
+					const char* range_names[] = {"Full (0-255)", "Limited (16-235)", "Limited (16-255)"};
+					const char* old_name = (rgb_range_old_value < 3) ? range_names[rgb_range_old_value] : "???";
+					const char* new_name = (rgb_range_new_value < 3) ? range_names[rgb_range_new_value] : "???";
+					
+					// Setup confirmation screen
+					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
+					return; // Exit immediately to prevent generic handler from overriding menustate
 				}
 				break;
 				
@@ -6683,13 +6978,15 @@ void HandleUI(void)
 			int m = 0;
 			OsdWrite(m++, "");
 			char msg[64];
-			snprintf(msg, sizeof(msg), " %s changed to %s", confirm_state.setting_name, confirm_state.new_value);
+			snprintf(msg, sizeof(msg), " %s changed to:", confirm_state.setting_name);
+			OsdWrite(m++, msg);
+			snprintf(msg, sizeof(msg), " %s", confirm_state.new_value);
 			OsdWrite(m++, msg);
 			OsdWrite(m++, "");
 			
 			if (time_left > 0)
 			{
-				snprintf(msg, sizeof(msg), " Reverting in %d seconds", time_left);
+				snprintf(msg, sizeof(msg), " Reverting in %d second%s", time_left, time_left == 1 ? "" : "s");
 				OsdWrite(m++, msg);
 			}
 			else
