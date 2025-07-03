@@ -4962,7 +4962,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x7FF; // 11 system settings
+		menumask = 0x7FF; // 11 system settings (0-10)
 
 		m = 0;
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4981,16 +4981,16 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Recent Files:  %s", cfg.recents ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 2);
-		
-		sprintf(s, "  FB Size:       %d", cfg.fb_size);
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
+		sprintf(s, "  FB Size:       %d", cfg.fb_size);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
+		sprintf(s, "  FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
+		
+		sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
+		OsdWrite(m++, s, menusub == 6);
 		
 		{
 			const char *osd_rotate_str = "Off";
@@ -4998,16 +4998,16 @@ void HandleUI(void)
 			else if (cfg.osd_rotate == 2) osd_rotate_str = "90* CCW";
 			sprintf(s, "  OSD Rotate:    %s", osd_rotate_str);
 		}
-		OsdWrite(m++, s, menusub == 6);
-		
-		sprintf(s, "  Browse Expand: %s", cfg.browse_expand ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Logo:          %s", cfg.logo ? "On" : "Off");
+		sprintf(s, "  Browse Expand: %s", cfg.browse_expand ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, "  Debug:         %s", cfg.debug ? "On" : "Off");
+		sprintf(s, "  Logo:          %s", cfg.logo ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 9);
+		
+		sprintf(s, "  Debug:         %s", cfg.debug ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 10);
 		
 		// System setting keys for help text lookup
 		static const char* system_setting_keys[] = {
