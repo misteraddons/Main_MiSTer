@@ -4734,7 +4734,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x7FF; // 11 input settings
+		menumask = 0x7FF; // 11 input settings (0-10)
 
 		m = 0;
 		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4750,31 +4750,31 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Gamepad Defaults:   %s", cfg.gamepad_defaults ? "Pos." : "Name");
-		OsdWrite(m++, s, menusub == 2);
+		OsdWrite(m++, s, menusub == 3);
 		
 		if (cfg.controller_info == 0)
 			sprintf(s, "  Controller Info:    Off");
 		else
 			sprintf(s, "  Controller Info:    %ds", cfg.controller_info);
-		OsdWrite(m++, s, menusub == 3);
-		
-		sprintf(s, "  Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
+		sprintf(s, "  Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
+		sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  Wheel Force:        %d%%", cfg.wheel_force);
+		sprintf(s, "  BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Wheel Range:        %d°", cfg.wheel_range);
+		sprintf(s, "  Wheel Force:        %d%%", cfg.wheel_force);
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, "  Sniper Mode:        %s", cfg.sniper_mode ? "Swap" : "Norm");
+		sprintf(s, "  Wheel Range:        %d°", cfg.wheel_range);
 		OsdWrite(m++, s, menusub == 9);
+		
+		sprintf(s, "  Sniper Mode:        %s", cfg.sniper_mode ? "Swap" : "Norm");
+		OsdWrite(m++, s, menusub == 10);
 		
 		// Input setting keys for help text lookup
 		static const char* input_setting_keys[] = {
