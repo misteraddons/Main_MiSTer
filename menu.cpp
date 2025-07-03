@@ -4964,16 +4964,13 @@ void HandleUI(void)
 				{
 					bool has_changes = has_video_settings_changed();
 					if (has_changes) {
-						// Setup confirmation screen for applying all changes
-						setup_confirmation_screen("Apply Video Settings", "Current settings", "New settings", apply_all_video_settings, revert_all_video_settings, MENU_SETTINGS_ANALOG1, 12);
-						printf("DEBUG: Apply button pressed - showing confirmation\n");
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately
+						// Apply settings immediately
+						apply_all_video_settings();
+						printf("DEBUG: Apply button pressed - settings applied immediately\n");
+						menustate = MENU_SETTINGS_ANALOG1; // Refresh display
 					} else {
 						printf("DEBUG: Apply button pressed - no changes to apply\n");
 					}
-					menustate = MENU_SETTINGS_ANALOG1; // Refresh display
 				}
 				break;
 			}
