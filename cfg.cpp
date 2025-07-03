@@ -960,12 +960,20 @@ int cfg_save(uint8_t alt)
 		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
 			continue;
 		
-		format_ini_value(value_buffer, sizeof(value_buffer), var);
-		
-		// Only write non-empty values
-		if (strlen(value_buffer) > 0)
+		// Special case for YPBPR: always write 0 (legacy compatibility)
+		if (!strcasecmp(var->name, "YPBPR"))
 		{
-			fprintf(fp, "%s=%s\n", var->name, value_buffer);
+			fprintf(fp, "YPBPR=0\n");
+		}
+		else
+		{
+			format_ini_value(value_buffer, sizeof(value_buffer), var);
+			
+			// Only write non-empty values
+			if (strlen(value_buffer) > 0)
+			{
+				fprintf(fp, "%s=%s\n", var->name, value_buffer);
+			}
 		}
 	}
 	

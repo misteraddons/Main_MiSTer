@@ -334,7 +334,93 @@ enum MENU
 	// MT32-pi
 	MENU_MT32PI_MAIN1,
 	MENU_MT32PI_MAIN2,
+	
+	// Confirmation screens
+	MENU_CONFIRM_CHANGE1,
+	MENU_CONFIRM_CHANGE2,
 };
+
+// Confirmation screen state variables
+static struct {
+	uint32_t timer;
+	uint32_t revert_timer;
+	char setting_name[64];
+	char old_value[64];
+	char new_value[64];
+	int (*apply_func)(void);
+	int (*revert_func)(void);
+} confirm_state = {0};
+
+// Confirmation screen helper functions
+static void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void))
+{
+	strncpy(confirm_state.setting_name, setting_name, sizeof(confirm_state.setting_name) - 1);
+	strncpy(confirm_state.old_value, old_value, sizeof(confirm_state.old_value) - 1);
+	strncpy(confirm_state.new_value, new_value, sizeof(confirm_state.new_value) - 1);
+	confirm_state.apply_func = apply_func;
+	confirm_state.revert_func = revert_func;
+	confirm_state.revert_timer = GetTimer(15000); // 15 seconds
+}
+
+// HDMI resolution confirmation functions
+static char hdmi_old_resolution[64];
+static char hdmi_new_resolution[64];
+
+static int hdmi_apply_resolution(void)
+{
+	// Already applied during setup, so just return success
+	return 1;
+}
+
+static int hdmi_revert_resolution(void)
+{
+	strcpy(cfg.video_conf, hdmi_old_resolution);
+	extern void video_init();
+	extern void video_mode_adjust();
+	video_init();
+	video_mode_adjust();
+	return 1;
+}
+
+// OSD rotation confirmation functions
+static int osd_old_rotation;
+static int osd_new_rotation;
+
+static int osd_apply_rotation(void)
+{
+	// Already applied during setup, so just return success
+	return 1;
+}
+
+static int osd_revert_rotation(void)
+{
+	cfg.osd_rotate = osd_old_rotation;
+	OsdRotation((cfg.osd_rotate == 1) ? 3 : (cfg.osd_rotate == 2) ? 1 : 0);
+	return 1;
+}
+
+// Analog mode confirmation functions
+static int analog_old_mode;
+static int analog_new_mode;
+static char analog_old_mode_str[64];
+static char analog_new_mode_str[64];
+
+static int analog_apply_mode(void)
+{
+	// Already applied during setup, so just return success
+	return 1;
+}
+
+static int analog_revert_mode(void)
+{
+	cfg.vga_mode_int = analog_old_mode;
+	strcpy(cfg.vga_mode, analog_old_mode_str);
+	extern void video_init();
+	extern void video_mode_adjust();
+	video_init();
+	video_mode_adjust();
+	return 1;
+}
 
 static uint32_t menustate = MENU_NONE1;
 static uint32_t parentstate;
@@ -4178,8 +4264,14 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
+						// Save old state for confirmation
+						analog_old_mode = cfg.vga_mode_int;
+						strcpy(analog_old_mode_str, cfg.vga_mode);
+						
 						int old_mode = cfg.vga_mode_int;
 						cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Always cycle through all 4 modes
+						analog_new_mode = cfg.vga_mode_int;
+						
 						// Update string representation to match
 						switch (cfg.vga_mode_int)
 						{
@@ -4188,6 +4280,8 @@ void HandleUI(void)
 							case 2: strcpy(cfg.vga_mode, "svideo"); break;
 							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 						}
+						strcpy(analog_new_mode_str, cfg.vga_mode);
+						
 						printf("DEBUG: Menu navigation (right/select) changed vga_mode: %d->%d (\"%s\")\n", 
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
@@ -4218,18 +4312,37 @@ void HandleUI(void)
 							}
 						}
 						
-						// Force video mode reconfiguration for S-Video/CVBS modes
-						if (cfg.vga_mode_int >= 2) {
-							extern void video_mode_adjust();
-							video_mode_adjust();
-							printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
-						}
+						// Apply the change immediately with full video initialization
+						extern void video_init();
+						extern void video_mode_adjust();
+						video_init();        // Reinitialize video subsystem first
+						video_mode_adjust(); // Then adjust mode
+						printf("DEBUG: Applied video_init() and video_mode_adjust() for analog mode change\n");
+						
+						// Get display names for confirmation
+						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
+						                       (analog_old_mode == 1) ? "YPbPr" : 
+						                       (analog_old_mode == 2) ? "S-Video" : "CVBS";
+						const char* new_name = (analog_new_mode == 0) ? "RGB" : 
+						                       (analog_new_mode == 1) ? "YPbPr" : 
+						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
 						changed = 1;
 					}
 					else if (left)
 					{
+						// Save old state for confirmation
+						analog_old_mode = cfg.vga_mode_int;
+						strcpy(analog_old_mode_str, cfg.vga_mode);
+						
 						int old_mode = cfg.vga_mode_int;
 						cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Always cycle through all 4 modes
+						analog_new_mode = cfg.vga_mode_int;
+						
 						// Update string representation to match
 						switch (cfg.vga_mode_int)
 						{
@@ -4238,6 +4351,8 @@ void HandleUI(void)
 							case 2: strcpy(cfg.vga_mode, "svideo"); break;
 							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 						}
+						strcpy(analog_new_mode_str, cfg.vga_mode);
+						
 						printf("DEBUG: Menu navigation (left) changed vga_mode: %d->%d (\"%s\")\n", 
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
@@ -4268,12 +4383,25 @@ void HandleUI(void)
 							}
 						}
 						
-						// Force video mode reconfiguration for S-Video/CVBS modes
-						if (cfg.vga_mode_int >= 2) {
-							extern void video_mode_adjust();
-							video_mode_adjust();
-							printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
-						}
+						// Apply the change immediately with full video initialization
+						extern void video_init();
+						extern void video_mode_adjust();
+						video_init();        // Reinitialize video subsystem first
+						video_mode_adjust(); // Then adjust mode
+						printf("DEBUG: Applied video_init() and video_mode_adjust() for analog mode change\n");
+						
+						// Get display names for confirmation
+						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
+						                       (analog_old_mode == 1) ? "YPbPr" : 
+						                       (analog_old_mode == 2) ? "S-Video" : "CVBS";
+						const char* new_name = (analog_new_mode == 0) ? "RGB" : 
+						                       (analog_new_mode == 1) ? "YPbPr" : 
+						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
 						changed = 1;
 					}
 				}
@@ -4424,6 +4552,9 @@ void HandleUI(void)
 					
 					if (right || select)
 					{
+						// Save old resolution
+						strcpy(hdmi_old_resolution, cfg.video_conf);
+						
 						// Find current resolution index
 						int current_idx = 0;
 						for (int i = 0; i < num_resolutions; i++)
@@ -4437,15 +4568,29 @@ void HandleUI(void)
 						// Move to next resolution
 						current_idx = (current_idx + 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
-						// Use friend's approach - check if HDMI settings changed
+						strcpy(hdmi_new_resolution, cfg.video_conf);
+						
+						// Apply the change immediately
 						extern void video_init();
 						extern void video_mode_adjust();
 						video_init();        // Reinitialize video subsystem first
 						video_mode_adjust(); // Then adjust mode
+						
+						// Get display names for confirmation
+						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
+						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
 						changed = 1;
 					}
 					else if (left)
 					{
+						// Save old resolution
+						strcpy(hdmi_old_resolution, cfg.video_conf);
+						
 						// Find current resolution index
 						int current_idx = 0;
 						for (int i = 0; i < num_resolutions; i++)
@@ -4459,11 +4604,22 @@ void HandleUI(void)
 						// Move to previous resolution
 						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
-						// Use friend's approach - check if HDMI settings changed
+						strcpy(hdmi_new_resolution, cfg.video_conf);
+						
+						// Apply the change immediately
 						extern void video_init();
 						extern void video_mode_adjust();
 						video_init();        // Reinitialize video subsystem first
 						video_mode_adjust(); // Then adjust mode
+						
+						// Get display names for confirmation
+						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
+						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
+						
+						// Setup confirmation screen
+						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
 						changed = 1;
 					}
 				}
@@ -5211,14 +5367,36 @@ void HandleUI(void)
 			case 7: // OSD Rotate
 				if (select || right)
 				{
+					osd_old_rotation = cfg.osd_rotate;
 					cfg.osd_rotate = (cfg.osd_rotate + 1) % 3; // Cycle 0->1->2->0
+					osd_new_rotation = cfg.osd_rotate;
 					OsdRotation((cfg.osd_rotate == 1) ? 3 : (cfg.osd_rotate == 2) ? 1 : 0);
+					
+					// Get display names for confirmation
+					const char* old_name = (osd_old_rotation == 0) ? "0°" : (osd_old_rotation == 1) ? "180°" : "CW";
+					const char* new_name = (osd_new_rotation == 0) ? "0°" : (osd_new_rotation == 1) ? "180°" : "CW";
+					
+					// Setup confirmation screen
+					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
 					changed = 1;
 				}
 				else if (left)
 				{
+					osd_old_rotation = cfg.osd_rotate;
 					cfg.osd_rotate = (cfg.osd_rotate + 2) % 3; // Cycle 0->2->1->0
+					osd_new_rotation = cfg.osd_rotate;
 					OsdRotation((cfg.osd_rotate == 1) ? 3 : (cfg.osd_rotate == 2) ? 1 : 0);
+					
+					// Get display names for confirmation
+					const char* old_name = (osd_old_rotation == 0) ? "0°" : (osd_old_rotation == 1) ? "180°" : "CW";
+					const char* new_name = (osd_new_rotation == 0) ? "0°" : (osd_new_rotation == 1) ? "180°" : "CW";
+					
+					// Setup confirmation screen
+					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
 					changed = 1;
 				}
 				break;
@@ -6463,6 +6641,102 @@ void HandleUI(void)
 		else if (spi_uio_cmd16(UIO_GET_OSDMASK, 0) != hdmask)
 		{
 			menustate = MENU_MT32PI_MAIN1;
+		}
+		break;
+
+		/******************************************************************/
+		/* confirmation screen menu                                       */
+		/******************************************************************/
+	case MENU_CONFIRM_CHANGE1:
+		{
+			int time_left = 0;
+			if (confirm_state.revert_timer > 0)
+			{
+				uint32_t current_time = GetTimer(0);
+				if (current_time >= confirm_state.revert_timer)
+				{
+					// Time expired, revert changes
+					if (confirm_state.revert_func) confirm_state.revert_func();
+					menustate = MENU_SETTINGS_SYSTEM1;
+					menusub = 0;
+					break;
+				}
+				time_left = (confirm_state.revert_timer - current_time) / 1000;
+			}
+
+			menumask = 0x3; // Two options: Accept (0) and Reject (1)
+			menustate = MENU_CONFIRM_CHANGE2;
+			parentstate = MENU_CONFIRM_CHANGE1;
+			
+			OsdSetTitle("Confirm Changes");
+			
+			int m = 0;
+			OsdWrite(m++, "");
+			char msg[64];
+			snprintf(msg, sizeof(msg), " %s changed to %s", confirm_state.setting_name, confirm_state.new_value);
+			OsdWrite(m++, msg);
+			OsdWrite(m++, "");
+			
+			if (time_left > 0)
+			{
+				snprintf(msg, sizeof(msg), " Reverting in %d seconds", time_left);
+				OsdWrite(m++, msg);
+			}
+			else
+			{
+				OsdWrite(m++, " Select option below");
+			}
+			
+			OsdWrite(m++, "");
+			OsdWrite(m++, " Accept", menusub == 0);
+			OsdWrite(m++, " Reject", menusub == 1);
+			
+			// Fill remaining lines
+			for (int i = m; i < OsdGetSize(); i++) OsdWrite(i, "");
+		}
+		break;
+
+	case MENU_CONFIRM_CHANGE2:
+		{
+			// Check if time expired
+			if (confirm_state.revert_timer > 0 && GetTimer(0) >= confirm_state.revert_timer)
+			{
+				// Time expired, revert changes
+				if (confirm_state.revert_func) confirm_state.revert_func();
+				menustate = MENU_SETTINGS_SYSTEM1;
+				menusub = 0;
+				break;
+			}
+
+			if (menu || back)
+			{
+				// User cancelled, revert changes
+				if (confirm_state.revert_func) confirm_state.revert_func();
+				menustate = MENU_SETTINGS_SYSTEM1;
+				menusub = 0;
+			}
+			else if (select)
+			{
+				if (menusub == 0)
+				{
+					// Accept changes
+					if (confirm_state.apply_func) confirm_state.apply_func();
+					menustate = MENU_SETTINGS_SYSTEM1;
+					menusub = 0;
+				}
+				else if (menusub == 1)
+				{
+					// Reject changes
+					if (confirm_state.revert_func) confirm_state.revert_func();
+					menustate = MENU_SETTINGS_SYSTEM1;
+					menusub = 0;
+				}
+			}
+			else
+			{
+				// Refresh display
+				menustate = MENU_CONFIRM_CHANGE1;
+			}
 		}
 		break;
 
