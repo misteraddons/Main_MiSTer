@@ -648,7 +648,7 @@ static uint32_t menu_key_get(void)
 		else if (CheckTimer(repeat))
 		{
 			repeat = GetTimer(REPEATRATE);
-			if (GetASCIIKey(c1) || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 5)))
+			if (GetASCIIKey(c1) || ((menustate == MENU_COMMON2) && (menusub == 17)) || ((menustate == MENU_SYSTEM2) && (menusub == 4)))
 			{
 				c = c1;
 				hold_cnt++;
@@ -1656,43 +1656,43 @@ void HandleUI(void)
 
 		strcpy(s, " HDD 1: ");
 		strncat(s, archie_get_hdd_name(1) ? archie_get_hdd_name(1) : "* no disk *", 27);
-		OsdWrite(m++, s, menusub == 3);
+		OsdWrite(m++, s, menusub == 2);
 
 		OsdWrite(m++);
 
 		strcpy(s, " OS ROM: ");
 		strcat(s, archie_get_rom_name());
-		OsdWrite(m++, s, menusub == 4);
+		OsdWrite(m++, s, menusub == 3);
 
 		OsdWrite(m++);
 
 		strcpy(s, " Aspect Ratio:    ");
 		archie_set_ar(get_ar_name(archie_get_ar(), s));
-		OsdWrite(m++, s, menusub == 5);
+		OsdWrite(m++, s, menusub == 4);
 
 		strcpy(s, " Scale:           ");
 		strcat(s, config_scale[archie_get_scale()]);
-		OsdWrite(m++, s, menusub == 6);
+		OsdWrite(m++, s, menusub == 5);
 
 		strcpy(s, " Refresh Rate:    ");
 		strcat(s, archie_get_60() ? "Variable" : "60Hz");
-		OsdWrite(m++, s, menusub == 7);
+		OsdWrite(m++, s, menusub == 6);
 
 		sprintf(s, " Stereo Mix:      %s", config_stereo_msg[archie_get_amix()]);
-		OsdWrite(m++, s, menusub == 8);
+		OsdWrite(m++, s, menusub == 7);
 
 		strcpy(s, " 25MHz Audio Fix: ");
 		strcat(s, archie_get_afix() ? "Enable" : "Disable");
-		OsdWrite(m++, s, menusub == 9);
+		OsdWrite(m++, s, menusub == 8);
 
 		sprintf(s, " Swap Joysticks:  %s", user_io_get_joyswap() ? "Yes" : "No");
-		OsdWrite(m++, s, menusub == 10);
+		OsdWrite(m++, s, menusub == 9);
 		sprintf(s, " Swap Btn 2/3:    %s", archie_get_mswap() ? "Yes" : "No");
-		OsdWrite(m++, s, menusub == 11);
+		OsdWrite(m++, s, menusub == 10);
 
 		while(m<15) OsdWrite(m++);
 
-		OsdWrite(15, STD_EXIT, menusub == 12, 0);
+		OsdWrite(15, STD_EXIT, menusub == 11, 0);
 		menustate = MENU_ARCHIE_MAIN2;
 		parentstate = MENU_ARCHIE_MAIN1;
 
@@ -1811,7 +1811,7 @@ void HandleUI(void)
 			recent_update(SelectedDir, Selected_F[menusub], SelectedLabel, 501);
 			archie_hdd_mount(selPath, menusub - 2);
 		}
-		else if (menusub == 4)
+		else if (menusub == 3)
 		{
 			memcpy(Selected_F[menusub], selPath, sizeof(Selected_F[menusub]));
 			archie_set_rom(selPath);
@@ -2675,8 +2675,8 @@ void HandleUI(void)
 				s[27] = '\x16';
 				s[28] = 0;
 				MenuWrite(n++, s, menusub == 2, 0);
-				MenuWrite(n++, " Button/Key remap          \x16", menusub == 3, 0);
-				MenuWrite(n++, " Reset player assignment", menusub == 4, 0);
+				MenuWrite(n++, " Button/Key remap          \x16", menusub == 2, 0);
+				MenuWrite(n++, " Reset player assignment", menusub == 3, 0);
 
 				if (user_io_get_uart_mode())
 				{
@@ -2688,7 +2688,7 @@ void HandleUI(void)
 					sprintf(s, " UART mode (%s)            ",p);
 					s[27] = '\x16';
 					s[28] = 0;
-					MenuWrite(n++, s, menusub == 5);
+					MenuWrite(n++, s, menusub == 4);
 				}
 
 				MenuWrite(n++);
@@ -2699,7 +2699,7 @@ void HandleUI(void)
 					MenuWrite(n++);
 					menumask |= 0x600;
 					sprintf(s, " Audio filter - %s", config_afilter_msg[audio_filter_en() ? 1 : 0]);
-					MenuWrite(n++, s, menusub == 9);
+					MenuWrite(n++, s, menusub == 8);
 
 					memset(s, 0, sizeof(s));
 					s[0] = ' ';
@@ -2709,7 +2709,7 @@ void HandleUI(void)
 					while (strlen(s) < 26) strcat(s, " ");
 					strcat(s, " \x16 ");
 
-					MenuWrite(n++, s, menusub == 10, !audio_filter_en() || !S_ISDIR(getFileType(AFILTER_DIR)));
+					MenuWrite(n++, s, menusub == 9, !audio_filter_en() || !S_ISDIR(getFileType(AFILTER_DIR)));
 				}
 
 				if (!is_minimig() && !is_st())
@@ -2941,7 +2941,7 @@ void HandleUI(void)
 		}
 		else if (minus || plus)
 		{
-			if (menusub == 10 && audio_filter_en())
+			if (menusub == 9 && audio_filter_en())
 			{
 				const char *newfile = flist_GetPrevNext(AFILTER_DIR, audio_get_filter(0), "TXT", plus);
 				audio_set_filter(newfile ? newfile : "");
@@ -2980,54 +2980,54 @@ void HandleUI(void)
       
 			MenuWrite(n++);
 			sprintf(s, " Vert filter: %s", video_get_scaler_flt(VFILTER_VERT) ? "From file" : "Same as Horz");
-			MenuWrite(n++, s, menusub == 3, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
+			MenuWrite(n++, s, menusub == 2, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
 			strcpy(s, " ");
 			if (strlen(video_get_scaler_coeff(VFILTER_VERT))) strncat(s, video_get_scaler_coeff(VFILTER_VERT), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 4, !video_get_scaler_flt(VFILTER_VERT) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
+			MenuWrite(n++, s, menusub == 3, !video_get_scaler_flt(VFILTER_VERT) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
 
 			MenuWrite(n++);
 			sprintf(s, " Scan filter: %s", video_get_scaler_flt(VFILTER_SCAN) ? "From file" : "Same as Vert");
-			MenuWrite(n++, s, menusub == 5, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
+			MenuWrite(n++, s, menusub == 4, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
 			strcpy(s, " ");
 			if (strlen(video_get_scaler_coeff(VFILTER_SCAN))) strncat(s, video_get_scaler_coeff(VFILTER_SCAN), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 6, !video_get_scaler_flt(VFILTER_SCAN) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
+			MenuWrite(n++, s, menusub == 5, !video_get_scaler_flt(VFILTER_SCAN) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
 
 			MenuWrite(n++);
 			sprintf(s, " Intl filter: %s", video_get_scaler_flt(VFILTER_ILACE) ? "From file" : "Same as Horz");
-			MenuWrite(n++, s, menusub == 7, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
+			MenuWrite(n++, s, menusub == 6, cfg.direct_video || !video_get_scaler_flt(VFILTER_HORZ));
 			strcpy(s, " ");
 			if (strlen(video_get_scaler_coeff(VFILTER_ILACE))) strncat(s, video_get_scaler_coeff(VFILTER_ILACE), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 8, !video_get_scaler_flt(VFILTER_ILACE) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
+			MenuWrite(n++, s, menusub == 7, !video_get_scaler_flt(VFILTER_ILACE) || !video_get_scaler_flt(VFILTER_HORZ) || !S_ISDIR(getFileType(COEFF_DIR)) || cfg.direct_video);
 
 
 			MenuWrite(n++);
 			sprintf(s, " Gamma correction - %s", (video_get_gamma_en() > 0) ? "On" : "Off");
-			MenuWrite(n++, s, menusub == 9, video_get_gamma_en() < 0);
+			MenuWrite(n++, s, menusub == 8, video_get_gamma_en() < 0);
 			strcpy(s, " ");
 			if (strlen(video_get_gamma_curve())) strncat(s, video_get_gamma_curve(), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 10, (video_get_gamma_en() <= 0) || !S_ISDIR(getFileType(GAMMA_DIR)));
+			MenuWrite(n++, s, menusub == 9, (video_get_gamma_en() <= 0) || !S_ISDIR(getFileType(GAMMA_DIR)));
 
 			MenuWrite(n++);
 			sprintf(s, " Shadow Mask - %s", (video_get_shadow_mask_mode() < 0) ? config_smask_msg[0] : config_smask_msg[video_get_shadow_mask_mode()]);
-			MenuWrite(n++, s, menusub == 11, video_get_shadow_mask_mode() < 0);
+			MenuWrite(n++, s, menusub == 10, video_get_shadow_mask_mode() < 0);
 			strcpy(s, " ");
 			if (strlen(video_get_shadow_mask())) strncat(s, video_get_shadow_mask(), 25);
 			else strcpy(s, " < none >");
 			while (strlen(s) < 26) strcat(s, " ");
 			strcat(s, " \x16 ");
-			MenuWrite(n++, s, menusub == 12, (video_get_shadow_mask_mode() <= 0) || !S_ISDIR(getFileType(SMASK_DIR)));
+			MenuWrite(n++, s, menusub == 11, (video_get_shadow_mask_mode() <= 0) || !S_ISDIR(getFileType(SMASK_DIR)));
 
 			MenuWrite(n++);
 			MenuWrite(n++, " Reset to Defaults", menusub == 13);
@@ -3062,7 +3062,7 @@ void HandleUI(void)
 
 		if (plus || minus)
 		{
-			if (menusub == 9)
+			if (menusub == 8)
 			{
 				video_set_shadow_mask_mode(video_get_shadow_mask_mode() + (plus ? 1 : -1));
 			}
@@ -3073,7 +3073,7 @@ void HandleUI(void)
 			case 4:
 			case 6:
 			case 8:
-				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : (menusub == 6) ? VFILTER_SCAN : VFILTER_ILACE;
+				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 3) ? VFILTER_VERT : (menusub == 5) ? VFILTER_SCAN : VFILTER_ILACE;
 				if(video_get_scaler_flt(VFILTER_HORZ) && video_get_scaler_flt(vfilter_type))
 				{
 					const char *newfile = flist_GetPrevNext(COEFF_DIR, video_get_scaler_coeff(vfilter_type, 0), "TXT", plus);
@@ -3118,7 +3118,7 @@ void HandleUI(void)
 			case 4:
 			case 6:
 			case 8:
-				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 4) ? VFILTER_VERT : (menusub == 6) ? VFILTER_SCAN : VFILTER_ILACE;
+				vfilter_type = (menusub == 2) ? VFILTER_HORZ : (menusub == 3) ? VFILTER_VERT : (menusub == 5) ? VFILTER_SCAN : VFILTER_ILACE;
 				if (video_get_scaler_flt(VFILTER_HORZ))
 				{
 					snprintf(Selected_tmp, sizeof(Selected_tmp), COEFF_DIR"/%s", video_get_scaler_coeff(vfilter_type, 0));
@@ -3132,7 +3132,7 @@ void HandleUI(void)
 			case 7:
 				if (!cfg.direct_video && video_get_scaler_flt(VFILTER_HORZ))
 				{
-					vfilter_type = (menusub == 3) ? VFILTER_VERT : (menusub == 5) ? VFILTER_SCAN : VFILTER_ILACE;
+					vfilter_type = (menusub == 2) ? VFILTER_VERT : (menusub == 4) ? VFILTER_SCAN : VFILTER_ILACE;
 					video_set_scaler_flt(vfilter_type, video_get_scaler_flt(vfilter_type) ? 0 : 1);
 					menustate = parentstate;
 				}
@@ -3377,10 +3377,10 @@ void HandleUI(void)
 				if (midilink < 2)
 				{
 					sprintf(s, " Type:                %s", midilink ? "  MUNT" : "FSYNTH");
-					OsdWrite(m++, s, menusub == 3);
+					OsdWrite(m++, s, menusub == 2);
 
 					OsdWrite(m++);
-					OsdWrite(m++, " Change Soundfont          \x16", menusub == 4, midilink);
+					OsdWrite(m++, " Change Soundfont          \x16", menusub == 3, midilink);
 					menumask |= 0x18;
 				}
 				OsdWrite(m++);
@@ -3393,18 +3393,18 @@ void HandleUI(void)
 				strcpy(s, " Baud                      \x16");
 				sprintf(s + 6, "(%s)", GetUARTbaud_label(GetUARTMode()));
 				s[strlen(s)] = ' ';
-				OsdWrite(m++, s, menusub == 5, !mode);
+				OsdWrite(m++, s, menusub == 4, !mode);
 
 				OsdWrite(m++);
-				OsdWrite(m++, " Reset UART connection", menusub == 6, mode ? 0 : 1);
+				OsdWrite(m++, " Reset UART connection", menusub == 5, mode ? 0 : 1);
 
 				menumask |= 0x60;
 			}
 
-			OsdWrite(m++, " Save", menusub == 7);
+			OsdWrite(m++, " Save", menusub == 6);
 
 			for (; m < 15; m++) OsdWrite(m);
-			OsdWrite(15, STD_EXIT, menusub == 8);
+			OsdWrite(15, STD_EXIT, menusub == 7);
 		}
 		break;
 
@@ -3586,8 +3586,8 @@ void HandleUI(void)
 					if (menusub < max)
 					{
 						int midilink = GetMidiLinkMode();
-						if (menusub == 4) midilink = (midilink == 2) ? 6 : 4;
-						if (menusub == 3) midilink = (midilink == 6) ? 2 : (midilink > 3) ? 0 : midilink;
+						if (menusub == 3) midilink = (midilink == 2) ? 6 : 4;
+						if (menusub == 2) midilink = (midilink == 6) ? 2 : (midilink > 3) ? 0 : midilink;
 						SetMidiLinkMode(midilink);
 						SetUARTMode(menusub);
 					}
@@ -3810,12 +3810,12 @@ void HandleUI(void)
 		}
 		OsdWrite(13, s, menusub == 2);
 
-		OsdWrite(15, STD_EXIT, menusub == 3, 0, OSD_ARROW_RIGHT);
+		OsdWrite(15, STD_EXIT, menusub == 2, 0, OSD_ARROW_RIGHT);
 		break;
 
 	case MENU_MISC2:
 		printSysInfo();
-		if ((select && menusub == 3) || menu)
+		if ((select && menusub == 2) || menu)
 		{
 			menustate = MENU_NONE1;
 			break;
@@ -3916,14 +3916,13 @@ void HandleUI(void)
 		OsdWrite(m++);
 		
 		// Categories
-		OsdWrite(m++, "  \x16 Analog Video", menusub == 0);
-		OsdWrite(m++, "  \x16 HDMI Video", menusub == 1);
-		OsdWrite(m++, "  \x16 Audio", menusub == 2);
-		OsdWrite(m++, "  \x16 Input & Controls", menusub == 3);
-		OsdWrite(m++, "  \x16 System & Storage", menusub == 4);
+		OsdWrite(m++, "  \x16 Basic Video", menusub == 0);
+		OsdWrite(m++, "  \x16 Advanced Video", menusub == 1, cfg.direct_video);
+		OsdWrite(m++, "  \x16 Input & Controls", menusub == 2);
+		OsdWrite(m++, "  \x16 System & Storage", menusub == 2);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  Save All Settings", menusub == 5);
+		OsdWrite(m++, "  Save All Settings", menusub == 3);
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -3944,12 +3943,12 @@ void HandleUI(void)
 			if (menusub > 0) 
 				menusub--;
 			else 
-				menusub = 5; // wrap to last item (Save All Settings)
+				menusub = 4; // wrap to last item (Save All Settings)
 			menustate = MENU_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < 5) 
+			if (menusub < 4) 
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -3969,30 +3968,27 @@ void HandleUI(void)
 				break;
 				
 			case 1:
-				// HDMI Video settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_HDMI1;
-				menusub = 0;
+				// Advanced Video settings - only available when not in HDMI DAC mode
+				if (!cfg.direct_video)
+				{
+					menustate = MENU_SETTINGS_HDMI1;
+					menusub = 0;
+				}
 				break;
 				
 			case 2:
-				// Audio settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_AUDIO1;
-				menusub = 0;
-				break;
-				
-			case 3:
 				// Input & Controls settings - go to dedicated submenu
 				menustate = MENU_SETTINGS_INPUT1;
 				menusub = 0;
 				break;
 				
-			case 4:
+			case 3:
 				// System & Storage settings - go to dedicated submenu
 				menustate = MENU_SETTINGS_SYSTEM1;
 				menusub = 0;
 				break;
 				
-			case 5:
+			case 4:
 				// Save All Settings
 				cfg_save(0);
 				menustate = MENU_SETTINGS1; // Refresh display
@@ -4014,75 +4010,138 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x1F; // 5 analog settings (always show all, gray out disabled)
+		menumask = 0xFFF & ~(1<<5) & ~(1<<10); // 12 video settings, skip dividers at 5 and 10
 
 		m = 0;
-		OsdSetTitle("Analog Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+		OsdSetTitle("Basic Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
 		
-		sprintf(s, "  HDMI Mode:     %s", cfg.direct_video ? "HDMI DAC" : "HDMI");
+		// Basic Video menu - new structure as specified:
+		// 1. HDMI Mode, 2. HDMI Res., 3. HDMI VSync, 4. Vert. Scale, 5. RGB Range
+		// 6. Divider, 7. Analog Mode, 8. Analog Res., 9. Analog Sync, 10. Analog Region, 11. Divider, 12. 96kHz Audio
+		
+		bool direct_video_on = cfg.direct_video;
+		
+		// 1. HDMI Mode (menusub 0)
+		sprintf(s, "  HDMI Mode:   %s", cfg.direct_video ? "HDMI DAC" : "HDMI");
 		OsdWrite(m++, s, menusub == 0);
 		
-		// Analog Mode first
+		// 2. HDMI Res. (menusub 1)
+		const char *vmode_str = "Auto (EDID)";
+		if (strlen(cfg.video_conf) > 0) {
+			if (!strcmp(cfg.video_conf, "1280,720,60")) vmode_str = "720p60";
+			else if (!strcmp(cfg.video_conf, "1024,768,60")) vmode_str = "1024x768@60";
+			else if (!strcmp(cfg.video_conf, "720,480,60")) vmode_str = "480p60";
+			else if (!strcmp(cfg.video_conf, "720,576,50")) vmode_str = "576p50";
+			else if (!strcmp(cfg.video_conf, "1280,1024,60")) vmode_str = "1280x1024@60";
+			else if (!strcmp(cfg.video_conf, "800,600,60")) vmode_str = "800x600@60";
+			else if (!strcmp(cfg.video_conf, "640,480,60")) vmode_str = "480p60 (VGA)";
+			else if (!strcmp(cfg.video_conf, "1280,720,50")) vmode_str = "720p50";
+			else if (!strcmp(cfg.video_conf, "1920,1080,60")) vmode_str = "1080p60";
+			else if (!strcmp(cfg.video_conf, "1920,1080,50")) vmode_str = "1080p50";
+			else if (!strcmp(cfg.video_conf, "1366,768,60")) vmode_str = "1366x768@60";
+			else if (!strcmp(cfg.video_conf, "1024,600,60")) vmode_str = "1024x600@60";
+			else if (!strcmp(cfg.video_conf, "1920,1440,60")) vmode_str = "1920x1440@60";
+			else if (!strcmp(cfg.video_conf, "2048,1536,60")) vmode_str = "2048x1536@60";
+			else if (!strcmp(cfg.video_conf, "2560,1440,60")) vmode_str = "1440p60";
+			else vmode_str = "Custom";
+		}
+		sprintf(s, "  HDMI Res.:   %s", vmode_str);
+		OsdWrite(m++, s, menusub == 1, direct_video_on ? 1 : 0);
+		
+		// 3. HDMI VSync (menusub 2)
+		const char *vsync_str = cfg.vsync_adjust == 0 ? "3 Buffer 60Hz" : 
+		                        cfg.vsync_adjust == 1 ? "3 Buffer Match" : "1 Buffer Match";
+		sprintf(s, "  HDMI VSync:  %s", vsync_str);
+		OsdWrite(m++, s, menusub == 2, direct_video_on ? 1 : 0);
+		
+		// 4. Vert. Scale (menusub 3)
+		const char *vscale_str = "Fit";
+		if (cfg.vscale_mode == 1) vscale_str = "Integer";
+		else if (cfg.vscale_mode == 2) vscale_str = "0.25x Step";
+		else if (cfg.vscale_mode == 3) vscale_str = "0.5x Step";
+		else if (cfg.vscale_mode == 4) vscale_str = "Core Int.";
+		else if (cfg.vscale_mode == 5) vscale_str = "Display Int.";
+		sprintf(s, "  HDMI VScale: %s", vscale_str);
+		OsdWrite(m++, s, menusub == 3, direct_video_on ? 1 : 0);
+		
+		// 5. RGB Range (menusub 4)
+		const char *rgb_range_str = cfg.hdmi_limited == 0 ? "Full (0-255)" : 
+		                           cfg.hdmi_limited == 1 ? "Lim. (16-235)" : "Lim. (16-255)";
+		sprintf(s, "  HDMI RGB:    %s", rgb_range_str);
+		OsdWrite(m++, s, menusub == 4);
+		
+		// 6. Divider (menusub 5) - not selectable
+		OsdWrite(m++, "  --------------------------", 0, 1);
+		
+		// 7. Analog Mode (menusub 6)
 		const char *vga_mode_str = "RGB";
 		if (cfg.vga_mode_int == 1) vga_mode_str = "YPbPr";
 		else if (cfg.vga_mode_int == 2) vga_mode_str = "S-Video";
 		else if (cfg.vga_mode_int == 3) vga_mode_str = "CVBS";
+		sprintf(s, "  Analog Mode: %s", vga_mode_str);
+		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  Analog Mode:   %s", vga_mode_str);
-		OsdWrite(m++, s, menusub == 1);
-		
-		// Analog Resolution second (disabled for S-Video/CVBS)
+		// 8. Analog Res. (menusub 7) - disabled for S-Video/CVBS
 		const char *analog_res_str = "Native";
 		if (cfg.vga_scaler && cfg.forced_scandoubler) analog_res_str = "Scandoubled";
 		else if (cfg.vga_scaler) analog_res_str = "Scaled";
 		bool res_disabled = (cfg.vga_mode_int >= 2); // S-Video/CVBS must be native
-		sprintf(s, "  Analog Res.:   %s", analog_res_str);
-		OsdWrite(m++, s, menusub == 2, res_disabled ? 1 : 0);
+		sprintf(s, "  Analog Res.: %s", analog_res_str);
+		OsdWrite(m++, s, menusub == 7, res_disabled ? 1 : 0);
 		
-		// Context-sensitive sync options based on analog mode
+		// 9. Analog Sync (menusub 8) - context-sensitive based on analog mode
 		const char *sync_str = "Separate";
 		bool sync_disabled = false;
-		
 		if (cfg.vga_mode_int == 0) { // RGB mode: All sync options available
 			if (cfg.csync) sync_str = "Composite";
 			else if (cfg.vga_sog) sync_str = "Sync-on-Green";
 			else sync_str = "Separate";
-		}
-		else if (cfg.vga_mode_int == 1) { // YPbPr mode: Both composite and sync-on-green
-			sync_str = "Comp + SOG";
+		} else if (cfg.vga_mode_int == 1) { // YPbPr mode: Both composite and sync-on-green
+			sync_str = "Comp+SoG";
 			sync_disabled = true;
-		}
-		else { // S-Video/CVBS: Must be composite sync
+		} else { // S-Video/CVBS: Must be composite sync
 			sync_str = "Composite";
 			sync_disabled = true;
 		}
+		sprintf(s, "  Analog Sync: %s", sync_str);
+		OsdWrite(m++, s, menusub == 8, sync_disabled ? 1 : 0);
 		
-		sprintf(s, "  Sync:          %s", sync_str);
-		OsdWrite(m++, s, menusub == 3, sync_disabled ? 1 : 0);
+		// 10. Analog Region (menusub 9) - only for S-Video/CVBS
+		const char *region_str = cfg.ntsc_mode == 0 ? "NTSC" : 
+		                        cfg.ntsc_mode == 1 ? "PAL-60" : "PAL-M";
+		bool region_disabled = (cfg.vga_mode_int < 2); // Only for S-Video/CVBS
+		sprintf(s, "  Analog Reg.: %s", region_str);
+		OsdWrite(m++, s, menusub == 9, region_disabled ? 1 : 0);
 		
-		// Analog Region (only enabled for S-Video/Composite)
-		const char *ntsc_mode_str = "NTSC";
-		if (cfg.ntsc_mode == 1) ntsc_mode_str = "PAL-60";
-		else if (cfg.ntsc_mode == 2) ntsc_mode_str = "PAL-M";
-		sprintf(s, "  Analog Region: %s", ntsc_mode_str);
-		bool region_disabled = (cfg.vga_mode_int < 2); // Disabled for RGB/YPbPr
-		OsdWrite(m++, s, menusub == 4, region_disabled ? 1 : 0);
+		// 11. Divider (menusub 10) - not selectable
+		OsdWrite(m++, "  --------------------------", 0, 1);
 		
-		// Direct help text for each analog setting
-		static const char* analog_help_texts[] = {
+		// 12. 96kHz Audio (menusub 11)
+		sprintf(s, "  96kHz Audio: %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 11);
+		
+		// Direct help text for each video setting (new order)
+		static const char* video_help_texts[] = {
 			"Direct HDMI output or HDMI DAC for analog conversion",                    // HDMI Mode
+			"HDMI output resolution - Auto uses EDID, others force specific modes",   // HDMI Res.
+			"Frame buffer synchronization method for smooth video output",            // HDMI VSync
+			"Vertical scaling algorithm for non-native resolutions",                  // Vert. Scale
+			"HDMI color range: Full for most displays, Limited for older TVs",        // RGB Range
+			"",                                                                        // Divider (no help)
 			"RGB (VGA), YPbPr (component), S-Video, or Composite video output",       // Analog Mode  
 			"Native (no scaling), Scaled (with scaler), or Scandoubled (15kHz→31kHz)", // Analog Res
-			"Sync signal type: Separate H/V, Composite sync, or Sync-on-Green",       // Sync
-			"NTSC, PAL-60, or PAL-M color encoding for S-Video/Composite modes"       // Analog Region
+			"Sync signal type: Separate H/V, Composite sync, or Sync-on-Green",       // Analog Sync
+			"NTSC, PAL-60, or PAL-M color encoding for S-Video/Composite modes",      // Analog Region
+			"",                                                                        // Divider (no help)
+			"High-quality 96kHz audio output for audiophile equipment"                // 96kHz Audio
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t analog_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text_direct(s, sizeof(s), analog_help_texts, menusub, 5, &analog_scroll_state);
+		render_scrolling_help_text_direct(s, sizeof(s), video_help_texts, menusub, 12, &analog_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -4114,7 +4173,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 1: // Analog Mode (always cycle through all 4 modes)
+			case 6: // Analog Mode (always cycle through all 4 modes)
 				{
 					if (right || select)
 					{
@@ -4219,7 +4278,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 2: // Analog Resolution (disabled for S-Video/CVBS)
+			case 7: // Analog Resolution (disabled for S-Video/CVBS)
 				if (cfg.vga_mode_int < 2) // Only allow changes for RGB/YPbPr
 				{
 					if (right || select)
@@ -4266,7 +4325,7 @@ void HandleUI(void)
 				// S-Video/CVBS: Resolution changes not allowed
 				break;
 				
-			case 3: // Sync (context-sensitive based on analog mode)
+			case 8: // Sync (context-sensitive based on analog mode)
 				if (cfg.vga_mode_int == 0) { // RGB mode: All 3 sync options
 					if (right || select)
 					{
@@ -4323,7 +4382,7 @@ void HandleUI(void)
 				// S-Video/CVBS (vga_mode_int >= 2): No sync changes allowed (always Composite)
 				break;
 				
-			case 4: // Analog Region (grayed out if not S-Video/Composite)
+			case 9: // Analog Region (grayed out if not S-Video/Composite)
 				if (cfg.vga_mode_int >= 2) // Only allow changes for S-Video/Composite
 				{
 					if (right || select)
@@ -4336,6 +4395,67 @@ void HandleUI(void)
 						cfg.ntsc_mode = (cfg.ntsc_mode + 2) % 3; // Cycle 0->2->1->0
 						changed = 1;
 					}
+				}
+				break;
+				
+			case 1: // HDMI Res.
+				if (!cfg.direct_video) // Only allow changes when HDMI (not HDMI DAC)
+				{
+					// Add HDMI resolution handling here if needed
+					// For now, placeholder for future implementation
+				}
+				break;
+				
+			case 2: // HDMI VSync
+				if (!cfg.direct_video) // Only allow changes when HDMI (not HDMI DAC)
+				{
+					if (right || select)
+					{
+						cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0->1->2->0
+						changed = 1;
+					}
+					else if (left)
+					{
+						cfg.vsync_adjust = (cfg.vsync_adjust + 2) % 3; // 0->2->1->0
+						changed = 1;
+					}
+				}
+				break;
+				
+			case 3: // Vert. Scale
+				if (!cfg.direct_video) // Only allow changes when HDMI (not HDMI DAC)
+				{
+					if (right || select)
+					{
+						cfg.vscale_mode = (cfg.vscale_mode + 1) % 6; // 0->1->2->3->4->5->0
+						changed = 1;
+					}
+					else if (left)
+					{
+						cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // 0->5->4->3->2->1->0
+						changed = 1;
+					}
+				}
+				break;
+				
+			case 4: // RGB Range
+				if (right || select)
+				{
+					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0->1->2->0
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.hdmi_limited = (cfg.hdmi_limited + 2) % 3; // 0->2->1->0
+					changed = 1;
+				}
+				break;
+				
+			case 11: // 96kHz Audio
+				if (select || left || right)
+				{
+					cfg.hdmi_audio_96k = !cfg.hdmi_audio_96k;
+					changed = 1;
 				}
 				break;
 			}
@@ -4368,10 +4488,10 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0xFFF; // 12 HDMI settings
+		menumask = 0x7F; // 7 Advanced Video settings
 
 		m = 0;
-		OsdSetTitle("HDMI Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+		OsdSetTitle("Advanced Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
 		sprintf(s, "  Game Mode:   %s", cfg.hdmi_game_mode ? "On" : "Off");
@@ -4380,87 +4500,39 @@ void HandleUI(void)
 		sprintf(s, "  VRR Mode:    %s", cfg.vrr_mode ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  96kHz Audio: %s", cfg.hdmi_audio_96k ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  DVI Mode:    %s", cfg.dvi_mode ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 3);
+		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  RGB Range:   %s", 
-			cfg.hdmi_limited == 0 ? "Full (0-255)" : 
-			cfg.hdmi_limited == 1 ? "Lim. (16-235)" : "Lim. (16-255)");
-		OsdWrite(m++, s, menusub == 4);
-		
-		sprintf(s, "  VSync:       %s", 
-			cfg.vsync_adjust == 0 ? "3 Buffer 60Hz" : 
-			cfg.vsync_adjust == 1 ? "3 Buffer Match" : "1 Buffer Match");
-		OsdWrite(m++, s, menusub == 5);
 		
 		sprintf(s, "  Brightness:  %d", cfg.video_brightness);
-		OsdWrite(m++, s, menusub == 6);
+		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Contrast:    %d", cfg.video_contrast);
-		OsdWrite(m++, s, menusub == 7);
+		OsdWrite(m++, s, menusub == 3);
 		
 		sprintf(s, "  Saturation:  %d", cfg.video_saturation);
-		OsdWrite(m++, s, menusub == 8);
+		OsdWrite(m++, s, menusub == 4);
 		
 		sprintf(s, "  Hue:         %d", cfg.video_hue);
-		OsdWrite(m++, s, menusub == 9);
+		OsdWrite(m++, s, menusub == 5);
 		
-		const char *vscale_str = "Fit";
-		if (cfg.vscale_mode == 1) vscale_str = "Integer";
-		else if (cfg.vscale_mode == 2) vscale_str = "0.25x Step";
-		else if (cfg.vscale_mode == 3) vscale_str = "0.5x Step";
-		else if (cfg.vscale_mode == 4) vscale_str = "Core Int.";
-		else if (cfg.vscale_mode == 5) vscale_str = "Display Int.";
-		sprintf(s, "  Vert. Scale: %s", vscale_str);
-		OsdWrite(m++, s, menusub == 10);
-		
-		// Video Mode presets - Auto uses EDID, others force specific resolution
-		const char *vmode_str = "Auto (EDID)";
-		if (strlen(cfg.video_conf) > 0) {
-			// Show names for all available resolutions
-			if (!strcmp(cfg.video_conf, "1280,720,60")) vmode_str = "720p60";
-			else if (!strcmp(cfg.video_conf, "1024,768,60")) vmode_str = "1024x768@60";
-			else if (!strcmp(cfg.video_conf, "720,480,60")) vmode_str = "480p60";
-			else if (!strcmp(cfg.video_conf, "720,576,50")) vmode_str = "576p50";
-			else if (!strcmp(cfg.video_conf, "1280,1024,60")) vmode_str = "1280x1024@60";
-			else if (!strcmp(cfg.video_conf, "800,600,60")) vmode_str = "800x600@60";
-			else if (!strcmp(cfg.video_conf, "640,480,60")) vmode_str = "480p60 (VGA)";
-			else if (!strcmp(cfg.video_conf, "1280,720,50")) vmode_str = "720p50";
-			else if (!strcmp(cfg.video_conf, "1920,1080,60")) vmode_str = "1080p60";
-			else if (!strcmp(cfg.video_conf, "1920,1080,50")) vmode_str = "1080p50";
-			else if (!strcmp(cfg.video_conf, "1366,768,60")) vmode_str = "1366x768@60";
-			else if (!strcmp(cfg.video_conf, "1024,600,60")) vmode_str = "1024x600@60";
-			else if (!strcmp(cfg.video_conf, "1920,1440,60")) vmode_str = "1920x1440@60";
-			else if (!strcmp(cfg.video_conf, "2048,1536,60")) vmode_str = "2048x1536@60";
-			else if (!strcmp(cfg.video_conf, "2560,1440,60")) vmode_str = "1440p60";
-			else vmode_str = "Custom";
-		}
-		sprintf(s, "  Video Mode:  %s", vmode_str);
-		OsdWrite(m++, s, menusub == 11);
 		
 		// HDMI setting keys for help text lookup
 		static const char* hdmi_setting_keys[] = {
 			"HDMI_GAME_MODE",    // Game Mode
 			"VRR_MODE",          // VRR Mode  
-			"HDMI_AUDIO_96K",    // 96kHz Audio
 			"DVI_MODE",          // DVI Mode
-			"HDMI_LIMITED",      // RGB Range
-			"VSYNC_ADJUST",      // VSync
 			"VIDEO_BRIGHTNESS",  // Brightness
 			"VIDEO_CONTRAST",    // Contrast
 			"VIDEO_SATURATION",  // Saturation
-			"VIDEO_HUE",         // Hue
-			"VSCALE_MODE",       // VScale Mode
-			"VIDEO_MODE"         // Video Mode
+			"VIDEO_HUE"          // Hue
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t hdmi_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text(s, sizeof(s), hdmi_setting_keys, menusub, 12, &hdmi_scroll_state);
+		render_scrolling_help_text(s, sizeof(s), hdmi_setting_keys, menusub, 7, &hdmi_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -4508,15 +4580,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 2: // HDMI Audio 96kHz
-				if (select || left || right)
-				{
-					cfg.hdmi_audio_96k = !cfg.hdmi_audio_96k;
-					changed = 1;
-				}
-				break;
-				
-			case 3: // DVI Mode
+			case 2: // DVI Mode
 				if (select || left || right)
 				{
 					cfg.dvi_mode = !cfg.dvi_mode;
@@ -4524,33 +4588,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 4: // HDMI Limited
-				if (right || select)
-				{
-					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0, 1, 2
-					changed = 1;
-				}
-				else if (left)
-				{
-					cfg.hdmi_limited = (cfg.hdmi_limited + 2) % 3; // wrap around
-					changed = 1;
-				}
-				break;
-				
-			case 5: // VSync Adjust
-				if (right || select)
-				{
-					cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0, 1, 2
-					changed = 1;
-				}
-				else if (left)
-				{
-					cfg.vsync_adjust = (cfg.vsync_adjust + 2) % 3; // wrap around
-					changed = 1;
-				}
-				break;
-				
-			case 6: // Video Brightness
+			case 3: // Video Brightness
 				if (right || select)
 				{
 					if (cfg.video_brightness < 100)
@@ -4569,7 +4607,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 7: // Video Contrast
+			case 4: // Video Contrast
 				if (right || select)
 				{
 					if (cfg.video_contrast < 100)
@@ -4588,7 +4626,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 8: // Video Saturation
+			case 5: // Video Saturation
 				if (right || select)
 				{
 					if (cfg.video_saturation < 100)
@@ -4607,7 +4645,7 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 9: // Video Hue
+			case 6: // Video Hue
 				if (right || select)
 				{
 					if (cfg.video_hue < 360)
@@ -4626,136 +4664,10 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 10: // VScale Mode
-				if (right || select)
-				{
-					cfg.vscale_mode = (cfg.vscale_mode + 1) % 6; // 0-5
-					changed = 1;
-				}
-				else if (left)
-				{
-					cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // wrap around
-					changed = 1;
-				}
-				break;
-				
-			case 11: // Video Mode presets - cycle through all available resolutions
-				if (right || select)
-				{
-					// Cycle forward through all video mode presets (matches vmodes array order)
-					if (strlen(cfg.video_conf) == 0) {
-						strcpy(cfg.video_conf, "1280,720,60"); // Auto -> 720p60 (index 0)
-					}
-					else if (!strcmp(cfg.video_conf, "1280,720,60")) {
-						strcpy(cfg.video_conf, "1024,768,60"); // index 0 -> 1
-					}
-					else if (!strcmp(cfg.video_conf, "1024,768,60")) {
-						strcpy(cfg.video_conf, "720,480,60"); // index 1 -> 2
-					}
-					else if (!strcmp(cfg.video_conf, "720,480,60")) {
-						strcpy(cfg.video_conf, "720,576,50"); // index 2 -> 3
-					}
-					else if (!strcmp(cfg.video_conf, "720,576,50")) {
-						strcpy(cfg.video_conf, "1280,1024,60"); // index 3 -> 4
-					}
-					else if (!strcmp(cfg.video_conf, "1280,1024,60")) {
-						strcpy(cfg.video_conf, "800,600,60"); // index 4 -> 5
-					}
-					else if (!strcmp(cfg.video_conf, "800,600,60")) {
-						strcpy(cfg.video_conf, "640,480,60"); // index 5 -> 6
-					}
-					else if (!strcmp(cfg.video_conf, "640,480,60")) {
-						strcpy(cfg.video_conf, "1280,720,50"); // index 6 -> 7
-					}
-					else if (!strcmp(cfg.video_conf, "1280,720,50")) {
-						strcpy(cfg.video_conf, "1920,1080,60"); // index 7 -> 8
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1080,60")) {
-						strcpy(cfg.video_conf, "1920,1080,50"); // index 8 -> 9
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1080,50")) {
-						strcpy(cfg.video_conf, "1366,768,60"); // index 9 -> 10
-					}
-					else if (!strcmp(cfg.video_conf, "1366,768,60")) {
-						strcpy(cfg.video_conf, "1024,600,60"); // index 10 -> 11
-					}
-					else if (!strcmp(cfg.video_conf, "1024,600,60")) {
-						strcpy(cfg.video_conf, "1920,1440,60"); // index 11 -> 12
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1440,60")) {
-						strcpy(cfg.video_conf, "2048,1536,60"); // index 12 -> 13
-					}
-					else if (!strcmp(cfg.video_conf, "2048,1536,60")) {
-						strcpy(cfg.video_conf, "2560,1440,60"); // index 13 -> 14
-					}
-					else {
-						cfg.video_conf[0] = '\0'; // index 14 or custom -> Auto (EDID)
-					}
-					changed = 1;
-				}
-				else if (left)
-				{
-					// Cycle backward through all video mode presets
-					if (strlen(cfg.video_conf) == 0) {
-						strcpy(cfg.video_conf, "2560,1440,60"); // Auto -> 1440p60 (index 14)
-					}
-					else if (!strcmp(cfg.video_conf, "2560,1440,60")) {
-						strcpy(cfg.video_conf, "2048,1536,60"); // index 14 -> 13
-					}
-					else if (!strcmp(cfg.video_conf, "2048,1536,60")) {
-						strcpy(cfg.video_conf, "1920,1440,60"); // index 13 -> 12
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1440,60")) {
-						strcpy(cfg.video_conf, "1024,600,60"); // index 12 -> 11
-					}
-					else if (!strcmp(cfg.video_conf, "1024,600,60")) {
-						strcpy(cfg.video_conf, "1366,768,60"); // index 11 -> 10
-					}
-					else if (!strcmp(cfg.video_conf, "1366,768,60")) {
-						strcpy(cfg.video_conf, "1920,1080,50"); // index 10 -> 9
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1080,50")) {
-						strcpy(cfg.video_conf, "1920,1080,60"); // index 9 -> 8
-					}
-					else if (!strcmp(cfg.video_conf, "1920,1080,60")) {
-						strcpy(cfg.video_conf, "1280,720,50"); // index 8 -> 7
-					}
-					else if (!strcmp(cfg.video_conf, "1280,720,50")) {
-						strcpy(cfg.video_conf, "640,480,60"); // index 7 -> 6
-					}
-					else if (!strcmp(cfg.video_conf, "640,480,60")) {
-						strcpy(cfg.video_conf, "800,600,60"); // index 6 -> 5
-					}
-					else if (!strcmp(cfg.video_conf, "800,600,60")) {
-						strcpy(cfg.video_conf, "1280,1024,60"); // index 5 -> 4
-					}
-					else if (!strcmp(cfg.video_conf, "1280,1024,60")) {
-						strcpy(cfg.video_conf, "720,576,50"); // index 4 -> 3
-					}
-					else if (!strcmp(cfg.video_conf, "720,576,50")) {
-						strcpy(cfg.video_conf, "720,480,60"); // index 3 -> 2
-					}
-					else if (!strcmp(cfg.video_conf, "720,480,60")) {
-						strcpy(cfg.video_conf, "1024,768,60"); // index 2 -> 1
-					}
-					else if (!strcmp(cfg.video_conf, "1024,768,60")) {
-						strcpy(cfg.video_conf, "1280,720,60"); // index 1 -> 0
-					}
-					else {
-						cfg.video_conf[0] = '\0'; // index 0 or custom -> Auto (EDID)
-					}
-					changed = 1;
-				}
-				break;
 			}
 			
 			if (changed)
 			{
-				// Apply video mode changes immediately if case 11 (Video Mode)
-				if (menusub == 11) {
-					video_mode_adjust();
-					user_io_send_buttons(1);
-				}
 				menustate = MENU_SETTINGS_HDMI1;
 			}
 		}
@@ -4793,7 +4705,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 2; // Return to Audio category
+			menusub = 2; // Return to Input & Controls category
 			break;
 		}
 		else if (select || left || right)
@@ -4838,31 +4750,31 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Gamepad Defaults:   %s", cfg.gamepad_defaults ? "Pos." : "Name");
-		OsdWrite(m++, s, menusub == 3);
+		OsdWrite(m++, s, menusub == 2);
 		
 		if (cfg.controller_info == 0)
 			sprintf(s, "  Controller Info:    Off");
 		else
 			sprintf(s, "  Controller Info:    %ds", cfg.controller_info);
-		OsdWrite(m++, s, menusub == 4);
+		OsdWrite(m++, s, menusub == 3);
 		
 		sprintf(s, "  Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
-		OsdWrite(m++, s, menusub == 5);
+		OsdWrite(m++, s, menusub == 4);
 		
 		sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
-		OsdWrite(m++, s, menusub == 6);
+		OsdWrite(m++, s, menusub == 5);
 		
 		sprintf(s, "  BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 7);
+		OsdWrite(m++, s, menusub == 6);
 		
 		sprintf(s, "  Wheel Force:        %d%%", cfg.wheel_force);
-		OsdWrite(m++, s, menusub == 8);
+		OsdWrite(m++, s, menusub == 7);
 		
 		sprintf(s, "  Wheel Range:        %d°", cfg.wheel_range);
-		OsdWrite(m++, s, menusub == 9);
+		OsdWrite(m++, s, menusub == 8);
 		
 		sprintf(s, "  Sniper Mode:        %s", cfg.sniper_mode ? "Swap" : "Norm");
-		OsdWrite(m++, s, menusub == 10);
+		OsdWrite(m++, s, menusub == 9);
 		
 		// Input setting keys for help text lookup
 		static const char* input_setting_keys[] = {
@@ -4896,7 +4808,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 3; // Return to Input & Controls category
+			menusub = 2; // Return to Input & Controls category
 			break;
 		}
 		else if (select || left || right)
@@ -5050,7 +4962,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x3FF; // 10 system settings
+		menumask = 0x7FF; // 11 system settings
 
 		m = 0;
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -5069,16 +4981,16 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Recent Files:  %s", cfg.recents ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 3);
+		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  FB Size:       %d", cfg.fb_size);
-		OsdWrite(m++, s, menusub == 4);
+		OsdWrite(m++, s, menusub == 3);
 		
 		sprintf(s, "  FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 5);
+		OsdWrite(m++, s, menusub == 4);
 		
 		sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
-		OsdWrite(m++, s, menusub == 6);
+		OsdWrite(m++, s, menusub == 5);
 		
 		{
 			const char *osd_rotate_str = "Off";
@@ -5086,12 +4998,15 @@ void HandleUI(void)
 			else if (cfg.osd_rotate == 2) osd_rotate_str = "90* CCW";
 			sprintf(s, "  OSD Rotate:    %s", osd_rotate_str);
 		}
-		OsdWrite(m++, s, menusub == 7);
+		OsdWrite(m++, s, menusub == 6);
 		
 		sprintf(s, "  Browse Expand: %s", cfg.browse_expand ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 8);
+		OsdWrite(m++, s, menusub == 7);
 		
 		sprintf(s, "  Logo:          %s", cfg.logo ? "On" : "Off");
+		OsdWrite(m++, s, menusub == 8);
+		
+		sprintf(s, "  Debug:         %s", cfg.debug ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 9);
 		
 		// System setting keys for help text lookup
@@ -5105,13 +5020,14 @@ void HandleUI(void)
 			"OSD_TIMEOUT",          // OSD Timeout
 			"OSD_ROTATE",           // OSD Rotate
 			"BROWSE_EXPAND",        // Browse Expand
-			"LOGO"                  // Logo
+			"LOGO",                 // Logo
+			"DEBUG"                 // Debug
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t system_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text(s, sizeof(s), system_setting_keys, menusub, 10, &system_scroll_state);
+		render_scrolling_help_text(s, sizeof(s), system_setting_keys, menusub, 11, &system_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -5125,7 +5041,7 @@ void HandleUI(void)
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
-			menusub = 4; // Return to System & Storage category
+			menusub = 3; // Return to System & Storage category
 			break;
 		}
 		else if (select || left || right)
@@ -5237,6 +5153,14 @@ void HandleUI(void)
 				if (select || left || right)
 				{
 					cfg.logo = !cfg.logo;
+					changed = 1;
+				}
+				break;
+				
+			case 10: // Debug
+				if (select || left || right)
+				{
+					cfg.debug = !cfg.debug;
 					changed = 1;
 				}
 				break;
@@ -5727,29 +5651,29 @@ void HandleUI(void)
 		OsdWrite(m++);
 
 		snprintf(s, 29, " Cart: %s", tos_get_cartridge_name());
-		MenuWrite(m++, s, menusub == 3, !!(tos_system_ctrl() & TOS_CONTROL_DONGLE));
+		MenuWrite(m++, s, menusub == 2, !!(tos_system_ctrl() & TOS_CONTROL_DONGLE));
 		MenuWrite(m++);
 
 		snprintf(s, 29, " Joysticks swap: %s", user_io_get_joyswap() ? "Yes" : "No");
-		OsdWrite(m++, s, menusub == 4);
+		OsdWrite(m++, s, menusub == 3);
 		OsdWrite(m++);
 
-		OsdWrite(m++, " Modify config             \x16", menusub == 5);
-		OsdWrite(m++, " Load config               \x16", menusub == 6);
-		OsdWrite(m++, " Save config               \x16", menusub == 7);
+		OsdWrite(m++, " Modify config             \x16", menusub == 4);
+		OsdWrite(m++, " Load config               \x16", menusub == 5);
+		OsdWrite(m++, " Save config               \x16", menusub == 6);
 
 		if (spi_uio_cmd16(UIO_GET_OSDMASK, 0) & 1)
 		{
 			menumask |= 0x100;
-			OsdWrite(m++, " MT32-pi                   \x16", menusub == 8);
+			OsdWrite(m++, " MT32-pi                   \x16", menusub == 7);
 		}
 
 		OsdWrite(m++);
-		OsdWrite(m++, " Reset", menusub == 9);
-		OsdWrite(m++, " Cold Boot", menusub == 10);
+		OsdWrite(m++, " Reset", menusub == 8);
+		OsdWrite(m++, " Cold Boot", menusub == 9);
 
 		for (; m < OsdGetSize()-1; m++) OsdWrite(m);
-		OsdWrite(15, STD_EXIT, menusub == 11, 0, OSD_ARROW_RIGHT | OSD_ARROW_LEFT);
+		OsdWrite(15, STD_EXIT, menusub == 10, 0, OSD_ARROW_RIGHT | OSD_ARROW_LEFT);
 
 		menustate = MENU_ST_MAIN2;
 		parentstate = MENU_ST_MAIN1;
@@ -5915,51 +5839,51 @@ void HandleUI(void)
 
 			strcpy(s, " Memory:     ");
 			strcat(s, tos_mem[(tos_system_ctrl() >> 1) & 7]);
-			MenuWrite(m++, s, menusub == 3);
+			MenuWrite(m++, s, menusub == 2);
 
 			snprintf(s, 29, " TOS:        %s", tos_get_image_name());
-			MenuWrite(m++, s, menusub == 4);
+			MenuWrite(m++, s, menusub == 3);
 
 			strcpy(s, " Chipset:    ");
 			// extract  TOS_CONTROL_STE and  TOS_CONTROL_MSTE bits
 			strcat(s, tos_chipset[(tos_system_ctrl() >> 23) & 3]);
-			MenuWrite(m++, s, menusub == 5);
+			MenuWrite(m++, s, menusub == 4);
 			MenuWrite(m++);
 
 			// Blitter is always present in >= STE
 			enable = (tos_system_ctrl() & (TOS_CONTROL_STE | TOS_CONTROL_MSTE)) ? 1 : 0;
 			strcpy(s, " Blitter:    ");
 			strcat(s, ((tos_system_ctrl() & TOS_CONTROL_BLITTER) || enable) ? "On" : "Off");
-			MenuWrite(m++, s, menusub == 6, enable);
+			MenuWrite(m++, s, menusub == 5, enable);
 
 			// Viking card can only be enabled with max 8MB RAM
 			enable = (tos_system_ctrl() & 0xe) <= TOS_MEMCONFIG_8M;
 			strcpy(s, " Viking:     ");
 			strcat(s, ((tos_system_ctrl() & TOS_CONTROL_VIKING) && enable) ? "On" : "Off");
-			MenuWrite(m++, s, menusub == 7, enable ? 0 : 1);
+			MenuWrite(m++, s, menusub == 6, enable ? 0 : 1);
 
 			strcpy(s, " Aspect:     ");
 			tos_set_ar(get_ar_name(tos_get_ar(), s));
-			MenuWrite(m++, s, menusub == 8);
+			MenuWrite(m++, s, menusub == 7);
 
 			strcpy(s, " Screen:     ");
 			if (tos_system_ctrl() & TOS_CONTROL_VIDEO_COLOR) strcat(s, "Color");
 			else                                             strcat(s, "Mono");
-			MenuWrite(m++, s, menusub == 9);
+			MenuWrite(m++, s, menusub == 8);
 
 			strcpy(s, " Mono 60Hz:  ");
 			if (tos_system_ctrl() & TOS_CONTROL_MDE60) strcat(s, "On");
 			else                                       strcat(s, "Off");
-			MenuWrite(m++, s, menusub == 10);
+			MenuWrite(m++, s, menusub == 9);
 
 			strcpy(s, " Video Crop: ");
 			if (tos_system_ctrl() & TOS_CONTROL_BORDER) strcat(s, (tos_get_extctrl() & 0x400) ? "Visible 216p(5x)" : "Visible");
 			else                                        strcat(s, "Full");
-			MenuWrite(m++, s, menusub == 11);
+			MenuWrite(m++, s, menusub == 10);
 
 			strcpy(s, " Scale:      ");
 			strcat(s, config_scale[(tos_get_extctrl() >> 11) & 3]);
-			MenuWrite(m++, s, menusub == 12);
+			MenuWrite(m++, s, menusub == 11);
 
 			strcpy(s, " Scanlines:  ");
 			strcat(s, tos_scanlines[(tos_system_ctrl() >> 20) & 3]);
@@ -6150,14 +6074,14 @@ void HandleUI(void)
 		break;
 
 	case MENU_ST_SYSTEM_FILE_SELECTED: // file successfully selected
-		if (menusub == 4)
+		if (menusub == 3)
 		{
 			memcpy(Selected_F[menusub], selPath, sizeof(Selected_F[menusub]));
 			tos_upload(selPath);
 			menustate = MENU_ST_SYSTEM1;
 		}
 
-		if (menusub == 3)
+		if (menusub == 2)
 		{
 			memcpy(Selected_F[menusub], selPath, sizeof(Selected_F[menusub]));
 			recent_update(SelectedDir, selPath, SelectedLabel, menusub);
@@ -6192,7 +6116,7 @@ void HandleUI(void)
 		}
 
 		for (; m < OsdGetSize() - 1; m++) OsdWrite(m);
-		OsdWrite(15, STD_BACK, menusub == 9, 0);
+		OsdWrite(15, STD_BACK, menusub == 8, 0);
 
 		menustate = MENU_ST_LOAD_CONFIG2;
 		break;
@@ -6242,7 +6166,7 @@ void HandleUI(void)
 		}
 
 		for (; m < OsdGetSize() - 1; m++) OsdWrite(m);
-		OsdWrite(15, STD_BACK, menusub == 9, 0);
+		OsdWrite(15, STD_BACK, menusub == 8, 0);
 
 		menustate = MENU_ST_SAVE_CONFIG2;
 		break;
@@ -6330,10 +6254,10 @@ void HandleUI(void)
 				strcat(s, " Unknown");
 				break;
 			}
-			OsdWrite(m++, s, menusub == 3);
+			OsdWrite(m++, s, menusub == 2);
 
 			sprintf(s, " SoundFont:                %d", (mt32_cfg >> 5) & 7);
-			OsdWrite(m++, s, menusub == 4);
+			OsdWrite(m++, s, menusub == 3);
 
 			OsdWrite(m++);
 			strcpy(s, " Current Config: ");
@@ -6370,10 +6294,10 @@ void HandleUI(void)
 			OsdWrite(m++, s);
 
 			OsdWrite(m++);
-			OsdWrite(m++, " Reset Hanging Notes", menusub == 5);
+			OsdWrite(m++, " Reset Hanging Notes", menusub == 4);
 
 			while (m < 15) OsdWrite(m++);
-			OsdWrite(15, STD_BACK, menusub == 6, 0);
+			OsdWrite(15, STD_BACK, menusub == 5, 0);
 
 			menustate = MENU_MT32PI_MAIN2;
 		}
@@ -6381,7 +6305,7 @@ void HandleUI(void)
 
 
 	case MENU_MT32PI_MAIN2:
-		if (menu || back || left || (select && menusub == 6))
+		if (menu || back || left || (select && menusub == 5))
 		{
 			if (is_minimig())
 			{
@@ -6980,25 +6904,25 @@ void HandleUI(void)
 			m = 4;
 			strcpy(s,      " Joystick Swap:          ");
 			strcat(s, (minimig_config.autofire & 0x8) ? "On" : "OFF");
-			MenuWrite(m++, s, menusub == 4, 0);
+			MenuWrite(m++, s, menusub == 3, 0);
 			MenuWrite(m++),
 
-			MenuWrite(m++, " Drives                    \x16", menusub == 5, 0);
-			MenuWrite(m++, " System                    \x16", menusub == 6, 0);
-			MenuWrite(m++, " Audio & Video             \x16", menusub == 7, 0);
+			MenuWrite(m++, " Drives                    \x16", menusub == 4, 0);
+			MenuWrite(m++, " System                    \x16", menusub == 5, 0);
+			MenuWrite(m++, " Audio & Video             \x16", menusub == 6, 0);
 			if (spi_uio_cmd16(UIO_GET_OSDMASK, 0) & 1)
 			{
 				menumask |= 0x100;
-				MenuWrite(m++, " MT32-pi                   \x16", menusub == 8);
+				MenuWrite(m++, " MT32-pi                   \x16", menusub == 7);
 			}
 
 			MenuWrite(m++);
-			MenuWrite(m++, " Save configuration        \x16", menusub == 9, 0);
-			MenuWrite(m++, " Load configuration        \x16", menusub == 10, 0);
+			MenuWrite(m++, " Save configuration        \x16", menusub == 8, 0);
+			MenuWrite(m++, " Load configuration        \x16", menusub == 9, 0);
 
 			while (m < 14) MenuWrite(m++);
-			MenuWrite(m++, " Reset", menusub == 11, 0);
-			MenuWrite(m, STD_EXIT, menusub == 12, 0);
+			MenuWrite(m++, " Reset", menusub == 10, 0);
+			MenuWrite(m, STD_EXIT, menusub == 11, 0);
 
 			if (!adjvisible) break;
 			firstmenu += adjvisible;
@@ -7054,7 +6978,7 @@ void HandleUI(void)
 					else if (recent_init(0)) menustate = MENU_RECENT1;
 				}
 			}
-			else if (menusub == 4)
+			else if (menusub == 3)
 			{
 				minimig_config.autofire ^= 0x8;
 				menustate = MENU_MINIMIG_CHIPSET1;
@@ -7063,42 +6987,42 @@ void HandleUI(void)
 			}
 			else if (select)
 			{
-				if (menusub == 5)
+				if (menusub == 4)
 				{
 					menustate = MENU_MINIMIG_DISK1;
 					menusub = 0;
 				}
-				else if (menusub == 6)
+				else if (menusub == 5)
 				{
 					menustate = MENU_MINIMIG_CHIPSET1;
 					menusub = 0;
 				}
-				else if (menusub == 7)
+				else if (menusub == 6)
 				{
 					menustate = MENU_MINIMIG_VIDEO1;
 					menusub = 0;
 				}
-				else if (menusub == 8)
+				else if (menusub == 7)
 				{
 					menusub = 0;
 					menustate = MENU_MT32PI_MAIN1;
 				}
-				else if (menusub == 9)
+				else if (menusub == 8)
 				{
 					menusub = 0;
 					menustate = MENU_MINIMIG_SAVECONFIG1;
 				}
-				else if (menusub == 10)
+				else if (menusub == 9)
 				{
 					menusub = 0;
 					menustate = MENU_MINIMIG_LOADCONFIG1;
 				}
-				else if (menusub == 11)
+				else if (menusub == 10)
 				{
 					menustate = MENU_NONE1;
 					minimig_reset();
 				}
-				else if (menusub == 12)
+				else if (menusub == 11)
 				{
 					menustate = MENU_NONE1;
 				}
@@ -7174,7 +7098,7 @@ void HandleUI(void)
 		}
 
 		while (m < OsdGetSize() - 1) OsdWrite(m++);
-		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 10, 0);
+		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 9, 0);
 
 		menustate = MENU_MINIMIG_LOADCONFIG2;
 		break;
@@ -7246,7 +7170,7 @@ void HandleUI(void)
 		}
 
 		while (m < OsdGetSize() - 1) OsdWrite(m++);
-		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 10, 0);
+		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 9, 0);
 
 		menustate = MENU_MINIMIG_SAVECONFIG2;
 		break;
@@ -7310,18 +7234,18 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2, 0);
 		strcpy(s, " ChipRAM  : ");
 		strcat(s, config_memory_chip_msg[minimig_config.memory & 0x03]);
-		OsdWrite(m++, s, menusub == 3, 0);
+		OsdWrite(m++, s, menusub == 2, 0);
 		strcpy(s, " FastRAM  : ");
 		strcat(s, config_memory_fast_msg[(minimig_config.cpu >> 1) & 1][((minimig_config.memory >> 4) & 0x03) | ((minimig_config.memory & 0x80) >> 5)]);
-		OsdWrite(m++, s, menusub == 4, 0);
+		OsdWrite(m++, s, menusub == 3, 0);
 		strcpy(s, " SlowRAM  : ");
 		strcat(s, config_memory_slow_msg[(minimig_config.memory >> 2) & 0x03]);
-		OsdWrite(m++, s, menusub == 5, 0);
+		OsdWrite(m++, s, menusub == 4, 0);
 
 		OsdWrite(m++, "", 0, 0);
 		strcpy(s, " Joystick : ");
 		strcat(s, config_joystick_mode[(minimig_config.autofire & 6) >> 1]);
-		OsdWrite(m++, s, menusub == 6, 0);
+		OsdWrite(m++, s, menusub == 5, 0);
 
 		OsdWrite(m++, "", 0, 0);
 		strcpy(s, " ROM    : ");
@@ -7333,13 +7257,13 @@ void HandleUI(void)
 			strncat(&s[3], name, 24);
 		}
 
-		OsdWrite(m++, s, menusub == 7, 0);
+		OsdWrite(m++, s, menusub == 6, 0);
 		strcpy(s, " HRTmon : ");
 		strcat(s, (minimig_config.memory & 0x40) ? "enabled " : "disabled");
-		OsdWrite(m++, s, menusub == 8, 0);
+		OsdWrite(m++, s, menusub == 7, 0);
 
 		for (int i = m; i < OsdGetSize() - 1; i++) OsdWrite(i, "", 0, 0);
-		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 9, 0);
+		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 8, 0);
 
 		menustate = MENU_MINIMIG_CHIPSET2;
 		break;
@@ -7413,12 +7337,12 @@ void HandleUI(void)
 				menustate = MENU_MINIMIG_CHIPSET1;
 				minimig_ConfigChipset(minimig_config.chipset);
 			}
-			else if (menusub == 3)
+			else if (menusub == 2)
 			{
 				minimig_config.memory = ((minimig_config.memory + (minus ? -1 : 1)) & 0x03) | (minimig_config.memory & ~0x03);
 				menustate = MENU_MINIMIG_CHIPSET1;
 			}
-			else if (menusub == 4)
+			else if (menusub == 3)
 			{
 				int c = (((minimig_config.memory >> 4) & 0x03) | ((minimig_config.memory & 0x80) >> 5));
 				if (minus)
@@ -7436,12 +7360,12 @@ void HandleUI(void)
 				minimig_config.memory = ((c << 4) & 0x30) | ((c << 5) & 0x80) | (minimig_config.memory & ~0xB0);
 				menustate = MENU_MINIMIG_CHIPSET1;
 			}
-			else if (menusub == 5)
+			else if (menusub == 4)
 			{
 				minimig_config.memory = ((minimig_config.memory + (minus ? -4 : 4)) & 0x0C) | (minimig_config.memory & ~0x0C);
 				menustate = MENU_MINIMIG_CHIPSET1;
 			}
-			else if (menusub == 6)
+			else if (menusub == 5)
 			{
 				uint8_t x = (minimig_config.autofire & 6) >> 1;
 				if (minus)
@@ -7459,17 +7383,17 @@ void HandleUI(void)
 				menustate = MENU_MINIMIG_CHIPSET1;
 				minimig_ConfigAutofire(minimig_config.autofire, 6);
 			}
-			else if (menusub == 7 && select)
+			else if (menusub == 6 && select)
 			{
 				ioctl_index = 1;
 				SelectFile(Selected_F[4], "ROM", SCANO_DIR, MENU_MINIMIG_ROMFILE_SELECTED, MENU_MINIMIG_CHIPSET1);
 			}
-			else if (menusub == 8)
+			else if (menusub == 7)
 			{
 				minimig_config.memory ^= 0x40;
 				menustate = MENU_MINIMIG_CHIPSET1;
 			}
-			else if (menusub == 9)
+			else if (menusub == 8)
 			{
 				menustate = MENU_MINIMIG_MAIN1;
 				menusub = 6;
@@ -7542,10 +7466,10 @@ void HandleUI(void)
 
 		OsdWrite(m++);
 		sprintf(s, " Floppy Disk Turbo : %s", minimig_config.floppy.speed ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 10, 0);
+		OsdWrite(m++, s, menusub == 9, 0);
 		OsdWrite(m++);
 
-		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 11, 0);
+		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 10, 0);
 		menustate = MENU_MINIMIG_DISK2;
 		break;
 
@@ -7605,13 +7529,13 @@ void HandleUI(void)
 					else if (recent_init(500)) menustate = MENU_RECENT1;
 				}
 			}
-			else if (menusub == 10 && select) // return to previous menu
+			else if (menusub == 9 && select) // return to previous menu
 			{
 				minimig_config.floppy.speed ^= 1;
 				minimig_ConfigFloppy(minimig_config.floppy.drives, minimig_config.floppy.speed);
 				menustate = MENU_MINIMIG_DISK1;
 			}
-			else if (menusub == 11 && select) // return to previous menu
+			else if (menusub == 10 && select) // return to previous menu
 			{
 				menustate = MENU_MINIMIG_MAIN1;
 				menusub = 5;
@@ -7668,35 +7592,35 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 2, 0);
 		strcpy(s, " Aspect Ratio  : ");
 		minimig_config.scanlines = (get_ar_name((minimig_config.scanlines >> 4) & 3, s) << 4) | (minimig_config.scanlines & ~0x30);
-		OsdWrite(m++, s, menusub == 3, 0);
+		OsdWrite(m++, s, menusub == 2, 0);
 		strcpy(s, " Pixel Clock   : ");
 		strcat(s, (minimig_get_extcfg() & 0x400) ? "Adaptive" : "28MHz");
-		OsdWrite(m++, s, menusub == 4, 0);
+		OsdWrite(m++, s, menusub == 3, 0);
 		strcpy(s, " Scaling       : ");
 		strcat(s,config_scale[(minimig_get_extcfg() >> 11) & 7]);
-		OsdWrite(m++, s, menusub == 5, 0);
+		OsdWrite(m++, s, menusub == 4, 0);
 		strcpy(s, " RTG Upscaling : ");
 		strcat(s, (minimig_get_extcfg() & 0x4000) ? "HV-Integer" : "Normal");
-		OsdWrite(m++, s, menusub == 6, 0);
+		OsdWrite(m++, s, menusub == 5, 0);
 
 		OsdWrite(m++);
 		strcpy(s, " Stereo mix    : ");
 		strcat(s, config_stereo_msg[minimig_config.audio & 3]);
-		OsdWrite(m++, s, menusub == 7, 0);
+		OsdWrite(m++, s, menusub == 6, 0);
 		strcpy(s, " Audio Filter  : ");
 		strcat(s, (~minimig_get_extcfg() & 0x10000) ? "Auto(LED)" : (minimig_get_extcfg() & 0x8000) ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 8, 0);
+		OsdWrite(m++, s, menusub == 7, 0);
 		strcpy(s, " Model         : ");
 		strcat(s, (minimig_get_extcfg() & 0x20000) ? "A1200" : "A500");
-		OsdWrite(m++, s, menusub == 9, 0);
+		OsdWrite(m++, s, menusub == 8, 0);
 		strcpy(s, " Paula Output  : ");
 		strcat(s, (minimig_get_extcfg() & 0x40000) ? "PWM" : "Normal");
-		OsdWrite(m++, s, menusub == 10, 0);
+		OsdWrite(m++, s, menusub == 9, 0);
 
 		OsdWrite(m++);
-		OsdWrite(m++, minimig_get_adjust() ? " Finish screen adjustment" : " Adjust screen position", menusub == 11, 0);
+		OsdWrite(m++, minimig_get_adjust() ? " Finish screen adjustment" : " Adjust screen position", menusub == 10, 0);
 		for (; m < OsdGetSize() - 1; m++) OsdWrite(m);
-		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 12, 0);
+		OsdWrite(OsdGetSize() - 1, STD_BACK, menusub == 11, 0);
 
 		menustate = MENU_MINIMIG_VIDEO2;
 		break;
@@ -7876,18 +7800,18 @@ void HandleUI(void)
 		OsdWrite(m++, "");
 		OsdWrite(m++, " MiSTer Settings           \x16", menusub == 1);
 		OsdWrite(m++, " Remap keyboard            \x16", menusub == 2);
-		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 3);
-		OsdWrite(m++, " Scripts                   \x16", menusub == 4);
-		OsdWrite(m++, " Help                      \x16", menusub == 5);
+		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 2);
+		OsdWrite(m++, " Scripts                   \x16", menusub == 3);
+		OsdWrite(m++, " Help                      \x16", menusub == 4);
 		OsdWrite(m++, "");
 		cr = m;
-		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 6);
+		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 7);
+		OsdWrite(15, STD_EXIT, menusub == 6);
 		menustate = MENU_SYSTEM2;
 		break;
 
