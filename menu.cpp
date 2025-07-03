@@ -404,6 +404,10 @@ static void setup_save_confirmation_screen(const char* title, const char* warnin
 static char hdmi_old_resolution[64];
 static char hdmi_new_resolution[64];
 
+// VRR confirmation functions
+static int vrr_old_value;
+static int vrr_new_value;
+
 // Convert raw resolution string to nice display name
 static const char* get_resolution_display_name(const char* resolution)
 {
@@ -458,6 +462,20 @@ static int hdmi_revert_resolution(void)
 {
 	strcpy(cfg.video_conf, hdmi_old_resolution);
 	apply_video_settings();
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int vrr_apply_change(void)
+{
+	// VRR change is already applied, just send to hardware
+	user_io_send_buttons(1);
+	return 1;
+}
+
+static int vrr_revert_change(void)
+{
+	cfg.vrr_mode = vrr_old_value;
 	user_io_send_buttons(1);
 	return 1;
 }
@@ -4502,6 +4520,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
+						printf("DEBUG: Analog Mode changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4571,6 +4590,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
+						printf("DEBUG: Analog Mode changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4619,6 +4639,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
+						printf("DEBUG: Analog Resolution changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4661,6 +4682,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
+						printf("DEBUG: Analog Resolution changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4713,6 +4735,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
+						printf("DEBUG: Analog Sync changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4759,6 +4782,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
+						printf("DEBUG: Analog Sync changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4837,6 +4861,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
+						printf("DEBUG: HDMI Resolution changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4871,6 +4896,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
+						printf("DEBUG: HDMI Resolution changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4901,6 +4927,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
+						printf("DEBUG: HDMI VSync changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4925,6 +4952,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
+						printf("DEBUG: HDMI VSync changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4954,6 +4982,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
+						printf("DEBUG: Vertical Scale changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -4977,6 +5006,7 @@ void HandleUI(void)
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
+						printf("DEBUG: Vertical Scale changed: %s -> %s\n", old_name, new_name);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
 						return; // Exit immediately to prevent generic handler from overriding menustate
@@ -5004,6 +5034,7 @@ void HandleUI(void)
 					
 					// Setup confirmation screen
 					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
+					printf("DEBUG: RGB Range changed: %s -> %s\n", old_name, new_name);
 					menustate = MENU_CONFIRM_CHANGE1;
 					menusub = 1; // Default to "Reject"
 					return; // Exit immediately to prevent generic handler from overriding menustate
@@ -5027,6 +5058,7 @@ void HandleUI(void)
 					
 					// Setup confirmation screen
 					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
+					printf("DEBUG: RGB Range changed: %s -> %s\n", old_name, new_name);
 					menustate = MENU_CONFIRM_CHANGE1;
 					menusub = 1; // Default to "Reject"
 					return; // Exit immediately to prevent generic handler from overriding menustate
@@ -5157,8 +5189,25 @@ void HandleUI(void)
 			case 1: // VRR Mode
 				if (select || left || right)
 				{
+					// Save old state for confirmation
+					vrr_old_value = cfg.vrr_mode;
+					
 					cfg.vrr_mode = !cfg.vrr_mode;
-					changed = 1;
+					vrr_new_value = cfg.vrr_mode;
+					
+					// Apply the change immediately
+					user_io_send_buttons(1);
+					
+					// Get display names for confirmation
+					const char* old_name = vrr_old_value ? "On" : "Off";
+					const char* new_name = vrr_new_value ? "On" : "Off";
+					
+					// Setup confirmation screen
+					setup_confirmation_screen("VRR Mode", old_name, new_name, vrr_apply_change, vrr_revert_change, MENU_SETTINGS_HDMI1, 1);
+					printf("DEBUG: VRR Mode changed: %s -> %s\n", old_name, new_name);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
+					return; // Exit immediately to prevent generic handler from overriding menustate
 				}
 				break;
 				
