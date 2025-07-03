@@ -8598,18 +8598,18 @@ void HandleUI(void)
 		OsdWrite(m++, "");
 		OsdWrite(m++, " MiSTer Settings           \x16", menusub == 1);
 		OsdWrite(m++, " Remap keyboard            \x16", menusub == 2);
-		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 2);
-		OsdWrite(m++, " Scripts                   \x16", menusub == 3);
-		OsdWrite(m++, " Help                      \x16", menusub == 4);
+		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 3);
+		OsdWrite(m++, " Scripts                   \x16", menusub == 4);
+		OsdWrite(m++, " Help                      \x16", menusub == 5);
 		OsdWrite(m++, "");
 		cr = m;
-		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 5);
+		OsdWrite(m++, " Reboot (hold \x16 cold reboot)", menusub == 6);
 		sysinfo_timer = 0;
 
 		reboot_req = 0;
 
 		while(m < OsdGetSize()-1) OsdWrite(m++, "");
-		OsdWrite(15, STD_EXIT, menusub == 6);
+		OsdWrite(15, STD_EXIT, menusub == 7);
 		menustate = MENU_SYSTEM2;
 		break;
 
