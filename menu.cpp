@@ -120,17 +120,19 @@ static void render_scrolling_help_text_direct(char* buffer, size_t buffer_size, 
 			if (start_pos + 26 > help_len) start_pos = help_len - 26;
 			if (start_pos < 0) start_pos = 0;
 			
-			strncpy(buffer, help_text + start_pos, 26);
-			buffer[26] = '\0';
+			buffer[0] = ' '; // Add space prefix to move text right
+			strncpy(buffer + 1, help_text + start_pos, 26);
+			buffer[27] = '\0';
 		}
 		else {
 			// Text fits, no scrolling needed
-			strncpy(buffer, help_text, buffer_size - 1);
+			buffer[0] = ' '; // Add space prefix to move text right
+			strncpy(buffer + 1, help_text, buffer_size - 2);
 			buffer[buffer_size - 1] = '\0';
 		}
 	}
 	else {
-		strcpy(buffer, "Use left/right arrows to change this setting value");
+		strcpy(buffer, " Use left/right arrows to change this setting value");
 	}
 }
 
