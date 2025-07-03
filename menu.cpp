@@ -3954,47 +3954,75 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x3F; // 6 analog settings
+		menumask = 0x1F; // 5 analog settings (always show all, gray out disabled)
 
 		m = 0;
 		OsdSetTitle("Analog Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Analog Res.:   %s", cfg.vga_scaler ? "Scaled" : "Native");
-		OsdWrite(m++, s, menusub == 0);
 		
 		sprintf(s, "  HDMI Mode:     %s", cfg.direct_video ? "HDMI DAC" : "HDMI");
-		OsdWrite(m++, s, menusub == 1);
+		OsdWrite(m++, s, menusub == 0);
+		
+		// Analog Mode first
 		const char *vga_mode_str = "RGB";
 		if (cfg.vga_mode_int == 1) vga_mode_str = "YPbPr";
 		else if (cfg.vga_mode_int == 2) vga_mode_str = "S-Video";
 		else if (cfg.vga_mode_int == 3) vga_mode_str = "CVBS";
+		
 		sprintf(s, "  Analog Mode:   %s", vga_mode_str);
-		OsdWrite(m++, s, menusub == 2);
+		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Sync:          %s", cfg.csync ? "Composite" : "Separate");
-		OsdWrite(m++, s, menusub == 3);
+		// Analog Resolution second (disabled for S-Video/CVBS)
+		const char *analog_res_str = "Native";
+		if (cfg.vga_scaler && cfg.forced_scandoubler) analog_res_str = "Scandoubled";
+		else if (cfg.vga_scaler) analog_res_str = "Scaled";
+		bool res_disabled = (cfg.vga_mode_int >= 2); // S-Video/CVBS must be native
+		sprintf(s, "  Analog Res.:   %s", analog_res_str);
+		OsdWrite(m++, s, menusub == 2, res_disabled ? 1 : 0);
 		
-		sprintf(s, "  Sync on Green: %s", cfg.vga_sog ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 4);
+		// Context-sensitive sync options based on analog mode
+		const char *sync_str = "Separate";
+		bool sync_disabled = false;
 		
-		sprintf(s, "  15kHz \x11 31kHz: %s", cfg.forced_scandoubler ? "On" : "Off");
-		OsdWrite(m++, s, menusub == 5);
+		if (cfg.vga_mode_int == 0) { // RGB mode: All sync options available
+			if (cfg.csync) sync_str = "Composite";
+			else if (cfg.vga_sog) sync_str = "Sync-on-Green";
+			else sync_str = "Separate";
+		}
+		else if (cfg.vga_mode_int == 1) { // YPbPr mode: Both composite and sync-on-green
+			sync_str = "Comp + SOG";
+			sync_disabled = true;
+		}
+		else { // S-Video/CVBS: Must be composite sync
+			sync_str = "Composite";
+			sync_disabled = true;
+		}
+		
+		sprintf(s, "  Sync:          %s", sync_str);
+		OsdWrite(m++, s, menusub == 3, sync_disabled ? 1 : 0);
+		
+		// Analog Region (only enabled for S-Video/Composite)
+		const char *ntsc_mode_str = "NTSC";
+		if (cfg.ntsc_mode == 1) ntsc_mode_str = "PAL-60";
+		else if (cfg.ntsc_mode == 2) ntsc_mode_str = "PAL-M";
+		sprintf(s, "  Analog Region: %s", ntsc_mode_str);
+		bool region_disabled = (cfg.vga_mode_int < 2); // Disabled for RGB/YPbPr
+		OsdWrite(m++, s, menusub == 4, region_disabled ? 1 : 0);
 		
 		// Analog setting keys for help text lookup
 		static const char* analog_setting_keys[] = {
-			"VGA_SCALER",           // Analog Res.
 			"DIRECT_VIDEO",         // HDMI Mode
-			"YPBPR",                // Analog Mode (uses vga_mode_int)
-			"COMPOSITE_SYNC",       // Sync
-			"VGA_SOG",              // Sync on Green
-			"FORCED_SCANDOUBLER"    // 15kHz → 31kHz
+			"VGA_MODE",             // Analog Mode
+			"VGA_SCALER",           // Analog Res.
+			"COMPOSITE_SYNC",       // Sync (includes Sync-on-Green)
+			"NTSC_MODE"             // Analog Region
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t analog_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text(s, sizeof(s), analog_setting_keys, menusub, 6, &analog_scroll_state);
+		render_scrolling_help_text(s, sizeof(s), analog_setting_keys, menusub, 5, &analog_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -4018,15 +4046,7 @@ void HandleUI(void)
 			
 			switch (menusub)
 			{
-			case 0: // VGA Scaler
-				if (select || left || right)
-				{
-					cfg.vga_scaler = !cfg.vga_scaler;
-					changed = 1;
-				}
-				break;
-				
-			case 1: // Direct Video
+			case 0: // HDMI Mode (Direct Video)
 				if (select || left || right)
 				{
 					cfg.direct_video = !cfg.direct_video;
@@ -4034,74 +4054,202 @@ void HandleUI(void)
 				}
 				break;
 				
-			case 2: // VGA Mode
-				if (right || select)
+			case 1: // Analog Mode (always cycle through all 4 modes)
 				{
-					int old_mode = cfg.vga_mode_int;
-					cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Cycle 0->1->2->3->0
-					// Update string representation to match
-					switch (cfg.vga_mode_int)
+					if (right || select)
 					{
-						case 0: strcpy(cfg.vga_mode, "rgb"); break;
-						case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
-						case 2: strcpy(cfg.vga_mode, "svideo"); break;
-						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
+						int old_mode = cfg.vga_mode_int;
+						cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Always cycle through all 4 modes
+						// Update string representation to match
+						switch (cfg.vga_mode_int)
+						{
+							case 0: strcpy(cfg.vga_mode, "rgb"); break;
+							case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
+							case 2: strcpy(cfg.vga_mode, "svideo"); break;
+							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
+						}
+						printf("DEBUG: Menu navigation (right/select) changed vga_mode: %d->%d (\"%s\")\n", 
+							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
+						
+						// Auto-reset settings based on new analog mode
+						if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
+							if (cfg.vga_scaler || cfg.forced_scandoubler) {
+								cfg.vga_scaler = 0;
+								cfg.forced_scandoubler = 0;
+								printf("DEBUG: Auto-reset to native resolution for S-Video/CVBS\n");
+							}
+							if (!cfg.csync) {
+								cfg.csync = 1;
+								cfg.vga_sog = 0;
+								printf("DEBUG: Auto-set composite sync for S-Video/CVBS\n");
+							}
+						}
+						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
+							cfg.csync = 1;
+							cfg.vga_sog = 1;
+							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
+						}
+						
+						// Force video mode reconfiguration for S-Video/CVBS modes
+						if (cfg.vga_mode_int >= 2) {
+							extern void video_mode_adjust();
+							video_mode_adjust();
+							printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
+						}
+						changed = 1;
 					}
-					printf("DEBUG: Menu navigation (right/select) changed vga_mode: %d->%d (\"%s\")\n", 
-						   old_mode, cfg.vga_mode_int, cfg.vga_mode);
-					// Force video mode reconfiguration for S-Video/CVBS modes
-					if (cfg.vga_mode_int >= 2) {
-						extern void video_mode_adjust();
-						video_mode_adjust();
-						printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
-					}
-					changed = 1;
-				}
-				else if (left)
-				{
-					int old_mode = cfg.vga_mode_int;
-					cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Cycle 0->3->2->1->0
-					// Update string representation to match
-					switch (cfg.vga_mode_int)
+					else if (left)
 					{
-						case 0: strcpy(cfg.vga_mode, "rgb"); break;
-						case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
-						case 2: strcpy(cfg.vga_mode, "svideo"); break;
-						case 3: strcpy(cfg.vga_mode, "cvbs"); break;
+						int old_mode = cfg.vga_mode_int;
+						cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Always cycle through all 4 modes
+						// Update string representation to match
+						switch (cfg.vga_mode_int)
+						{
+							case 0: strcpy(cfg.vga_mode, "rgb"); break;
+							case 1: strcpy(cfg.vga_mode, "ypbpr"); break;
+							case 2: strcpy(cfg.vga_mode, "svideo"); break;
+							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
+						}
+						printf("DEBUG: Menu navigation (left) changed vga_mode: %d->%d (\"%s\")\n", 
+							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
+						
+						// Auto-reset settings based on new analog mode
+						if (cfg.vga_mode_int >= 2) { // S-Video/CVBS: Force native resolution and composite sync
+							if (cfg.vga_scaler || cfg.forced_scandoubler) {
+								cfg.vga_scaler = 0;
+								cfg.forced_scandoubler = 0;
+								printf("DEBUG: Auto-reset to native resolution for S-Video/CVBS\n");
+							}
+							if (!cfg.csync) {
+								cfg.csync = 1;
+								cfg.vga_sog = 0;
+								printf("DEBUG: Auto-set composite sync for S-Video/CVBS\n");
+							}
+						}
+						else if (cfg.vga_mode_int == 1) { // YPbPr: always set both composite and sync-on-green
+							cfg.csync = 1;
+							cfg.vga_sog = 1;
+							printf("DEBUG: Auto-set composite sync and sync-on-green for YPbPr mode\n");
+						}
+						
+						// Force video mode reconfiguration for S-Video/CVBS modes
+						if (cfg.vga_mode_int >= 2) {
+							extern void video_mode_adjust();
+							video_mode_adjust();
+							printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
+						}
+						changed = 1;
 					}
-					printf("DEBUG: Menu navigation (left) changed vga_mode: %d->%d (\"%s\")\n", 
-						   old_mode, cfg.vga_mode_int, cfg.vga_mode);
-					// Force video mode reconfiguration for S-Video/CVBS modes
-					if (cfg.vga_mode_int >= 2) {
-						extern void video_mode_adjust();
-						video_mode_adjust();
-						printf("DEBUG: Forced video_mode_adjust() for S-Video/CVBS\n");
+				}
+				break;
+				
+			case 2: // Analog Resolution (disabled for S-Video/CVBS)
+				if (cfg.vga_mode_int < 2) // Only allow changes for RGB/YPbPr
+				{
+					if (right || select)
+					{
+						// Cycle: Native -> Scaled -> Scandoubled -> Native
+						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
+							// Native -> Scaled
+							cfg.vga_scaler = 1;
+							cfg.forced_scandoubler = 0;
+						}
+						else if (cfg.vga_scaler && !cfg.forced_scandoubler) {
+							// Scaled -> Scandoubled
+							cfg.vga_scaler = 1;
+							cfg.forced_scandoubler = 1;
+						}
+						else {
+							// Scandoubled -> Native
+							cfg.vga_scaler = 0;
+							cfg.forced_scandoubler = 0;
+						}
+						changed = 1;
 					}
-					changed = 1;
+					else if (left)
+					{
+						// Cycle: Native -> Scandoubled -> Scaled -> Native
+						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
+							// Native -> Scandoubled
+							cfg.vga_scaler = 1;
+							cfg.forced_scandoubler = 1;
+						}
+						else if (cfg.vga_scaler && cfg.forced_scandoubler) {
+							// Scandoubled -> Scaled
+							cfg.vga_scaler = 1;
+							cfg.forced_scandoubler = 0;
+						}
+						else {
+							// Scaled -> Native
+							cfg.vga_scaler = 0;
+							cfg.forced_scandoubler = 0;
+						}
+						changed = 1;
+					}
 				}
+				// S-Video/CVBS: Resolution changes not allowed
 				break;
 				
-			case 3: // Composite Sync
-				if (select || left || right)
-				{
-					cfg.csync = !cfg.csync;
-					changed = 1;
+			case 3: // Sync (context-sensitive based on analog mode)
+				if (cfg.vga_mode_int == 0) { // RGB mode: All 3 sync options
+					if (right || select)
+					{
+						// Cycle: Separate -> Composite -> Sync-on-Green -> Separate
+						if (!cfg.csync && !cfg.vga_sog) {
+							// Separate -> Composite
+							cfg.csync = 1;
+							cfg.vga_sog = 0;
+						}
+						else if (cfg.csync && !cfg.vga_sog) {
+							// Composite -> Sync-on-Green
+							cfg.csync = 0;
+							cfg.vga_sog = 1;
+						}
+						else {
+							// Sync-on-Green -> Separate
+							cfg.csync = 0;
+							cfg.vga_sog = 0;
+						}
+						changed = 1;
+					}
+					else if (left)
+					{
+						// Cycle: Separate -> Sync-on-Green -> Composite -> Separate
+						if (!cfg.csync && !cfg.vga_sog) {
+							// Separate -> Sync-on-Green
+							cfg.csync = 0;
+							cfg.vga_sog = 1;
+						}
+						else if (!cfg.csync && cfg.vga_sog) {
+							// Sync-on-Green -> Composite
+							cfg.csync = 1;
+							cfg.vga_sog = 0;
+						}
+						else {
+							// Composite -> Separate
+							cfg.csync = 0;
+							cfg.vga_sog = 0;
+						}
+						changed = 1;
+					}
 				}
+				// YPbPr mode (vga_mode_int == 1): No sync changes allowed (always Comp + SOG)
+				// S-Video/CVBS (vga_mode_int >= 2): No sync changes allowed (always Composite)
 				break;
 				
-			case 4: // VGA SOG
-				if (select || left || right)
+			case 4: // Analog Region (grayed out if not S-Video/Composite)
+				if (cfg.vga_mode_int >= 2) // Only allow changes for S-Video/Composite
 				{
-					cfg.vga_sog = !cfg.vga_sog;
-					changed = 1;
-				}
-				break;
-				
-			case 5: // Forced Scandoubler
-				if (select || left || right)
-				{
-					cfg.forced_scandoubler = !cfg.forced_scandoubler;
-					changed = 1;
+					if (right || select)
+					{
+						cfg.ntsc_mode = (cfg.ntsc_mode + 1) % 3; // Cycle 0->1->2->0
+						changed = 1;
+					}
+					else if (left)
+					{
+						cfg.ntsc_mode = (cfg.ntsc_mode + 2) % 3; // Cycle 0->2->1->0
+						changed = 1;
+					}
 				}
 				break;
 			}
@@ -4517,6 +4665,11 @@ void HandleUI(void)
 			
 			if (changed)
 			{
+				// Apply video mode changes immediately if case 11 (Video Mode)
+				if (menusub == 11) {
+					video_mode_adjust();
+					user_io_send_buttons(1);
+				}
 				menustate = MENU_SETTINGS_HDMI1;
 			}
 		}
@@ -4589,40 +4742,40 @@ void HandleUI(void)
 		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, "  Mouse Emulation:      %s", cfg.kbd_nomouse ? "Off" : "On");
+		sprintf(s, "  Mouse Emulation:    %s", cfg.kbd_nomouse ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  Mouse Throttle:       %d", cfg.mouse_throttle);
+		sprintf(s, "  Mouse Throttle:     %d", cfg.mouse_throttle);
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Rumble:               %s", cfg.rumble ? "On" : "Off");
+		sprintf(s, "  Rumble:             %s", cfg.rumble ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  Gamepad Defaults:     %s", cfg.gamepad_defaults ? "Pos." : "Name");
+		sprintf(s, "  Gamepad Defaults:   %s", cfg.gamepad_defaults ? "Pos." : "Name");
 		OsdWrite(m++, s, menusub == 3);
 		
 		if (cfg.controller_info == 0)
-			sprintf(s, "  Controller Info:      Off");
+			sprintf(s, "  Controller Info:    Off");
 		else
-			sprintf(s, "  Controller Info:      %ds", cfg.controller_info);
+			sprintf(s, "  Controller Info:    %ds", cfg.controller_info);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  Autofire:             %s", cfg.disable_autofire ? "Off" : "On");
+		sprintf(s, "  Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  BT Auto Disconnect:   %dm", cfg.bt_auto_disconnect);
+		sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  BT Reset Before Pair: %s", cfg.bt_reset_before_pair ? "On" : "Off");
+		sprintf(s, "  BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Wheel Force:          %d%%", cfg.wheel_force);
+		sprintf(s, "  Wheel Force:        %d%%", cfg.wheel_force);
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, "  Wheel Range:          %d°", cfg.wheel_range);
+		sprintf(s, "  Wheel Range:        %d°", cfg.wheel_range);
 		OsdWrite(m++, s, menusub == 9);
 		
-		sprintf(s, "  Sniper Mode:          %s", cfg.sniper_mode ? "Swap" : "Norm");
+		sprintf(s, "  Sniper Mode:        %s", cfg.sniper_mode ? "Swap" : "Norm");
 		OsdWrite(m++, s, menusub == 10);
 		
 		// Input setting keys for help text lookup
@@ -4818,36 +4971,41 @@ void HandleUI(void)
 
 		OsdWrite(m++);
 		if (cfg.video_info == 0)
-			sprintf(s, "  Video Info:           0s");
+			sprintf(s, "  Video Info:    0s");
 		else
-			sprintf(s, "  Video Info:           %ds", cfg.video_info);
+			sprintf(s, "  Video Info:    %ds", cfg.video_info);
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, "  Boot Screen:          %s", cfg.bootscreen ? "On" : "Off");
+		sprintf(s, "  Boot Screen:   %s", cfg.bootscreen ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, "  Boot Timeout:         %ds", cfg.bootcore_timeout);
+		sprintf(s, "  Boot Timeout:  %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, "  Recent Files:         %s", cfg.recents ? "On" : "Off");
+		sprintf(s, "  Recent Files:  %s", cfg.recents ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, "  FB Size:              %d", cfg.fb_size);
+		sprintf(s, "  FB Size:       %d", cfg.fb_size);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, "  FB Terminal:          %s", cfg.fb_terminal ? "On" : "Off");
+		sprintf(s, "  FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  OSD Timeout:          %ds", cfg.osd_timeout);
+		sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, "  OSD Rotate:           %s", cfg.osd_rotate ? "On" : "Off");
+		{
+			const char *osd_rotate_str = "Off";
+			if (cfg.osd_rotate == 1) osd_rotate_str = "90* CW";
+			else if (cfg.osd_rotate == 2) osd_rotate_str = "90* CCW";
+			sprintf(s, "  OSD Rotate:    %s", osd_rotate_str);
+		}
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, "  Browse Expand:        %s", cfg.browse_expand ? "On" : "Off");
+		sprintf(s, "  Browse Expand: %s", cfg.browse_expand ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, "  Logo:                 %s", cfg.logo ? "On" : "Off");
+		sprintf(s, "  Logo:          %s", cfg.logo ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 9);
 		
 		// System setting keys for help text lookup
@@ -4969,9 +5127,14 @@ void HandleUI(void)
 				break;
 				
 			case 7: // OSD Rotate
-				if (select || left || right)
+				if (select || right)
 				{
-					cfg.osd_rotate = !cfg.osd_rotate;
+					cfg.osd_rotate = (cfg.osd_rotate + 1) % 3; // Cycle 0->1->2->0
+					changed = 1;
+				}
+				else if (left)
+				{
+					cfg.osd_rotate = (cfg.osd_rotate + 2) % 3; // Cycle 0->2->1->0
 					changed = 1;
 				}
 				break;
