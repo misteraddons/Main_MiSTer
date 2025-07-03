@@ -4437,6 +4437,8 @@ void HandleUI(void)
 						current_idx = (current_idx + 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						extern void video_mode_adjust();
+						extern void video_cfg_reset();
+						video_cfg_reset();
 						video_mode_adjust();
 						changed = 1;
 					}
@@ -4456,6 +4458,8 @@ void HandleUI(void)
 						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						extern void video_mode_adjust();
+						extern void video_cfg_reset();
+						video_cfg_reset();
 						video_mode_adjust();
 						changed = 1;
 					}
@@ -5040,9 +5044,12 @@ void HandleUI(void)
 		sprintf(s, "  Boot Screen:   %s", cfg.bootscreen ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
-		// Ensure bootcore_timeout is in valid range (2-30)
-		if (cfg.bootcore_timeout < 2) cfg.bootcore_timeout = 10; // default to 10
-		sprintf(s, "  Boot Timeout:  %ds", cfg.bootcore_timeout);
+		// Ensure bootcore_timeout is in valid range (0=disabled, 10-30)
+		if (cfg.bootcore_timeout > 0 && cfg.bootcore_timeout < 10) cfg.bootcore_timeout = 10; // default to 10
+		if (cfg.bootcore_timeout == 0)
+			sprintf(s, "  Boot Timeout:  Off");
+		else
+			sprintf(s, "  Boot Timeout:  %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 2);
 		
 		sprintf(s, "  Recent Files:  %s", cfg.recents ? "On" : "Off");
@@ -5142,14 +5149,14 @@ void HandleUI(void)
 			case 2: // Boot Timeout
 				if (right || select)
 				{
-					if (cfg.bootcore_timeout < 30) cfg.bootcore_timeout++;
+					if (cfg.bootcore_timeout == 0) cfg.bootcore_timeout = 10; // Off -> 10s
+					else if (cfg.bootcore_timeout < 30) cfg.bootcore_timeout++;
 					changed = 1;
 				}
 				else if (left)
 				{
-					if (cfg.bootcore_timeout > 2) cfg.bootcore_timeout--;
-					// Ensure we never go below 2
-					if (cfg.bootcore_timeout < 2) cfg.bootcore_timeout = 2;
+					if (cfg.bootcore_timeout <= 10) cfg.bootcore_timeout = 0; // 10s -> Off
+					else cfg.bootcore_timeout--;
 					changed = 1;
 				}
 				break;
