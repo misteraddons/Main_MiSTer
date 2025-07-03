@@ -142,6 +142,7 @@ const osd_category_info_t* cfg_get_category_info(osd_category_t category)
 	return NULL;
 }
 
+
 #define INI_LINE_SIZE           1024
 
 #define INI_SECTION_START       '['

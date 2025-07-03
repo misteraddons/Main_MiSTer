@@ -4053,7 +4053,7 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0x7FF; // 11 HDMI settings
+		menumask = 0xFFF; // 12 HDMI settings
 
 		m = 0;
 		OsdSetTitle("HDMI Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4102,9 +4102,100 @@ void HandleUI(void)
 		sprintf(s, "  Vert. Scale: %s", vscale_str);
 		OsdWrite(m++, s, menusub == 10);
 		
+		// Video Mode presets - Auto uses EDID, others force specific resolution
+		const char *vmode_str = "Auto (EDID)";
+		if (strlen(cfg.video_conf) > 0) {
+			// Show names for all available resolutions
+			if (!strcmp(cfg.video_conf, "1280,720,60")) vmode_str = "720p60";
+			else if (!strcmp(cfg.video_conf, "1024,768,60")) vmode_str = "1024x768@60";
+			else if (!strcmp(cfg.video_conf, "720,480,60")) vmode_str = "480p60";
+			else if (!strcmp(cfg.video_conf, "720,576,50")) vmode_str = "576p50";
+			else if (!strcmp(cfg.video_conf, "1280,1024,60")) vmode_str = "1280x1024@60";
+			else if (!strcmp(cfg.video_conf, "800,600,60")) vmode_str = "800x600@60";
+			else if (!strcmp(cfg.video_conf, "640,480,60")) vmode_str = "480p60 (VGA)";
+			else if (!strcmp(cfg.video_conf, "1280,720,50")) vmode_str = "720p50";
+			else if (!strcmp(cfg.video_conf, "1920,1080,60")) vmode_str = "1080p60";
+			else if (!strcmp(cfg.video_conf, "1920,1080,50")) vmode_str = "1080p50";
+			else if (!strcmp(cfg.video_conf, "1366,768,60")) vmode_str = "1366x768@60";
+			else if (!strcmp(cfg.video_conf, "1024,600,60")) vmode_str = "1024x600@60";
+			else if (!strcmp(cfg.video_conf, "1920,1440,60")) vmode_str = "1920x1440@60";
+			else if (!strcmp(cfg.video_conf, "2048,1536,60")) vmode_str = "2048x1536@60";
+			else if (!strcmp(cfg.video_conf, "2560,1440,60")) vmode_str = "1440p60";
+			else vmode_str = "Custom";
+		}
+		sprintf(s, "  Video Mode:  %s", vmode_str);
+		OsdWrite(m++, s, menusub == 11);
+		
+		// Help text array for HDMI settings
+		static const char* hdmi_help_texts[] = {
+			"Enables low-latency mode on compatible displays for gaming",        // Game Mode
+			"Variable refresh rate reduces stuttering and tearing",             // VRR Mode  
+			"Forces 96kHz audio output over HDMI for high-quality audio",       // 96kHz Audio
+			"Disables HDMI-specific features for DVI-only displays",            // DVI Mode
+			"Controls RGB color range: Full=0-255, Limited=16-235/255",         // RGB Range
+			"VSync timing: 3 Buffer 60Hz, 3 Buffer Match, 1 Buffer Match",      // VSync
+			"Adjusts display brightness from 0-100%",                           // Brightness
+			"Adjusts display contrast from 0-100%",                             // Contrast
+			"Adjusts color saturation from 0-100%",                             // Saturation
+			"Adjusts color hue from 0-360 degrees",                             // Hue
+			"Scaling: Fit, Integer, 0.25x Step, 0.5x Step, Core Int, Display Int", // VScale Mode
+			"Video resolution: Auto uses EDID, others force specific modes"     // Video Mode
+		};
+		
+		// Scrolling help text display
+		static uint32_t help_scroll_timer = 0;
+		static int help_scroll_pos = 0;
+		static uint32_t last_menusub = 0xFFFFFFFF;
+		static bool end_pause = false;
+		
+		if (menusub < 12) {
+			const char* help_text = hdmi_help_texts[menusub];
+			int help_len = strlen(help_text);
+			
+			// Reset scroll position when menu item changes
+			if (menusub != last_menusub) {
+				help_scroll_pos = 0;
+				end_pause = false;
+				help_scroll_timer = GetTimer(1000); // Initial delay before scrolling
+				last_menusub = menusub;
+			}
+			
+			// Only scroll if text is longer than display width (26 chars)
+			if (help_len > 26) {
+				if (CheckTimer(help_scroll_timer)) {
+					if (end_pause) {
+						// End pause finished, restart from beginning
+						help_scroll_pos = 0;
+						end_pause = false;
+						help_scroll_timer = GetTimer(1000); // 1 second delay after restarting
+					} else {
+						help_scroll_pos++;
+						if (help_scroll_pos > help_len - 26) {
+							// Reached end, stay at end position and start pause
+							help_scroll_pos = help_len - 26; // Stay at the end
+							end_pause = true;
+							help_scroll_timer = GetTimer(1000); // 1 second pause at end
+						} else {
+							help_scroll_timer = GetTimer(100); // Continue scrolling every 100ms
+						}
+					}
+				}
+				// Extract scrolled portion
+				char scrolled_text[32];
+				strncpy(scrolled_text, help_text + help_scroll_pos, 26);
+				scrolled_text[26] = '\0';
+				sprintf(s, " %s", scrolled_text);
+			} else {
+				// Text fits, no scrolling needed
+				sprintf(s, " %s", help_text);
+			}
+		} else {
+			sprintf(s, " Use \x10\x11 to change settings");
+		}
+		
 		OsdWrite(m++);
-		//OsdWrite(m++, "  \x12\x13:Navigate  \x10 \x11:Change");
-		//OsdWrite(m++, "  MENU:Back");
+		OsdWrite(m++, s);  // Help text line
+		OsdWrite(m++, "  \x12\x13:Navigate  \x10\x11:Change  MENU:Back");
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
@@ -4113,6 +4204,14 @@ void HandleUI(void)
 	}
 
 	case MENU_SETTINGS_HDMI2:
+		// Force periodic menu refresh for scrolling text animation
+		static uint32_t scroll_refresh_timer = 0;
+		if (CheckTimer(scroll_refresh_timer)) {
+			scroll_refresh_timer = GetTimer(100); // Refresh every 100ms
+			menustate = MENU_SETTINGS_HDMI1; // Refresh the display
+			break;
+		}
+		
 		if (menu)
 		{
 			menustate = MENU_SETTINGS1;
@@ -4268,6 +4367,115 @@ void HandleUI(void)
 				else if (left)
 				{
 					cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // wrap around
+					changed = 1;
+				}
+				break;
+				
+			case 11: // Video Mode presets - cycle through all available resolutions
+				if (right || select)
+				{
+					// Cycle forward through all video mode presets (matches vmodes array order)
+					if (strlen(cfg.video_conf) == 0) {
+						strcpy(cfg.video_conf, "1280,720,60"); // Auto -> 720p60 (index 0)
+					}
+					else if (!strcmp(cfg.video_conf, "1280,720,60")) {
+						strcpy(cfg.video_conf, "1024,768,60"); // index 0 -> 1
+					}
+					else if (!strcmp(cfg.video_conf, "1024,768,60")) {
+						strcpy(cfg.video_conf, "720,480,60"); // index 1 -> 2
+					}
+					else if (!strcmp(cfg.video_conf, "720,480,60")) {
+						strcpy(cfg.video_conf, "720,576,50"); // index 2 -> 3
+					}
+					else if (!strcmp(cfg.video_conf, "720,576,50")) {
+						strcpy(cfg.video_conf, "1280,1024,60"); // index 3 -> 4
+					}
+					else if (!strcmp(cfg.video_conf, "1280,1024,60")) {
+						strcpy(cfg.video_conf, "800,600,60"); // index 4 -> 5
+					}
+					else if (!strcmp(cfg.video_conf, "800,600,60")) {
+						strcpy(cfg.video_conf, "640,480,60"); // index 5 -> 6
+					}
+					else if (!strcmp(cfg.video_conf, "640,480,60")) {
+						strcpy(cfg.video_conf, "1280,720,50"); // index 6 -> 7
+					}
+					else if (!strcmp(cfg.video_conf, "1280,720,50")) {
+						strcpy(cfg.video_conf, "1920,1080,60"); // index 7 -> 8
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1080,60")) {
+						strcpy(cfg.video_conf, "1920,1080,50"); // index 8 -> 9
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1080,50")) {
+						strcpy(cfg.video_conf, "1366,768,60"); // index 9 -> 10
+					}
+					else if (!strcmp(cfg.video_conf, "1366,768,60")) {
+						strcpy(cfg.video_conf, "1024,600,60"); // index 10 -> 11
+					}
+					else if (!strcmp(cfg.video_conf, "1024,600,60")) {
+						strcpy(cfg.video_conf, "1920,1440,60"); // index 11 -> 12
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1440,60")) {
+						strcpy(cfg.video_conf, "2048,1536,60"); // index 12 -> 13
+					}
+					else if (!strcmp(cfg.video_conf, "2048,1536,60")) {
+						strcpy(cfg.video_conf, "2560,1440,60"); // index 13 -> 14
+					}
+					else {
+						cfg.video_conf[0] = '\0'; // index 14 or custom -> Auto (EDID)
+					}
+					changed = 1;
+				}
+				else if (left)
+				{
+					// Cycle backward through all video mode presets
+					if (strlen(cfg.video_conf) == 0) {
+						strcpy(cfg.video_conf, "2560,1440,60"); // Auto -> 1440p60 (index 14)
+					}
+					else if (!strcmp(cfg.video_conf, "2560,1440,60")) {
+						strcpy(cfg.video_conf, "2048,1536,60"); // index 14 -> 13
+					}
+					else if (!strcmp(cfg.video_conf, "2048,1536,60")) {
+						strcpy(cfg.video_conf, "1920,1440,60"); // index 13 -> 12
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1440,60")) {
+						strcpy(cfg.video_conf, "1024,600,60"); // index 12 -> 11
+					}
+					else if (!strcmp(cfg.video_conf, "1024,600,60")) {
+						strcpy(cfg.video_conf, "1366,768,60"); // index 11 -> 10
+					}
+					else if (!strcmp(cfg.video_conf, "1366,768,60")) {
+						strcpy(cfg.video_conf, "1920,1080,50"); // index 10 -> 9
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1080,50")) {
+						strcpy(cfg.video_conf, "1920,1080,60"); // index 9 -> 8
+					}
+					else if (!strcmp(cfg.video_conf, "1920,1080,60")) {
+						strcpy(cfg.video_conf, "1280,720,50"); // index 8 -> 7
+					}
+					else if (!strcmp(cfg.video_conf, "1280,720,50")) {
+						strcpy(cfg.video_conf, "640,480,60"); // index 7 -> 6
+					}
+					else if (!strcmp(cfg.video_conf, "640,480,60")) {
+						strcpy(cfg.video_conf, "800,600,60"); // index 6 -> 5
+					}
+					else if (!strcmp(cfg.video_conf, "800,600,60")) {
+						strcpy(cfg.video_conf, "1280,1024,60"); // index 5 -> 4
+					}
+					else if (!strcmp(cfg.video_conf, "1280,1024,60")) {
+						strcpy(cfg.video_conf, "720,576,50"); // index 4 -> 3
+					}
+					else if (!strcmp(cfg.video_conf, "720,576,50")) {
+						strcpy(cfg.video_conf, "720,480,60"); // index 3 -> 2
+					}
+					else if (!strcmp(cfg.video_conf, "720,480,60")) {
+						strcpy(cfg.video_conf, "1024,768,60"); // index 2 -> 1
+					}
+					else if (!strcmp(cfg.video_conf, "1024,768,60")) {
+						strcpy(cfg.video_conf, "1280,720,60"); // index 1 -> 0
+					}
+					else {
+						cfg.video_conf[0] = '\0'; // index 0 or custom -> Auto (EDID)
+					}
 					changed = 1;
 				}
 				break;
@@ -4675,8 +4883,8 @@ void HandleUI(void)
 				}
 				else if (left)
 				{
-					if (cfg.osd_timeout > 0) cfg.osd_timeout -= 60; // decrement by 1 minute
-					if (cfg.osd_timeout < 0) cfg.osd_timeout = 0;
+					if (cfg.osd_timeout >= 60) cfg.osd_timeout -= 60; // decrement by 1 minute
+					else cfg.osd_timeout = 0;
 					changed = 1;
 				}
 				break;
