@@ -4581,13 +4581,8 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
-						// Save old state for confirmation
-						analog_old_mode = cfg.vga_mode_int;
-						strcpy(analog_old_mode_str, cfg.vga_mode);
-						
 						int old_mode = cfg.vga_mode_int;
 						cfg.vga_mode_int = (cfg.vga_mode_int + 1) % 4; // Always cycle through all 4 modes
-						analog_new_mode = cfg.vga_mode_int;
 						
 						// Update string representation to match
 						switch (cfg.vga_mode_int)
@@ -4597,9 +4592,8 @@ void HandleUI(void)
 							case 2: strcpy(cfg.vga_mode, "svideo"); break;
 							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 						}
-						strcpy(analog_new_mode_str, cfg.vga_mode);
 						
-						printf("DEBUG: Menu navigation (right/select) changed vga_mode: %d->%d (\"%s\")\n", 
+						printf("DEBUG: Analog Mode changed: %d->%d (\"%s\")\n", 
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
 						// Auto-reset settings based on new analog mode
@@ -4629,35 +4623,12 @@ void HandleUI(void)
 							}
 						}
 						
-						// Apply the change immediately with unified video initialization
-						apply_video_settings();
-						user_io_send_buttons(1); // Send configuration to hardware
-						printf("DEBUG: Applied unified video settings for analog mode change\n");
-						
-						// Get display names for confirmation
-						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
-						                       (analog_old_mode == 1) ? "YPbPr" : 
-						                       (analog_old_mode == 2) ? "S-Video" : "CVBS";
-						const char* new_name = (analog_new_mode == 0) ? "RGB" : 
-						                       (analog_new_mode == 1) ? "YPbPr" : 
-						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
-						printf("DEBUG: Analog Mode changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						changed = 1;
 					}
 					else if (left)
 					{
-						// Save old state for confirmation
-						analog_old_mode = cfg.vga_mode_int;
-						strcpy(analog_old_mode_str, cfg.vga_mode);
-						
 						int old_mode = cfg.vga_mode_int;
 						cfg.vga_mode_int = (cfg.vga_mode_int + 3) % 4; // Always cycle through all 4 modes
-						analog_new_mode = cfg.vga_mode_int;
 						
 						// Update string representation to match
 						switch (cfg.vga_mode_int)
@@ -4667,9 +4638,8 @@ void HandleUI(void)
 							case 2: strcpy(cfg.vga_mode, "svideo"); break;
 							case 3: strcpy(cfg.vga_mode, "cvbs"); break;
 						}
-						strcpy(analog_new_mode_str, cfg.vga_mode);
 						
-						printf("DEBUG: Menu navigation (left) changed vga_mode: %d->%d (\"%s\")\n", 
+						printf("DEBUG: Analog Mode changed: %d->%d (\"%s\")\n", 
 							   old_mode, cfg.vga_mode_int, cfg.vga_mode);
 						
 						// Auto-reset settings based on new analog mode
@@ -4699,25 +4669,7 @@ void HandleUI(void)
 							}
 						}
 						
-						// Apply the change immediately with unified video initialization
-						apply_video_settings();
-						user_io_send_buttons(1); // Send configuration to hardware
-						printf("DEBUG: Applied unified video settings for analog mode change\n");
-						
-						// Get display names for confirmation
-						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
-						                       (analog_old_mode == 1) ? "YPbPr" : 
-						                       (analog_old_mode == 2) ? "S-Video" : "CVBS";
-						const char* new_name = (analog_new_mode == 0) ? "RGB" : 
-						                       (analog_new_mode == 1) ? "YPbPr" : 
-						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
-						printf("DEBUG: Analog Mode changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						changed = 1;
 					}
 				}
 				break;
@@ -4727,10 +4679,6 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
-						// Save old state for confirmation
-						analog_res_old_scaler = cfg.vga_scaler;
-						analog_res_old_scandoubler = cfg.forced_scandoubler;
-						
 						// Cycle: Native -> Scaled -> Scandoubled -> Native
 						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
 							// Native -> Scaled
@@ -4748,32 +4696,13 @@ void HandleUI(void)
 							cfg.forced_scandoubler = 0;
 						}
 						
-						analog_res_new_scaler = cfg.vga_scaler;
-						analog_res_new_scandoubler = cfg.forced_scandoubler;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (!analog_res_old_scaler && !analog_res_old_scandoubler) ? "Native" : 
-						                       (analog_res_old_scaler && !analog_res_old_scandoubler) ? "Scaled" : "Scandoubled";
-						const char* new_name = (!analog_res_new_scaler && !analog_res_new_scandoubler) ? "Native" : 
-						                       (analog_res_new_scaler && !analog_res_new_scandoubler) ? "Scaled" : "Scandoubled";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
-						printf("DEBUG: Analog Resolution changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* res_name = (!cfg.vga_scaler && !cfg.forced_scandoubler) ? "Native" : 
+						                       (cfg.vga_scaler && !cfg.forced_scandoubler) ? "Scaled" : "Scandoubled";
+						printf("DEBUG: Analog Resolution changed: %s\n", res_name);
+						changed = 1;
 					}
 					else if (left)
 					{
-						// Save old state for confirmation
-						analog_res_old_scaler = cfg.vga_scaler;
-						analog_res_old_scandoubler = cfg.forced_scandoubler;
-						
 						// Cycle: Native -> Scandoubled -> Scaled -> Native
 						if (!cfg.vga_scaler && !cfg.forced_scandoubler) {
 							// Native -> Scandoubled
@@ -4791,25 +4720,10 @@ void HandleUI(void)
 							cfg.forced_scandoubler = 0;
 						}
 						
-						analog_res_new_scaler = cfg.vga_scaler;
-						analog_res_new_scandoubler = cfg.forced_scandoubler;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (!analog_res_old_scaler && !analog_res_old_scandoubler) ? "Native" : 
-						                       (analog_res_old_scaler && !analog_res_old_scandoubler) ? "Scaled" : "Scandoubled";
-						const char* new_name = (!analog_res_new_scaler && !analog_res_new_scandoubler) ? "Native" : 
-						                       (analog_res_new_scaler && !analog_res_new_scandoubler) ? "Scaled" : "Scandoubled";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Resolution", old_name, new_name, analog_res_apply_change, analog_res_revert_change, MENU_SETTINGS_ANALOG1, 7);
-						printf("DEBUG: Analog Resolution changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* res_name = (!cfg.vga_scaler && !cfg.forced_scandoubler) ? "Native" : 
+						                       (cfg.vga_scaler && !cfg.forced_scandoubler) ? "Scaled" : "Scandoubled";
+						printf("DEBUG: Analog Resolution changed: %s\n", res_name);
+						changed = 1;
 					}
 				}
 				// S-Video/CVBS: Resolution changes not allowed
@@ -4819,10 +4733,6 @@ void HandleUI(void)
 				if (cfg.vga_mode_int == 0) { // RGB mode: All 3 sync options
 					if (right || select)
 					{
-						// Save old state for confirmation
-						analog_sync_old_csync = cfg.csync;
-						analog_sync_old_sog = cfg.vga_sog;
-						
 						// Cycle: Separate -> Composite -> Sync-on-Green -> Separate
 						if (!cfg.csync && !cfg.vga_sog) {
 							// Separate -> Composite
@@ -4845,31 +4755,13 @@ void HandleUI(void)
 							cfg.vga_sog = 0;
 						}
 						
-						analog_sync_new_csync = cfg.csync;
-						analog_sync_new_sog = cfg.vga_sog;
-						
-						// Apply the change immediately
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (!analog_sync_old_csync && !analog_sync_old_sog) ? "Separate" : 
-						                       (analog_sync_old_csync && !analog_sync_old_sog) ? "Composite" : "Sync-on-Green";
-						const char* new_name = (!analog_sync_new_csync && !analog_sync_new_sog) ? "Separate" : 
-						                       (analog_sync_new_csync && !analog_sync_new_sog) ? "Composite" : "Sync-on-Green";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
-						printf("DEBUG: Analog Sync changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* sync_name = (!cfg.csync && !cfg.vga_sog) ? "Separate" : 
+						                        (cfg.csync && !cfg.vga_sog) ? "Composite" : "Sync-on-Green";
+						printf("DEBUG: Analog Sync changed: %s\n", sync_name);
+						changed = 1;
 					}
 					else if (left)
 					{
-						// Save old state for confirmation
-						analog_sync_old_csync = cfg.csync;
-						analog_sync_old_sog = cfg.vga_sog;
-						
 						// Cycle: Separate -> Sync-on-Green -> Composite -> Separate
 						if (!cfg.csync && !cfg.vga_sog) {
 							// Separate -> Sync-on-Green
@@ -4892,24 +4784,10 @@ void HandleUI(void)
 							cfg.vga_sog = 0;
 						}
 						
-						analog_sync_new_csync = cfg.csync;
-						analog_sync_new_sog = cfg.vga_sog;
-						
-						// Apply the change immediately
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (!analog_sync_old_csync && !analog_sync_old_sog) ? "Separate" : 
-						                       (analog_sync_old_csync && !analog_sync_old_sog) ? "Composite" : "Sync-on-Green";
-						const char* new_name = (!analog_sync_new_csync && !analog_sync_new_sog) ? "Separate" : 
-						                       (analog_sync_new_csync && !analog_sync_new_sog) ? "Composite" : "Sync-on-Green";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Analog Sync", old_name, new_name, analog_sync_apply_change, analog_sync_revert_change, MENU_SETTINGS_ANALOG1, 8);
-						printf("DEBUG: Analog Sync changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* sync_name = (!cfg.csync && !cfg.vga_sog) ? "Separate" : 
+						                        (cfg.csync && !cfg.vga_sog) ? "Composite" : "Sync-on-Green";
+						printf("DEBUG: Analog Sync changed: %s\n", sync_name);
+						changed = 1;
 					}
 				}
 				// YPbPr mode (vga_mode_int == 1): No sync changes allowed (always Comp + SOG)
