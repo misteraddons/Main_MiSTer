@@ -4436,6 +4436,8 @@ void HandleUI(void)
 						// Move to next resolution
 						current_idx = (current_idx + 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
+						extern void video_mode_adjust();
+						video_mode_adjust();
 						changed = 1;
 					}
 					else if (left)
@@ -4453,6 +4455,8 @@ void HandleUI(void)
 						// Move to previous resolution
 						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
+						extern void video_mode_adjust();
+						video_mode_adjust();
 						changed = 1;
 					}
 				}
@@ -4795,6 +4799,8 @@ void HandleUI(void)
 		sprintf(s, "  Mouse Emulation:    %s", cfg.kbd_nomouse ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 0);
 		
+		// Ensure mouse_throttle is in valid range (1-100)
+		if (cfg.mouse_throttle < 1) cfg.mouse_throttle = 10; // default to 10
 		sprintf(s, "  Mouse Throttle:     %d", cfg.mouse_throttle);
 		OsdWrite(m++, s, menusub == 1);
 		
@@ -4889,6 +4895,8 @@ void HandleUI(void)
 				else if (left)
 				{
 					if (cfg.mouse_throttle > 1) cfg.mouse_throttle--;
+					// Ensure we never go below 1
+					if (cfg.mouse_throttle < 1) cfg.mouse_throttle = 1;
 					changed = 1;
 				}
 				break;
@@ -5032,6 +5040,8 @@ void HandleUI(void)
 		sprintf(s, "  Boot Screen:   %s", cfg.bootscreen ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 1);
 		
+		// Ensure bootcore_timeout is in valid range (2-30)
+		if (cfg.bootcore_timeout < 2) cfg.bootcore_timeout = 10; // default to 10
 		sprintf(s, "  Boot Timeout:  %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 2);
 		
@@ -5138,6 +5148,8 @@ void HandleUI(void)
 				else if (left)
 				{
 					if (cfg.bootcore_timeout > 2) cfg.bootcore_timeout--;
+					// Ensure we never go below 2
+					if (cfg.bootcore_timeout < 2) cfg.bootcore_timeout = 2;
 					changed = 1;
 				}
 				break;
