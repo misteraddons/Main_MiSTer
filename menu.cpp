@@ -349,16 +349,36 @@ static struct {
 	char new_value[64];
 	int (*apply_func)(void);
 	int (*revert_func)(void);
+	uint32_t return_menustate;
+	uint32_t return_menusub;
 } confirm_state = {0};
 
+// Unified video initialization function  
+static void apply_video_settings(void)
+{
+	extern void video_init();
+	extern void video_mode_adjust();
+	extern void set_yc_mode();
+	
+	video_init();        // Reinitialize video subsystem first
+	
+	// Force Y/C parameter calculation for all analog modes
+	// This ensures S-Video/CVBS get configured and RGB/YPbPr get Y/C disabled
+	set_yc_mode();
+	
+	video_mode_adjust(); // Then adjust mode
+}
+
 // Confirmation screen helper functions
-static void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void))
+static void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void), uint32_t return_menustate, uint32_t return_menusub)
 {
 	strncpy(confirm_state.setting_name, setting_name, sizeof(confirm_state.setting_name) - 1);
 	strncpy(confirm_state.old_value, old_value, sizeof(confirm_state.old_value) - 1);
 	strncpy(confirm_state.new_value, new_value, sizeof(confirm_state.new_value) - 1);
 	confirm_state.apply_func = apply_func;
 	confirm_state.revert_func = revert_func;
+	confirm_state.return_menustate = return_menustate;
+	confirm_state.return_menusub = return_menusub;
 	confirm_state.revert_timer = GetTimer(15000); // 15 seconds
 }
 
@@ -368,17 +388,16 @@ static char hdmi_new_resolution[64];
 
 static int hdmi_apply_resolution(void)
 {
-	// Already applied during setup, so just return success
+	// Send updated configuration to hardware
+	user_io_send_buttons(1);
 	return 1;
 }
 
 static int hdmi_revert_resolution(void)
 {
 	strcpy(cfg.video_conf, hdmi_old_resolution);
-	extern void video_init();
-	extern void video_mode_adjust();
-	video_init();
-	video_mode_adjust();
+	apply_video_settings();
+	user_io_send_buttons(1);
 	return 1;
 }
 
@@ -407,7 +426,8 @@ static char analog_new_mode_str[64];
 
 static int analog_apply_mode(void)
 {
-	// Already applied during setup, so just return success
+	// Send updated configuration to hardware
+	user_io_send_buttons(1);
 	return 1;
 }
 
@@ -415,10 +435,8 @@ static int analog_revert_mode(void)
 {
 	cfg.vga_mode_int = analog_old_mode;
 	strcpy(cfg.vga_mode, analog_old_mode_str);
-	extern void video_init();
-	extern void video_mode_adjust();
-	video_init();
-	video_mode_adjust();
+	apply_video_settings();
+	user_io_send_buttons(1);
 	return 1;
 }
 
@@ -4312,12 +4330,10 @@ void HandleUI(void)
 							}
 						}
 						
-						// Apply the change immediately with full video initialization
-						extern void video_init();
-						extern void video_mode_adjust();
-						video_init();        // Reinitialize video subsystem first
-						video_mode_adjust(); // Then adjust mode
-						printf("DEBUG: Applied video_init() and video_mode_adjust() for analog mode change\n");
+						// Apply the change immediately with unified video initialization
+						apply_video_settings();
+						user_io_send_buttons(1); // Send configuration to hardware
+						printf("DEBUG: Applied unified video settings for analog mode change\n");
 						
 						// Get display names for confirmation
 						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
@@ -4328,10 +4344,10 @@ void HandleUI(void)
 						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
 						
 						// Setup confirmation screen
-						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode);
+						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
-						changed = 1;
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
@@ -4383,12 +4399,10 @@ void HandleUI(void)
 							}
 						}
 						
-						// Apply the change immediately with full video initialization
-						extern void video_init();
-						extern void video_mode_adjust();
-						video_init();        // Reinitialize video subsystem first
-						video_mode_adjust(); // Then adjust mode
-						printf("DEBUG: Applied video_init() and video_mode_adjust() for analog mode change\n");
+						// Apply the change immediately with unified video initialization
+						apply_video_settings();
+						user_io_send_buttons(1); // Send configuration to hardware
+						printf("DEBUG: Applied unified video settings for analog mode change\n");
 						
 						// Get display names for confirmation
 						const char* old_name = (analog_old_mode == 0) ? "RGB" : 
@@ -4399,10 +4413,10 @@ void HandleUI(void)
 						                       (analog_new_mode == 2) ? "S-Video" : "CVBS";
 						
 						// Setup confirmation screen
-						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode);
+						setup_confirmation_screen("Analog Mode", old_name, new_name, analog_apply_mode, analog_revert_mode, MENU_SETTINGS_ANALOG1, 6);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
-						changed = 1;
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				break;
@@ -4570,21 +4584,19 @@ void HandleUI(void)
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						strcpy(hdmi_new_resolution, cfg.video_conf);
 						
-						// Apply the change immediately
-						extern void video_init();
-						extern void video_mode_adjust();
-						video_init();        // Reinitialize video subsystem first
-						video_mode_adjust(); // Then adjust mode
+						// Apply the change immediately with unified video initialization
+						apply_video_settings();
+						user_io_send_buttons(1); // Send configuration to hardware
 						
 						// Get display names for confirmation
 						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
 						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
 						
 						// Setup confirmation screen
-						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution);
+						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
-						changed = 1;
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 					else if (left)
 					{
@@ -4606,21 +4618,19 @@ void HandleUI(void)
 						strcpy(cfg.video_conf, resolutions[current_idx]);
 						strcpy(hdmi_new_resolution, cfg.video_conf);
 						
-						// Apply the change immediately
-						extern void video_init();
-						extern void video_mode_adjust();
-						video_init();        // Reinitialize video subsystem first
-						video_mode_adjust(); // Then adjust mode
+						// Apply the change immediately with unified video initialization
+						apply_video_settings();
+						user_io_send_buttons(1); // Send configuration to hardware
 						
 						// Get display names for confirmation
 						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
 						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
 						
 						// Setup confirmation screen
-						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution);
+						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 1; // Default to "Reject"
-						changed = 1;
+						return; // Exit immediately to prevent generic handler from overriding menustate
 					}
 				}
 				break;
@@ -5377,7 +5387,7 @@ void HandleUI(void)
 					const char* new_name = (osd_new_rotation == 0) ? "0°" : (osd_new_rotation == 1) ? "180°" : "CW";
 					
 					// Setup confirmation screen
-					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation);
+					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation, MENU_SETTINGS_SYSTEM1, 7);
 					menustate = MENU_CONFIRM_CHANGE1;
 					menusub = 1; // Default to "Reject"
 					changed = 1;
@@ -5394,7 +5404,7 @@ void HandleUI(void)
 					const char* new_name = (osd_new_rotation == 0) ? "0°" : (osd_new_rotation == 1) ? "180°" : "CW";
 					
 					// Setup confirmation screen
-					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation);
+					setup_confirmation_screen("OSD Rotation", old_name, new_name, osd_apply_rotation, osd_revert_rotation, MENU_SETTINGS_SYSTEM1, 7);
 					menustate = MENU_CONFIRM_CHANGE1;
 					menusub = 1; // Default to "Reject"
 					changed = 1;
@@ -6657,8 +6667,8 @@ void HandleUI(void)
 				{
 					// Time expired, revert changes
 					if (confirm_state.revert_func) confirm_state.revert_func();
-					menustate = MENU_SETTINGS_SYSTEM1;
-					menusub = 0;
+					menustate = confirm_state.return_menustate;
+					menusub = confirm_state.return_menusub;
 					break;
 				}
 				time_left = (confirm_state.revert_timer - current_time) / 1000;
@@ -6703,8 +6713,8 @@ void HandleUI(void)
 			{
 				// Time expired, revert changes
 				if (confirm_state.revert_func) confirm_state.revert_func();
-				menustate = MENU_SETTINGS_SYSTEM1;
-				menusub = 0;
+				menustate = confirm_state.return_menustate;
+				menusub = confirm_state.return_menusub;
 				break;
 			}
 
@@ -6712,8 +6722,8 @@ void HandleUI(void)
 			{
 				// User cancelled, revert changes
 				if (confirm_state.revert_func) confirm_state.revert_func();
-				menustate = MENU_SETTINGS_SYSTEM1;
-				menusub = 0;
+				menustate = confirm_state.return_menustate;
+				menusub = confirm_state.return_menusub;
 			}
 			else if (select)
 			{
@@ -6721,15 +6731,15 @@ void HandleUI(void)
 				{
 					// Accept changes
 					if (confirm_state.apply_func) confirm_state.apply_func();
-					menustate = MENU_SETTINGS_SYSTEM1;
-					menusub = 0;
+					menustate = confirm_state.return_menustate;
+					menusub = confirm_state.return_menusub;
 				}
 				else if (menusub == 1)
 				{
 					// Reject changes
 					if (confirm_state.revert_func) confirm_state.revert_func();
-					menustate = MENU_SETTINGS_SYSTEM1;
-					menusub = 0;
+					menustate = confirm_state.return_menustate;
+					menusub = confirm_state.return_menusub;
 				}
 			}
 			else

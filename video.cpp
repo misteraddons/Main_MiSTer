@@ -2840,7 +2840,7 @@ bool video_mode_select(uint32_t vtime, vmode_custom_t* out_mode)
 	return adjustable;
 }
 
-static void set_yc_mode()
+void set_yc_mode()
 {
 	if (cfg.vga_mode_int >= 2)
 	{
