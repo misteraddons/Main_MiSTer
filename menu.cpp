@@ -408,6 +408,103 @@ static char hdmi_new_resolution[64];
 static int vrr_old_value;
 static int vrr_new_value;
 
+// Apply button system - backup original values when entering settings menu
+typedef struct {
+	// HDMI settings
+	int direct_video;
+	char video_conf[32];
+	int vsync_adjust;
+	int vscale_mode;
+	int hdmi_limited;
+	int hdmi_audio_96k;
+	
+	// Analog settings  
+	int vga_mode_int;
+	char vga_mode[16];
+	int vga_scaler;
+	int forced_scandoubler;
+	int csync;
+	int vga_sog;
+	int ntsc_mode;
+	
+	// Flags
+	bool has_changes;
+} settings_backup_t;
+
+static settings_backup_t settings_backup = {0};
+static bool video_settings_backup_done = false;
+
+// Function to backup current settings when entering menu
+static void backup_video_settings(void)
+{
+	settings_backup.direct_video = cfg.direct_video;
+	strncpy(settings_backup.video_conf, cfg.video_conf, sizeof(settings_backup.video_conf) - 1);
+	settings_backup.vsync_adjust = cfg.vsync_adjust;
+	settings_backup.vscale_mode = cfg.vscale_mode;
+	settings_backup.hdmi_limited = cfg.hdmi_limited;
+	settings_backup.hdmi_audio_96k = cfg.hdmi_audio_96k;
+	
+	settings_backup.vga_mode_int = cfg.vga_mode_int;
+	strncpy(settings_backup.vga_mode, cfg.vga_mode, sizeof(settings_backup.vga_mode) - 1);
+	settings_backup.vga_scaler = cfg.vga_scaler;
+	settings_backup.forced_scandoubler = cfg.forced_scandoubler;
+	settings_backup.csync = cfg.csync;
+	settings_backup.vga_sog = cfg.vga_sog;
+	settings_backup.ntsc_mode = cfg.ntsc_mode;
+	
+	settings_backup.has_changes = false;
+}
+
+// Function to check if settings have changed
+static bool has_video_settings_changed(void)
+{
+	return (settings_backup.direct_video != cfg.direct_video ||
+	        strcmp(settings_backup.video_conf, cfg.video_conf) != 0 ||
+	        settings_backup.vsync_adjust != cfg.vsync_adjust ||
+	        settings_backup.vscale_mode != cfg.vscale_mode ||
+	        settings_backup.hdmi_limited != cfg.hdmi_limited ||
+	        settings_backup.hdmi_audio_96k != cfg.hdmi_audio_96k ||
+	        settings_backup.vga_mode_int != cfg.vga_mode_int ||
+	        strcmp(settings_backup.vga_mode, cfg.vga_mode) != 0 ||
+	        settings_backup.vga_scaler != cfg.vga_scaler ||
+	        settings_backup.forced_scandoubler != cfg.forced_scandoubler ||
+	        settings_backup.csync != cfg.csync ||
+	        settings_backup.vga_sog != cfg.vga_sog ||
+	        settings_backup.ntsc_mode != cfg.ntsc_mode);
+}
+
+// Function to apply all video settings changes
+static int apply_all_video_settings(void)
+{
+	apply_video_settings();
+	user_io_send_buttons(1);
+	backup_video_settings(); // Update backup to current values
+	printf("DEBUG: All video settings applied\n");
+	return 1;
+}
+
+// Function to revert all video settings changes
+static int revert_all_video_settings(void)
+{
+	cfg.direct_video = settings_backup.direct_video;
+	strcpy(cfg.video_conf, settings_backup.video_conf);
+	cfg.vsync_adjust = settings_backup.vsync_adjust;
+	cfg.vscale_mode = settings_backup.vscale_mode;
+	cfg.hdmi_limited = settings_backup.hdmi_limited;
+	cfg.hdmi_audio_96k = settings_backup.hdmi_audio_96k;
+	
+	cfg.vga_mode_int = settings_backup.vga_mode_int;
+	strcpy(cfg.vga_mode, settings_backup.vga_mode);
+	cfg.vga_scaler = settings_backup.vga_scaler;
+	cfg.forced_scandoubler = settings_backup.forced_scandoubler;
+	cfg.csync = settings_backup.csync;
+	cfg.vga_sog = settings_backup.vga_sog;
+	cfg.ntsc_mode = settings_backup.ntsc_mode;
+	
+	printf("DEBUG: All video settings reverted\n");
+	return 1;
+}
+
 // Convert raw resolution string to nice display name
 static const char* get_resolution_display_name(const char* resolution)
 {
@@ -4308,7 +4405,14 @@ void HandleUI(void)
 		OsdSetSize(16);
 		helptext_idx = 0;
 		parentstate = menustate;
-		menumask = 0xFFF & ~(1<<5) & ~(1<<10); // 12 video settings, skip dividers at 5 and 10
+		
+		// Backup settings when first entering menu
+		if (!video_settings_backup_done) {
+			backup_video_settings();
+			video_settings_backup_done = true;
+		}
+		
+		menumask = 0x1FFF & ~(1<<5) & ~(1<<10); // 13 items (0-12), skip dividers at 5 and 10
 
 		m = 0;
 		OsdSetTitle("Basic Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
@@ -4402,6 +4506,15 @@ void HandleUI(void)
 		sprintf(s, " 96kHz Audio: %s", cfg.hdmi_audio_96k ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 11);
 		
+		// 13. Apply button (menusub 12)
+		bool has_changes = has_video_settings_changed();
+		if (has_changes) {
+			sprintf(s, " >>>>>>>>> APPLY <<<<<<<<<");
+		} else {
+			sprintf(s, " >>>>>>>>> APPLY <<<<<<<<<");
+		}
+		OsdWrite(m++, s, menusub == 12, has_changes ? 0 : 1);
+		
 		// Direct help text for each video setting (new order)
 		static const char* video_help_texts[] = {
 			"Direct HDMI output or HDMI DAC for analog conversion",                    // HDMI Mode
@@ -4415,13 +4528,14 @@ void HandleUI(void)
 			"Sync signal type: Separate H/V, Composite sync, or Sync-on-Green",       // Analog Sync
 			"NTSC, PAL-60, or PAL-M color encoding for S-Video/Composite modes",      // Analog Region
 			"",                                                                        // Divider (no help)
-			"High-quality 96kHz audio output for audiophile equipment"              // 96kHz Audio
+			"High-quality 96kHz audio output for audiophile equipment",             // 96kHz Audio
+			"Apply all video setting changes to hardware"                           // Apply button
 		};
 		
 		// Scrolling help text display
 		static scroll_state_t analog_scroll_state = {0, 0, -1, false};
 		
-		render_scrolling_help_text_direct(s, sizeof(s), video_help_texts, menusub, 12, &analog_scroll_state);
+		render_scrolling_help_text_direct(s, sizeof(s), video_help_texts, menusub, 13, &analog_scroll_state);
 		
 		while (m < OsdGetSize() - 2) OsdWrite(m++);
 		OsdWrite(m++, s);  // Help text line on next-to-last row
@@ -4435,6 +4549,16 @@ void HandleUI(void)
 	case MENU_SETTINGS_ANALOG2:
 		if (menu)
 		{
+			// Check for unsaved changes when exiting
+			bool has_changes = has_video_settings_changed();
+			if (has_changes) {
+				printf("DEBUG: Exiting video settings with unsaved changes - reverting\n");
+				revert_all_video_settings();
+			}
+			
+			// Reset backup flag for next time
+			video_settings_backup_done = false;
+			
 			menustate = MENU_SETTINGS1;
 			menusub = 0; // Return to Analog Video category
 			break;
@@ -4833,9 +4957,6 @@ void HandleUI(void)
 					
 					if (right || select)
 					{
-						// Save old resolution
-						strcpy(hdmi_old_resolution, cfg.video_conf);
-						
 						// Find current resolution index
 						int current_idx = 0;
 						for (int i = 0; i < num_resolutions; i++)
@@ -4849,28 +4970,12 @@ void HandleUI(void)
 						// Move to next resolution
 						current_idx = (current_idx + 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
-						strcpy(hdmi_new_resolution, cfg.video_conf);
 						
-						// Apply the change immediately with unified video initialization
-						apply_video_settings();
-						user_io_send_buttons(1); // Send configuration to hardware
-						
-						// Get display names for confirmation
-						const char* old_name = get_resolution_display_name(hdmi_old_resolution);
-						const char* new_name = get_resolution_display_name(hdmi_new_resolution);
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
-						printf("DEBUG: HDMI Resolution changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						printf("DEBUG: HDMI Resolution changed: %s\n", get_resolution_display_name(cfg.video_conf));
+						changed = 1; // Mark as changed for menu refresh
 					}
 					else if (left)
 					{
-						// Save old resolution
-						strcpy(hdmi_old_resolution, cfg.video_conf);
-						
 						// Find current resolution index
 						int current_idx = 0;
 						for (int i = 0; i < num_resolutions; i++)
@@ -4884,22 +4989,9 @@ void HandleUI(void)
 						// Move to previous resolution
 						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
-						strcpy(hdmi_new_resolution, cfg.video_conf);
 						
-						// Apply the change immediately with unified video initialization
-						apply_video_settings();
-						user_io_send_buttons(1); // Send configuration to hardware
-						
-						// Get display names for confirmation
-						const char* old_name = get_resolution_display_name(hdmi_old_resolution);
-						const char* new_name = get_resolution_display_name(hdmi_new_resolution);
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
-						printf("DEBUG: HDMI Resolution changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						printf("DEBUG: HDMI Resolution changed: %s\n", get_resolution_display_name(cfg.video_conf));
+						changed = 1; // Mark as changed for menu refresh
 					}
 				}
 				break;
@@ -4909,53 +5001,19 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
-						// Save old state for confirmation
-						vsync_old_value = cfg.vsync_adjust;
-						
 						cfg.vsync_adjust = (cfg.vsync_adjust + 1) % 3; // 0->1->2->0
-						vsync_new_value = cfg.vsync_adjust;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (vsync_old_value == 0) ? "3 Buffer 60Hz" : 
-						                       (vsync_old_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
-						const char* new_name = (vsync_new_value == 0) ? "3 Buffer 60Hz" : 
-						                       (vsync_new_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
-						printf("DEBUG: HDMI VSync changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* vsync_str = cfg.vsync_adjust == 0 ? "3 Buffer 60Hz" : 
+						                        cfg.vsync_adjust == 1 ? "3 Buffer Match" : "1 Buffer Match";
+						printf("DEBUG: HDMI VSync changed: %s\n", vsync_str);
+						changed = 1;
 					}
 					else if (left)
 					{
-						// Save old state for confirmation
-						vsync_old_value = cfg.vsync_adjust;
-						
 						cfg.vsync_adjust = (cfg.vsync_adjust + 2) % 3; // 0->2->1->0
-						vsync_new_value = cfg.vsync_adjust;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
-						const char* old_name = (vsync_old_value == 0) ? "3 Buffer 60Hz" : 
-						                       (vsync_old_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
-						const char* new_name = (vsync_new_value == 0) ? "3 Buffer 60Hz" : 
-						                       (vsync_new_value == 1) ? "3 Buffer Match" : "1 Buffer Match";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("HDMI VSync", old_name, new_name, vsync_apply_adjustment, vsync_revert_adjustment, MENU_SETTINGS_ANALOG1, 2);
-						printf("DEBUG: HDMI VSync changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* vsync_str = cfg.vsync_adjust == 0 ? "3 Buffer 60Hz" : 
+						                        cfg.vsync_adjust == 1 ? "3 Buffer Match" : "1 Buffer Match";
+						printf("DEBUG: HDMI VSync changed: %s\n", vsync_str);
+						changed = 1;
 					}
 				}
 				break;
@@ -4965,51 +5023,19 @@ void HandleUI(void)
 				{
 					if (right || select)
 					{
-						// Save old state for confirmation
-						vscale_old_value = cfg.vscale_mode;
-						
 						cfg.vscale_mode = (cfg.vscale_mode + 1) % 6; // 0->1->2->3->4->5->0
-						vscale_new_value = cfg.vscale_mode;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
 						const char* scale_names[] = {"Fit", "Integer", "0.25x Step", "0.5x Step", "Core Integer", "Display Integer"}; 
-						const char* old_name = (vscale_old_value < 6) ? scale_names[vscale_old_value] : "???";
-						const char* new_name = (vscale_new_value < 6) ? scale_names[vscale_new_value] : "???";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
-						printf("DEBUG: Vertical Scale changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* scale_name = (cfg.vscale_mode < 6) ? scale_names[cfg.vscale_mode] : "???";
+						printf("DEBUG: Vertical Scale changed: %s\n", scale_name);
+						changed = 1;
 					}
 					else if (left)
 					{
-						// Save old state for confirmation
-						vscale_old_value = cfg.vscale_mode;
-						
 						cfg.vscale_mode = (cfg.vscale_mode + 5) % 6; // 0->5->4->3->2->1->0
-						vscale_new_value = cfg.vscale_mode;
-						
-						// Apply the change immediately
-						apply_video_settings();
-						user_io_send_buttons(1);
-						
-						// Get display names for confirmation
 						const char* scale_names[] = {"Fit", "Integer", "0.25x Step", "0.5x Step", "Core Integer", "Display Integer"}; 
-						const char* old_name = (vscale_old_value < 6) ? scale_names[vscale_old_value] : "???";
-						const char* new_name = (vscale_new_value < 6) ? scale_names[vscale_new_value] : "???";
-						
-						// Setup confirmation screen
-						setup_confirmation_screen("Vertical Scale", old_name, new_name, vscale_apply_change, vscale_revert_change, MENU_SETTINGS_ANALOG1, 3);
-						printf("DEBUG: Vertical Scale changed: %s -> %s\n", old_name, new_name);
-						menustate = MENU_CONFIRM_CHANGE1;
-						menusub = 1; // Default to "Reject"
-						return; // Exit immediately to prevent generic handler from overriding menustate
+						const char* scale_name = (cfg.vscale_mode < 6) ? scale_names[cfg.vscale_mode] : "???";
+						printf("DEBUG: Vertical Scale changed: %s\n", scale_name);
+						changed = 1;
 					}
 				}
 				break;
@@ -5017,51 +5043,19 @@ void HandleUI(void)
 			case 4: // RGB Range
 				if (right || select)
 				{
-					// Save old state for confirmation
-					rgb_range_old_value = cfg.hdmi_limited;
-					
 					cfg.hdmi_limited = (cfg.hdmi_limited + 1) % 3; // 0->1->2->0
-					rgb_range_new_value = cfg.hdmi_limited;
-					
-					// Apply the change immediately
-					apply_video_settings();
-					user_io_send_buttons(1);
-					
-					// Get display names for confirmation
 					const char* range_names[] = {"Full (0-255)", "Limited (16-235)", "Limited (16-255)"};
-					const char* old_name = (rgb_range_old_value < 3) ? range_names[rgb_range_old_value] : "???";
-					const char* new_name = (rgb_range_new_value < 3) ? range_names[rgb_range_new_value] : "???";
-					
-					// Setup confirmation screen
-					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
-					printf("DEBUG: RGB Range changed: %s -> %s\n", old_name, new_name);
-					menustate = MENU_CONFIRM_CHANGE1;
-					menusub = 1; // Default to "Reject"
-					return; // Exit immediately to prevent generic handler from overriding menustate
+					const char* range_name = (cfg.hdmi_limited < 3) ? range_names[cfg.hdmi_limited] : "???";
+					printf("DEBUG: RGB Range changed: %s\n", range_name);
+					changed = 1;
 				}
 				else if (left)
 				{
-					// Save old state for confirmation
-					rgb_range_old_value = cfg.hdmi_limited;
-					
 					cfg.hdmi_limited = (cfg.hdmi_limited + 2) % 3; // 0->2->1->0
-					rgb_range_new_value = cfg.hdmi_limited;
-					
-					// Apply the change immediately
-					apply_video_settings();
-					user_io_send_buttons(1);
-					
-					// Get display names for confirmation
 					const char* range_names[] = {"Full (0-255)", "Limited (16-235)", "Limited (16-255)"};
-					const char* old_name = (rgb_range_old_value < 3) ? range_names[rgb_range_old_value] : "???";
-					const char* new_name = (rgb_range_new_value < 3) ? range_names[rgb_range_new_value] : "???";
-					
-					// Setup confirmation screen
-					setup_confirmation_screen("RGB Range", old_name, new_name, rgb_range_apply_change, rgb_range_revert_change, MENU_SETTINGS_ANALOG1, 4);
-					printf("DEBUG: RGB Range changed: %s -> %s\n", old_name, new_name);
-					menustate = MENU_CONFIRM_CHANGE1;
-					menusub = 1; // Default to "Reject"
-					return; // Exit immediately to prevent generic handler from overriding menustate
+					const char* range_name = (cfg.hdmi_limited < 3) ? range_names[cfg.hdmi_limited] : "???";
+					printf("DEBUG: RGB Range changed: %s\n", range_name);
+					changed = 1;
 				}
 				break;
 				
@@ -5072,13 +5066,31 @@ void HandleUI(void)
 					changed = 1;
 				}
 				break;
+				
+			case 12: // Apply button
+				if (select)
+				{
+					bool has_changes = has_video_settings_changed();
+					if (has_changes) {
+						// Setup confirmation screen for applying all changes
+						setup_confirmation_screen("Apply Video Settings", "Current settings", "New settings", apply_all_video_settings, revert_all_video_settings, MENU_SETTINGS_ANALOG1, 12);
+						printf("DEBUG: Apply button pressed - showing confirmation\n");
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately
+					} else {
+						printf("DEBUG: Apply button pressed - no changes to apply\n");
+					}
+					menustate = MENU_SETTINGS_ANALOG1; // Refresh display
+				}
+				break;
 			}
 			
 			if (changed)
 			{
-				// Send updated configuration to hardware
-				user_io_send_buttons(1);
-				menustate = MENU_SETTINGS_ANALOG1;
+				// Note: Hardware updates are now deferred until Apply button is pressed
+				// This allows users to make multiple changes before applying them all at once
+				menustate = MENU_SETTINGS_ANALOG1; // Just refresh the menu display
 			}
 		}
 		
@@ -5189,25 +5201,9 @@ void HandleUI(void)
 			case 1: // VRR Mode
 				if (select || left || right)
 				{
-					// Save old state for confirmation
-					vrr_old_value = cfg.vrr_mode;
-					
 					cfg.vrr_mode = !cfg.vrr_mode;
-					vrr_new_value = cfg.vrr_mode;
-					
-					// Apply the change immediately
-					user_io_send_buttons(1);
-					
-					// Get display names for confirmation
-					const char* old_name = vrr_old_value ? "On" : "Off";
-					const char* new_name = vrr_new_value ? "On" : "Off";
-					
-					// Setup confirmation screen
-					setup_confirmation_screen("VRR Mode", old_name, new_name, vrr_apply_change, vrr_revert_change, MENU_SETTINGS_HDMI1, 1);
-					printf("DEBUG: VRR Mode changed: %s -> %s\n", old_name, new_name);
-					menustate = MENU_CONFIRM_CHANGE1;
-					menusub = 1; // Default to "Reject"
-					return; // Exit immediately to prevent generic handler from overriding menustate
+					printf("DEBUG: VRR Mode changed: %s\n", cfg.vrr_mode ? "On" : "Off");
+					changed = 1;
 				}
 				break;
 				
