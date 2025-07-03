@@ -351,6 +351,7 @@ static struct {
 	int (*revert_func)(void);
 	uint32_t return_menustate;
 	uint32_t return_menusub;
+	bool custom_message; // Flag to indicate custom message format
 } confirm_state = {0};
 
 // Unified video initialization function  
@@ -379,6 +380,21 @@ static void setup_confirmation_screen(const char* setting_name, const char* old_
 	confirm_state.revert_func = revert_func;
 	confirm_state.return_menustate = return_menustate;
 	confirm_state.return_menusub = return_menusub;
+	confirm_state.custom_message = false;
+	confirm_state.revert_timer = GetTimer(15000); // 15 seconds
+}
+
+// Custom confirmation screen for save settings
+static void setup_save_confirmation_screen(const char* title, const char* warning, const char* question, int (*apply_func)(void), int (*revert_func)(void), uint32_t return_menustate, uint32_t return_menusub)
+{
+	strncpy(confirm_state.setting_name, title, sizeof(confirm_state.setting_name) - 1);
+	strncpy(confirm_state.old_value, warning, sizeof(confirm_state.old_value) - 1);
+	strncpy(confirm_state.new_value, question, sizeof(confirm_state.new_value) - 1);
+	confirm_state.apply_func = apply_func;
+	confirm_state.revert_func = revert_func;
+	confirm_state.return_menustate = return_menustate;
+	confirm_state.return_menusub = return_menusub;
+	confirm_state.custom_message = true;
 	confirm_state.revert_timer = GetTimer(15000); // 15 seconds
 }
 
@@ -536,6 +552,20 @@ static int rgb_range_revert_change(void)
 	cfg.hdmi_limited = rgb_range_old_value;
 	apply_video_settings();
 	user_io_send_buttons(1);
+	return 1;
+}
+
+// Save Settings helper functions
+static int save_settings_apply(void)
+{
+	// Actually save the settings
+	cfg_save(0);
+	return 2; // Special return code to indicate success message should be shown
+}
+
+static int save_settings_revert(void)
+{
+	// No action needed for revert - just cancel the save
 	return 1;
 }
 
@@ -4193,9 +4223,10 @@ void HandleUI(void)
 				break;
 				
 			case 4:
-				// Save All Settings
-				cfg_save(0);
-				menustate = MENU_SETTINGS1; // Refresh display
+				// Save All Settings - show confirmation screen with warning
+				setup_save_confirmation_screen("Save All Settings", "Current MiSTer.ini\nwill be overwritten!", "Continue?", save_settings_apply, save_settings_revert, MENU_SETTINGS1, 4);
+				menustate = MENU_CONFIRM_CHANGE1;
+				menusub = 1; // Default to "Reject"
 				break;
 			}
 			
@@ -6969,34 +7000,109 @@ void HandleUI(void)
 				time_left = (confirm_state.revert_timer - current_time) / 1000;
 			}
 
-			menumask = 0x3; // Two options: Accept (0) and Reject (1)
+			// Check if this is a success message (no apply/revert functions)
+			bool is_success_message = (confirm_state.apply_func == NULL && confirm_state.revert_func == NULL);
+			
+			if (is_success_message)
+			{
+				menumask = 0x1; // One option: OK (0)
+				OsdSetTitle("Information");
+			}
+			else
+			{
+				menumask = 0x3; // Two options: Accept (0) and Reject (1)
+				OsdSetTitle("Confirm Changes");
+			}
+			
 			menustate = MENU_CONFIRM_CHANGE2;
 			parentstate = MENU_CONFIRM_CHANGE1;
-			
-			OsdSetTitle("Confirm Changes");
 			
 			int m = 0;
 			OsdWrite(m++, "");
 			char msg[64];
-			snprintf(msg, sizeof(msg), " %s changed to:", confirm_state.setting_name);
-			OsdWrite(m++, msg);
-			snprintf(msg, sizeof(msg), " %s", confirm_state.new_value);
-			OsdWrite(m++, msg);
-			OsdWrite(m++, "");
 			
-			if (time_left > 0)
+			if (is_success_message)
 			{
-				snprintf(msg, sizeof(msg), " Reverting in %d second%s", time_left, time_left == 1 ? "" : "s");
+				snprintf(msg, sizeof(msg), " %s", confirm_state.setting_name);
 				OsdWrite(m++, msg);
+				snprintf(msg, sizeof(msg), " %s", confirm_state.old_value);
+				OsdWrite(m++, msg);
+				OsdWrite(m++, "");
+				
+				if (time_left > 0)
+				{
+					snprintf(msg, sizeof(msg), " Auto-close in %d second%s", time_left, time_left == 1 ? "" : "s");
+					OsdWrite(m++, msg);
+				}
+				else
+				{
+					OsdWrite(m++, " Press any key to continue");
+				}
+				
+				OsdWrite(m++, "");
+				OsdWrite(m++, " OK", menusub == 0);
+			}
+			else if (confirm_state.custom_message)
+			{
+				// Custom message format for save settings etc.
+				snprintf(msg, sizeof(msg), " %s", confirm_state.setting_name);
+				OsdWrite(m++, msg);
+				OsdWrite(m++, "");
+				
+				// Handle multiline warning message (split on \n)
+				char warning[64];
+				strncpy(warning, confirm_state.old_value, sizeof(warning) - 1);
+				warning[sizeof(warning) - 1] = '\0';
+				
+				char* line = strtok(warning, "\n");
+				while (line != NULL) {
+					snprintf(msg, sizeof(msg), " %s", line);
+					OsdWrite(m++, msg);
+					line = strtok(NULL, "\n");
+				}
+				
+				OsdWrite(m++, "");
+				snprintf(msg, sizeof(msg), " %s", confirm_state.new_value);
+				OsdWrite(m++, msg);
+				OsdWrite(m++, "");
+				
+				if (time_left > 0)
+				{
+					snprintf(msg, sizeof(msg), " Auto-reject in %d second%s", time_left, time_left == 1 ? "" : "s");
+					OsdWrite(m++, msg);
+				}
+				else
+				{
+					OsdWrite(m++, " Select option below");
+				}
+				
+				OsdWrite(m++, "");
+				OsdWrite(m++, " Accept", menusub == 0);
+				OsdWrite(m++, " Reject", menusub == 1);
 			}
 			else
 			{
-				OsdWrite(m++, " Select option below");
+				// Standard "changed to" format
+				snprintf(msg, sizeof(msg), " %s changed to:", confirm_state.setting_name);
+				OsdWrite(m++, msg);
+				snprintf(msg, sizeof(msg), " %s", confirm_state.new_value);
+				OsdWrite(m++, msg);
+				OsdWrite(m++, "");
+				
+				if (time_left > 0)
+				{
+					snprintf(msg, sizeof(msg), " Reverting in %d second%s", time_left, time_left == 1 ? "" : "s");
+					OsdWrite(m++, msg);
+				}
+				else
+				{
+					OsdWrite(m++, " Select option below");
+				}
+				
+				OsdWrite(m++, "");
+				OsdWrite(m++, " Accept", menusub == 0);
+				OsdWrite(m++, " Reject", menusub == 1);
 			}
-			
-			OsdWrite(m++, "");
-			OsdWrite(m++, " Accept", menusub == 0);
-			OsdWrite(m++, " Reject", menusub == 1);
 			
 			// Fill remaining lines
 			for (int i = m; i < OsdGetSize(); i++) OsdWrite(i, "");
@@ -7008,17 +7114,33 @@ void HandleUI(void)
 			// Check if time expired
 			if (confirm_state.revert_timer > 0 && GetTimer(0) >= confirm_state.revert_timer)
 			{
-				// Time expired, revert changes
-				if (confirm_state.revert_func) confirm_state.revert_func();
-				menustate = confirm_state.return_menustate;
-				menusub = confirm_state.return_menusub;
+				// Time expired
+				bool is_success_message = (confirm_state.apply_func == NULL && confirm_state.revert_func == NULL);
+				if (is_success_message)
+				{
+					// Auto-dismiss success message
+					menustate = confirm_state.return_menustate;
+					menusub = confirm_state.return_menusub;
+				}
+				else
+				{
+					// Revert changes
+					if (confirm_state.revert_func) confirm_state.revert_func();
+					menustate = confirm_state.return_menustate;
+					menusub = confirm_state.return_menusub;
+				}
 				break;
 			}
 
 			if (menu || back)
 			{
-				// User cancelled, revert changes
-				if (confirm_state.revert_func) confirm_state.revert_func();
+				// User cancelled or dismissed
+				bool is_success_message = (confirm_state.apply_func == NULL && confirm_state.revert_func == NULL);
+				if (!is_success_message && confirm_state.revert_func) 
+				{
+					// Revert changes for non-success messages
+					confirm_state.revert_func();
+				}
 				menustate = confirm_state.return_menustate;
 				menusub = confirm_state.return_menusub;
 			}
@@ -7027,9 +7149,22 @@ void HandleUI(void)
 				if (menusub == 0)
 				{
 					// Accept changes
-					if (confirm_state.apply_func) confirm_state.apply_func();
-					menustate = confirm_state.return_menustate;
-					menusub = confirm_state.return_menusub;
+					int result = 1;
+					if (confirm_state.apply_func) result = confirm_state.apply_func();
+					
+					if (result == 2)
+					{
+						// Show success message
+						setup_confirmation_screen("Settings Saved", "MiSTer.ini has been updated", "Settings saved successfully", NULL, NULL, confirm_state.return_menustate, confirm_state.return_menusub);
+						confirm_state.revert_timer = GetTimer(3000); // Show for 3 seconds then auto-dismiss
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 0; // Default to "OK" for success message
+					}
+					else
+					{
+						menustate = confirm_state.return_menustate;
+						menusub = confirm_state.return_menusub;
+					}
 				}
 				else if (menusub == 1)
 				{
