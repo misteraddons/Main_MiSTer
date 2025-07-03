@@ -4437,15 +4437,11 @@ void HandleUI(void)
 						// Move to next resolution
 						current_idx = (current_idx + 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
+						// Use friend's approach - check if HDMI settings changed
+						extern void video_init();
 						extern void video_mode_adjust();
-						extern void video_cfg_reset();
-						extern void fpga_core_reset(int reset);
-						// Power cycle the video system
-						fpga_core_reset(1);  // Assert reset
-						usleep(10000);       // Wait 10ms
-						fpga_core_reset(0);  // Deassert reset
-						video_cfg_reset();
-						video_mode_adjust();
+						video_init();        // Reinitialize video subsystem first
+						video_mode_adjust(); // Then adjust mode
 						changed = 1;
 					}
 					else if (left)
@@ -4463,15 +4459,11 @@ void HandleUI(void)
 						// Move to previous resolution
 						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
 						strcpy(cfg.video_conf, resolutions[current_idx]);
+						// Use friend's approach - check if HDMI settings changed
+						extern void video_init();
 						extern void video_mode_adjust();
-						extern void video_cfg_reset();
-						extern void fpga_core_reset(int reset);
-						// Power cycle the video system
-						fpga_core_reset(1);  // Assert reset
-						usleep(10000);       // Wait 10ms
-						fpga_core_reset(0);  // Deassert reset
-						video_cfg_reset();
-						video_mode_adjust();
+						video_init();        // Reinitialize video subsystem first
+						video_mode_adjust(); // Then adjust mode
 						changed = 1;
 					}
 				}
