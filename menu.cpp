@@ -4401,8 +4401,60 @@ void HandleUI(void)
 			case 1: // HDMI Res.
 				if (!cfg.direct_video) // Only allow changes when HDMI (not HDMI DAC)
 				{
-					// Add HDMI resolution handling here if needed
-					// For now, placeholder for future implementation
+					static const char* resolutions[] = {
+						"",                    // Auto (EDID)
+						"1280,720,60",         // 720p60
+						"1024,768,60",         // 1024x768@60
+						"720,480,60",          // 480p60
+						"720,576,50",          // 576p50
+						"1280,1024,60",        // 1280x1024@60
+						"800,600,60",          // 800x600@60
+						"640,480,60",          // 480p60 (VGA)
+						"1280,720,50",         // 720p50
+						"1920,1080,60",        // 1080p60
+						"1920,1080,50",        // 1080p50
+						"1366,768,60",         // 1366x768@60
+						"1024,600,60",         // 1024x600@60
+						"1920,1440,60",        // 1920x1440@60
+						"2048,1536,60",        // 2048x1536@60
+						"2560,1440,60"         // 1440p60
+					};
+					const int num_resolutions = sizeof(resolutions) / sizeof(resolutions[0]);
+					
+					if (right || select)
+					{
+						// Find current resolution index
+						int current_idx = 0;
+						for (int i = 0; i < num_resolutions; i++)
+						{
+							if (!strcmp(cfg.video_conf, resolutions[i]))
+							{
+								current_idx = i;
+								break;
+							}
+						}
+						// Move to next resolution
+						current_idx = (current_idx + 1) % num_resolutions;
+						strcpy(cfg.video_conf, resolutions[current_idx]);
+						changed = 1;
+					}
+					else if (left)
+					{
+						// Find current resolution index
+						int current_idx = 0;
+						for (int i = 0; i < num_resolutions; i++)
+						{
+							if (!strcmp(cfg.video_conf, resolutions[i]))
+							{
+								current_idx = i;
+								break;
+							}
+						}
+						// Move to previous resolution
+						current_idx = (current_idx + num_resolutions - 1) % num_resolutions;
+						strcpy(cfg.video_conf, resolutions[current_idx]);
+						changed = 1;
+					}
 				}
 				break;
 				
@@ -4761,7 +4813,10 @@ void HandleUI(void)
 		sprintf(s, "  Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
+		if (cfg.bt_auto_disconnect == 0)
+			sprintf(s, "  BT Auto Disconnect: Off");
+		else
+			sprintf(s, "  BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
 		OsdWrite(m++, s, menusub == 6);
 		
 		sprintf(s, "  BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
@@ -4989,7 +5044,10 @@ void HandleUI(void)
 		sprintf(s, "  FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
 		OsdWrite(m++, s, menusub == 5);
 		
-		sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
+		if (cfg.osd_timeout == 0)
+			sprintf(s, "  OSD Timeout:   Off");
+		else
+			sprintf(s, "  OSD Timeout:   %ds", cfg.osd_timeout);
 		OsdWrite(m++, s, menusub == 6);
 		
 		{
@@ -5132,11 +5190,13 @@ void HandleUI(void)
 				if (select || right)
 				{
 					cfg.osd_rotate = (cfg.osd_rotate + 1) % 3; // Cycle 0->1->2->0
+					OsdRotation((cfg.osd_rotate == 1) ? 3 : (cfg.osd_rotate == 2) ? 1 : 0);
 					changed = 1;
 				}
 				else if (left)
 				{
 					cfg.osd_rotate = (cfg.osd_rotate + 2) % 3; // Cycle 0->2->1->0
+					OsdRotation((cfg.osd_rotate == 1) ? 3 : (cfg.osd_rotate == 2) ? 1 : 0);
 					changed = 1;
 				}
 				break;
