@@ -404,6 +404,49 @@ static void setup_save_confirmation_screen(const char* title, const char* warnin
 static char hdmi_old_resolution[64];
 static char hdmi_new_resolution[64];
 
+// Convert raw resolution string to nice display name
+static const char* get_resolution_display_name(const char* resolution)
+{
+	if (!resolution || strlen(resolution) == 0) {
+		return "Auto (EDID)";
+	}
+	
+	// Parse width,height,refresh from string like "1280,720,60"
+	int width, height, refresh;
+	if (sscanf(resolution, "%d,%d,%d", &width, &height, &refresh) == 3) {
+		static char display_name[32];
+		
+		// Common resolution names
+		if (width == 1920 && height == 1080) {
+			snprintf(display_name, sizeof(display_name), "1080p%d", refresh);
+		}
+		else if (width == 1280 && height == 720) {
+			snprintf(display_name, sizeof(display_name), "720p%d", refresh);
+		}
+		else if (width == 2560 && height == 1440) {
+			snprintf(display_name, sizeof(display_name), "1440p%d", refresh);
+		}
+		else if (width == 720 && height == 480) {
+			snprintf(display_name, sizeof(display_name), "480p%d", refresh);
+		}
+		else if (width == 720 && height == 576) {
+			snprintf(display_name, sizeof(display_name), "576p%d", refresh);
+		}
+		else if (width == 640 && height == 480) {
+			snprintf(display_name, sizeof(display_name), "480p%d (VGA)", refresh);
+		}
+		else {
+			// Generic format for other resolutions
+			snprintf(display_name, sizeof(display_name), "%dx%d@%d", width, height, refresh);
+		}
+		
+		return display_name;
+	}
+	
+	// Fallback for unparseable strings
+	return resolution;
+}
+
 static int hdmi_apply_resolution(void)
 {
 	// Send updated configuration to hardware
@@ -4265,25 +4308,7 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 0);
 		
 		// 2. HDMI Res. (menusub 1)
-		const char *vmode_str = "Auto (EDID)";
-		if (strlen(cfg.video_conf) > 0) {
-			if (!strcmp(cfg.video_conf, "1280,720,60")) vmode_str = "720p60";
-			else if (!strcmp(cfg.video_conf, "1024,768,60")) vmode_str = "1024x768@60";
-			else if (!strcmp(cfg.video_conf, "720,480,60")) vmode_str = "480p60";
-			else if (!strcmp(cfg.video_conf, "720,576,50")) vmode_str = "576p50";
-			else if (!strcmp(cfg.video_conf, "1280,1024,60")) vmode_str = "1280x1024@60";
-			else if (!strcmp(cfg.video_conf, "800,600,60")) vmode_str = "800x600@60";
-			else if (!strcmp(cfg.video_conf, "640,480,60")) vmode_str = "480p60 (VGA)";
-			else if (!strcmp(cfg.video_conf, "1280,720,50")) vmode_str = "720p50";
-			else if (!strcmp(cfg.video_conf, "1920,1080,60")) vmode_str = "1080p60";
-			else if (!strcmp(cfg.video_conf, "1920,1080,50")) vmode_str = "1080p50";
-			else if (!strcmp(cfg.video_conf, "1366,768,60")) vmode_str = "1366x768@60";
-			else if (!strcmp(cfg.video_conf, "1024,600,60")) vmode_str = "1024x600@60";
-			else if (!strcmp(cfg.video_conf, "1920,1440,60")) vmode_str = "1920x1440@60";
-			else if (!strcmp(cfg.video_conf, "2048,1536,60")) vmode_str = "2048x1536@60";
-			else if (!strcmp(cfg.video_conf, "2560,1440,60")) vmode_str = "1440p60";
-			else vmode_str = "Custom";
-		}
+		const char *vmode_str = get_resolution_display_name(cfg.video_conf);
 		sprintf(s, " HDMI Res.:   %s", vmode_str);
 		OsdWrite(m++, s, menusub == 1, direct_video_on ? 1 : 0);
 		
@@ -4807,8 +4832,8 @@ void HandleUI(void)
 						user_io_send_buttons(1); // Send configuration to hardware
 						
 						// Get display names for confirmation
-						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
-						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
+						const char* old_name = get_resolution_display_name(hdmi_old_resolution);
+						const char* new_name = get_resolution_display_name(hdmi_new_resolution);
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
@@ -4841,8 +4866,8 @@ void HandleUI(void)
 						user_io_send_buttons(1); // Send configuration to hardware
 						
 						// Get display names for confirmation
-						const char* old_name = strlen(hdmi_old_resolution) == 0 ? "Auto (EDID)" : hdmi_old_resolution;
-						const char* new_name = strlen(hdmi_new_resolution) == 0 ? "Auto (EDID)" : hdmi_new_resolution;
+						const char* old_name = get_resolution_display_name(hdmi_old_resolution);
+						const char* new_name = get_resolution_display_name(hdmi_new_resolution);
 						
 						// Setup confirmation screen
 						setup_confirmation_screen("HDMI Resolution", old_name, new_name, hdmi_apply_resolution, hdmi_revert_resolution, MENU_SETTINGS_ANALOG1, 1);
