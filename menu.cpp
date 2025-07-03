@@ -91,8 +91,8 @@ static void render_scrolling_help_text_direct(char* buffer, size_t buffer_size, 
 			state->last_menusub = current_menusub;
 		}
 		
-		// Only scroll if text is longer than display width (27 chars)
-		if (help_len > 27) {
+		// Only scroll if text is longer than display width (28 chars)
+		if (help_len > 28) {
 			if (CheckTimer(state->scroll_timer)) {
 				if (state->end_pause) {
 					// End pause finished, restart from beginning
@@ -105,7 +105,7 @@ static void render_scrolling_help_text_direct(char* buffer, size_t buffer_size, 
 					state->scroll_pos++;
 					
 					// Check if we've reached the end
-					if (state->scroll_pos >= help_len - 26) {
+					if (state->scroll_pos >= help_len - 27) {
 						state->end_pause = true;
 						state->scroll_timer = GetTimer(1000); // 1 second pause at end
 					}
@@ -117,12 +117,12 @@ static void render_scrolling_help_text_direct(char* buffer, size_t buffer_size, 
 			
 			// Create scrolled string
 			int start_pos = state->scroll_pos;
-			if (start_pos + 26 > help_len) start_pos = help_len - 26;
+			if (start_pos + 27 > help_len) start_pos = help_len - 27;
 			if (start_pos < 0) start_pos = 0;
 			
 			buffer[0] = ' '; // Add space prefix to move text right
-			strncpy(buffer + 1, help_text + start_pos, 26);
-			buffer[27] = '\0';
+			strncpy(buffer + 1, help_text + start_pos, 27);
+			buffer[28] = '\0';
 		}
 		else {
 			// Text fits, no scrolling needed
@@ -153,8 +153,8 @@ static void render_scrolling_help_text(char* buffer, size_t buffer_size, const c
 			state->last_menusub = current_menusub;
 		}
 		
-		// Only scroll if text is longer than display width (27 chars)
-		if (help_len > 27) {
+		// Only scroll if text is longer than display width (28 chars)
+		if (help_len > 28) {
 			if (CheckTimer(state->scroll_timer)) {
 				if (state->end_pause) {
 					// End pause finished, restart from beginning
@@ -163,9 +163,9 @@ static void render_scrolling_help_text(char* buffer, size_t buffer_size, const c
 					state->scroll_timer = GetTimer(1000); // 1 second delay after restarting
 				} else {
 					state->scroll_pos++;
-					if (state->scroll_pos > help_len - 26) {
+					if (state->scroll_pos > help_len - 27) {
 						// Reached end, stay at end position and start pause
-						state->scroll_pos = help_len - 26; // Stay at the end
+						state->scroll_pos = help_len - 27; // Stay at the end
 						state->end_pause = true;
 						state->scroll_timer = GetTimer(1000); // 1 second pause at end
 					} else {
@@ -175,8 +175,8 @@ static void render_scrolling_help_text(char* buffer, size_t buffer_size, const c
 			}
 			// Extract scrolled portion
 			char scrolled_text[32];
-			strncpy(scrolled_text, help_text + state->scroll_pos, 26);
-			scrolled_text[26] = '\0';
+			strncpy(scrolled_text, help_text + state->scroll_pos, 27);
+			scrolled_text[27] = '\0';
 			snprintf(buffer, buffer_size, " %s", scrolled_text);
 		} else {
 			// Text fits, no scrolling needed
