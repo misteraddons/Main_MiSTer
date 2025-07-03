@@ -3919,10 +3919,10 @@ void HandleUI(void)
 		OsdWrite(m++, "  \x16 Basic Video", menusub == 0);
 		OsdWrite(m++, "  \x16 Advanced Video", menusub == 1, cfg.direct_video);
 		OsdWrite(m++, "  \x16 Input & Controls", menusub == 2);
-		OsdWrite(m++, "  \x16 System & Storage", menusub == 2);
+		OsdWrite(m++, "  \x16 System & Storage", menusub == 3);
 		
 		OsdWrite(m++);
-		OsdWrite(m++, "  Save All Settings", menusub == 3);
+		OsdWrite(m++, "  Save All Settings", menusub == 4);
 		
 		while (m < OsdGetSize()) OsdWrite(m++);
 		
