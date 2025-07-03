@@ -479,10 +479,10 @@ static bool has_video_settings_changed(void)
 // Function to apply all video settings changes
 static int apply_all_video_settings(void)
 {
-	apply_video_settings();
-	user_io_send_buttons(1);
-	backup_video_settings(); // Update backup to current values
-	printf("DEBUG: All video settings applied\n");
+	// Settings are already applied when this is called from confirmation screen
+	// Just update backup to current values to make changes permanent
+	backup_video_settings();
+	printf("DEBUG: Video settings confirmed and made permanent\n");
 	
 	// Clear flag to re-enable automatic video adjustments
 	video_settings_menu_active = false;
@@ -494,6 +494,7 @@ static int apply_all_video_settings(void)
 // Function to revert all video settings changes
 static int revert_all_video_settings(void)
 {
+	// Restore cfg values to backup
 	cfg.direct_video = settings_backup.direct_video;
 	strcpy(cfg.video_conf, settings_backup.video_conf);
 	cfg.vsync_adjust = settings_backup.vsync_adjust;
@@ -509,7 +510,15 @@ static int revert_all_video_settings(void)
 	cfg.vga_sog = settings_backup.vga_sog;
 	cfg.ntsc_mode = settings_backup.ntsc_mode;
 	
-	printf("DEBUG: All video settings reverted\n");
+	// Apply the reverted settings to hardware
+	apply_video_settings();
+	user_io_send_buttons(1);
+	
+	// Clear flag to re-enable automatic video adjustments
+	video_settings_menu_active = false;
+	video_settings_backup_done = false;
+	
+	printf("DEBUG: Video settings reverted and applied to hardware\n");
 	return 1;
 }
 
@@ -4964,10 +4973,16 @@ void HandleUI(void)
 				{
 					bool has_changes = has_video_settings_changed();
 					if (has_changes) {
-						// Apply settings immediately
-						apply_all_video_settings();
-						printf("DEBUG: Apply button pressed - settings applied immediately\n");
-						menustate = MENU_SETTINGS_ANALOG1; // Refresh display
+						// Apply settings immediately first
+						apply_video_settings();
+						user_io_send_buttons(1);
+						printf("DEBUG: Apply button pressed - settings applied, showing confirmation\n");
+						
+						// Then show confirmation screen with auto-revert
+						setup_confirmation_screen("Apply Video Settings", "Settings applied", "Keep changes?", apply_all_video_settings, revert_all_video_settings, MENU_SETTINGS_ANALOG1, 12);
+						menustate = MENU_CONFIRM_CHANGE1;
+						menusub = 1; // Default to "Reject"
+						return; // Exit immediately
 					} else {
 						printf("DEBUG: Apply button pressed - no changes to apply\n");
 					}
