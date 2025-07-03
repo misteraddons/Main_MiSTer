@@ -510,6 +510,9 @@ static int revert_all_video_settings(void)
 	cfg.vga_sog = settings_backup.vga_sog;
 	cfg.ntsc_mode = settings_backup.ntsc_mode;
 	
+	// Temporarily allow video adjustments for reverting settings
+	video_settings_menu_active = false;
+	
 	// Apply the reverted settings to hardware
 	apply_video_settings();
 	user_io_send_buttons(1);
@@ -4973,10 +4976,16 @@ void HandleUI(void)
 				{
 					bool has_changes = has_video_settings_changed();
 					if (has_changes) {
+						// Temporarily allow video adjustments for applying settings
+						video_settings_menu_active = false;
+						
 						// Apply settings immediately first
 						apply_video_settings();
 						user_io_send_buttons(1);
 						printf("DEBUG: Apply button pressed - settings applied, showing confirmation\n");
+						
+						// Re-enable menu flag to prevent further automatic changes
+						video_settings_menu_active = true;
 						
 						// Then show confirmation screen with auto-revert
 						setup_confirmation_screen("Apply Video Settings", "Settings applied", "Keep changes?", apply_all_video_settings, revert_all_video_settings, MENU_SETTINGS_ANALOG1, 12);
