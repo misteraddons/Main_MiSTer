@@ -2824,6 +2824,7 @@ static char kbd_reset_ovr = 0;
 void user_io_send_buttons(char force)
 {
 	static unsigned short key_map = 0;
+	static unsigned short video_map_backup = 0;
 	unsigned short map = 0;
 
 	cur_btn = fpga_get_buttons();
@@ -2832,27 +2833,44 @@ void user_io_send_buttons(char force)
 	if (user_io_user_button()) map |= BUTTON2;
 	if (kbd_reset || kbd_reset_ovr) map |= BUTTON2;
 
-	if (cfg.vga_scaler) map |= CONF_VGA_SCALER;
-	if (cfg.vga_sog) map |= CONF_VGA_SOG;
-	if (cfg.csync) map |= CONF_CSYNC;
-	if (cfg.vga_mode_int == 1) map |= CONF_YPBPR;
-	if (cfg.vga_mode_int == 2) {
-		// S-Video mode - may require core reload
-		printf("DEBUG: Configuring S-Video mode (vga_mode_int=2)\n");
-		// TODO: Add CONF_SVIDEO flag when available in hardware
+	// Use backed up video settings when in video settings menu, current settings otherwise
+	extern bool video_settings_menu_active;
+	if (video_settings_menu_active && !force) {
+		// Use the backed up video configuration to prevent immediate application
+		map |= video_map_backup;
+	} else {
+		// Calculate current video settings
+		unsigned short current_video_map = 0;
+		if (cfg.vga_scaler) current_video_map |= CONF_VGA_SCALER;
+		if (cfg.vga_sog) current_video_map |= CONF_VGA_SOG;
+		if (cfg.csync) current_video_map |= CONF_CSYNC;
+		if (cfg.vga_mode_int == 1) current_video_map |= CONF_YPBPR;
+		if (cfg.vga_mode_int == 2) {
+			// S-Video mode - may require core reload
+			printf("DEBUG: Configuring S-Video mode (vga_mode_int=2)\n");
+			// TODO: Add CONF_SVIDEO flag when available in hardware
+		}
+		if (cfg.vga_mode_int == 3) {
+			// CVBS mode - may require core reload  
+			printf("DEBUG: Configuring CVBS mode (vga_mode_int=3)\n");
+			// TODO: Add CONF_CVBS flag when available in hardware
+		}
+		if (cfg.forced_scandoubler) current_video_map |= CONF_FORCED_SCANDOUBLER;
+		if (cfg.hdmi_audio_96k) current_video_map |= CONF_AUDIO_96K;
+		if (cfg.dvi_mode == 1) current_video_map |= CONF_DVI;
+		if (cfg.hdmi_limited & 1) current_video_map |= CONF_HDMI_LIMITED1;
+		if (cfg.hdmi_limited & 2) current_video_map |= CONF_HDMI_LIMITED2;
+		if (cfg.direct_video) current_video_map |= CONF_DIRECT_VIDEO;
+		if (cfg.direct_video == 2) current_video_map |= CONF_DIRECT_VIDEO2;
+		
+		map |= current_video_map;
+		
+		// Update backup when not in menu
+		if (!video_settings_menu_active) {
+			video_map_backup = current_video_map;
+		}
 	}
-	if (cfg.vga_mode_int == 3) {
-		// CVBS mode - may require core reload  
-		printf("DEBUG: Configuring CVBS mode (vga_mode_int=3)\n");
-		// TODO: Add CONF_CVBS flag when available in hardware
-	}
-	if (cfg.forced_scandoubler) map |= CONF_FORCED_SCANDOUBLER;
-	if (cfg.hdmi_audio_96k) map |= CONF_AUDIO_96K;
-	if (cfg.dvi_mode == 1) map |= CONF_DVI;
-	if (cfg.hdmi_limited & 1) map |= CONF_HDMI_LIMITED1;
-	if (cfg.hdmi_limited & 2) map |= CONF_HDMI_LIMITED2;
-	if (cfg.direct_video) map |= CONF_DIRECT_VIDEO;
-	if (cfg.direct_video == 2) map |= CONF_DIRECT_VIDEO2;
+	
 	if (vga_fb) map |= CONF_VGA_FB;
 
 	if ((map != key_map) || force)
