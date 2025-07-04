@@ -2729,46 +2729,55 @@ void video_init()
 	// Auto-detect and enable direct video BEFORE video_mode_load
 	// This ensures the correct mode is selected based on cfg.direct_video
 	// Note: cfg_parse() has already run, so all config values are available
-	if (cfg.direct_video_auto && !cfg.direct_video) {
+	if (cfg.direct_video >= 2) {
 		printf("Direct video auto-detection starting: mode=%d, vga_mode=%s(%d), csync=%d\n", 
-			cfg.direct_video_auto, cfg.vga_mode, cfg.vga_mode_int, cfg.csync);
+			cfg.direct_video, cfg.vga_mode, cfg.vga_mode_int, cfg.csync);
 			
 		// Only get EDID if not already valid
 		if (!is_edid_valid()) {
 			get_active_edid();
 		}
 		
-		if (should_auto_enable_direct_video()) {
-			cfg.direct_video = 1;
+		if (cfg.direct_video == 4) {
+			// Mode 4: Auto-detect PC CRT and set appropriate resolution
+			int pc_crt_type = detect_pc_crt_resolution();
+			if (pc_crt_type) {
+				printf("Auto-enabled direct video (mode 4: PC CRT auto-resolution).\n");
+				
+				// Enable direct video with settings for PC CRT
+				cfg.direct_video = 1;
+				cfg.vga_mode_int = 0; // RGB mode
+				strcpy(cfg.vga_mode, "rgb");
+				cfg.csync = 0; // Separate H/V sync for PC CRTs
+				cfg.forced_scandoubler = 1; // Always use 31kHz+ for PC CRTs
+				
+				// TODO: Set custom video mode based on detected resolution
+				// For now, just use standard 480p mode
+				printf("  Set: vga_mode=rgb, composite_sync=0, forced_scandoubler=1\n");
+				printf("  TODO: Implement custom resolution support for PC CRT type %d\n", pc_crt_type);
+			}
+		}
+		else if (should_auto_enable_direct_video()) {
 			printf("Auto-detected HDMI DAC, enabling direct video.\n");
 			
-			if (cfg.direct_video_auto == 1) {
-				// Mode 1: Only set direct_video=1, preserve user's vga_mode and composite_sync
-				printf("Auto-enabled direct video (mode 1: direct video only).\n");
+			if (cfg.direct_video == 2) {
+				// Mode 2: Only set direct_video=1, preserve user's vga_mode and composite_sync
+				printf("Auto-enabled direct video (mode 2: direct video only).\n");
 				printf("  Preserving user settings: vga_mode=%s(%d), composite_sync=%d\n", 
 					cfg.vga_mode, cfg.vga_mode_int, cfg.csync);
-				// IMPORTANT: Mode 1 should NOT modify any settings except direct_video
+				// IMPORTANT: Mode 2 should NOT modify any settings except direct_video
+				cfg.direct_video = 1;
 			}
-			else if (cfg.direct_video_auto == 2) {
-				// Mode 2: Full auto mode for 15kHz RGB with composite sync
-				printf("Auto-enabled direct video (mode 2: 240p/15kHz RGB with composite sync).\n");
+			else if (cfg.direct_video == 3) {
+				// Mode 3: Full auto mode for 15kHz RGB with composite sync
+				printf("Auto-enabled direct video (mode 3: 240p/15kHz RGB with composite sync).\n");
 				
+				cfg.direct_video = 1;
 				cfg.vga_mode_int = 0; // RGB mode
 				strcpy(cfg.vga_mode, "rgb");
 				cfg.csync = 1; // Enable composite sync
 				
 				printf("  Set: vga_mode=rgb, composite_sync=1\n");
-			}
-			else if (cfg.direct_video_auto == 3) {
-				// Mode 3: PC CRT mode for 31kHz RGB with separate sync
-				printf("Auto-enabled direct video (mode 3: 480p/31kHz RGB with separate sync).\n");
-				
-				cfg.vga_mode_int = 0; // RGB mode
-				strcpy(cfg.vga_mode, "rgb");
-				cfg.csync = 0; // Disable composite sync (use separate H/V)
-				cfg.forced_scandoubler = 1; // Enable forced scandoubler for 31kHz
-				
-				printf("  Set: vga_mode=rgb, composite_sync=0, forced_scandoubler=1\n");
 			}
 			
 			// Debug output of final settings
@@ -2778,30 +2787,6 @@ void video_init()
 			// Re-initialize HDMI config now that direct_video and vga_mode are set
 			printf("Re-initializing HDMI config with updated settings...\n");
 			hdmi_config_init();
-		}
-	}
-	// Mode 4: Auto-detect PC CRT and set appropriate resolution
-	else if (cfg.direct_video_auto == 4) {
-		// Only get EDID if not already valid
-		if (!is_edid_valid()) {
-			get_active_edid();
-		}
-		
-		int pc_crt_type = detect_pc_crt_resolution();
-		if (pc_crt_type) {
-			printf("Auto-enabled direct video (mode 4: PC CRT auto-resolution).\n");
-			
-			// Enable direct video with settings for PC CRT
-			cfg.direct_video = 1;
-			cfg.vga_mode_int = 0; // RGB mode
-			strcpy(cfg.vga_mode, "rgb");
-			cfg.csync = 0; // Separate H/V sync for PC CRTs
-			cfg.forced_scandoubler = 1; // Always use 31kHz+ for PC CRTs
-			
-			// TODO: Set custom video mode based on detected resolution
-			// For now, just use standard 480p mode
-			printf("  Set: vga_mode=rgb, composite_sync=0, forced_scandoubler=1\n");
-			printf("  TODO: Implement custom resolution support for PC CRT type %d\n", pc_crt_type);
 		}
 	}
 	
@@ -2820,7 +2805,7 @@ static void check_hdmi_hotplug_and_redetect()
 	static int hpd_stable_count = 0;
 	
 	// Only check if auto-detection is enabled
-	if (!cfg.direct_video_auto) return;
+	if (cfg.direct_video < 2) return;
 	
 	int current_hpd = get_hpd_state();
 	if (current_hpd < 0) return; // Error reading HPD
@@ -2860,6 +2845,9 @@ static void check_hdmi_hotplug_and_redetect()
 				int old_csync = cfg.csync;
 				int old_scandoubler = cfg.forced_scandoubler;
 				
+				// Store the original auto-detection mode
+				int auto_mode = cfg.direct_video;
+				
 				// Reset direct_video to allow re-detection
 				cfg.direct_video = 0;
 				
@@ -2867,24 +2855,24 @@ static void check_hdmi_hotplug_and_redetect()
 					cfg.direct_video = 1;
 					printf("HDMI hot-plug: Auto-detected HDMI DAC, enabling direct video.\n");
 					
-					if (cfg.direct_video_auto == 1) {
-						// Mode 1: Only set direct_video=1
-						printf("Direct video auto mode 1: Only enabling direct_video\n");
+					if (auto_mode == 2) {
+						// Mode 2: Only set direct_video=1
+						printf("Direct video auto mode 2: Only enabling direct_video\n");
 					}
-					else if (cfg.direct_video_auto == 2) {
-						// Mode 2: 240p/15kHz RGB
+					else if (auto_mode == 3) {
+						// Mode 3: 240p/15kHz RGB
 						cfg.vga_mode_int = 0; // RGB mode
 						strcpy(cfg.vga_mode, "rgb");
 						cfg.csync = 1; // Composite sync
-						printf("Direct video auto mode 2: 240p/15kHz RGB (composite sync)\n");
+						printf("Direct video auto mode 3: 240p/15kHz RGB (composite sync)\n");
 					}
-					else if (cfg.direct_video_auto == 3) {
-						// Mode 3: 480p/31kHz RGB  
+					else if (auto_mode == 4) {
+						// Mode 4: 480p/31kHz RGB  
 						cfg.vga_mode_int = 0; // RGB mode
 						strcpy(cfg.vga_mode, "rgb");
 						cfg.csync = 0; // Separate H/V sync
 						cfg.forced_scandoubler = 1;
-						printf("Direct video auto mode 3: 480p/31kHz RGB (PC CRT)\n");
+						printf("Direct video auto mode 4: 480p/31kHz RGB (PC CRT)\n");
 					}
 					
 					// Re-initialize HDMI config if settings changed
