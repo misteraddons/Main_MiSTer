@@ -1129,6 +1129,17 @@ int cfg_save(uint8_t alt)
 		{
 			strcpy(current_value, "0");
 		}
+		// Special case for MOUSE_THROTTLE: if 0, comment out with value 1
+		else if (!strcasecmp(var->name, "MOUSE_THROTTLE"))
+		{
+			format_ini_value(current_value, sizeof(current_value), var);
+			if (strcmp(current_value, "0") == 0)
+			{
+				// Don't write MOUSE_THROTTLE=0, instead comment it out
+				// This will be handled specially below
+				strcpy(current_value, "0_COMMENT_OUT");
+			}
+		}
 		else
 		{
 			format_ini_value(current_value, sizeof(current_value), var);
@@ -1184,8 +1195,16 @@ int cfg_save(uint8_t alt)
 		if (!value_needs_update(var, file_value) && !is_commented)
 			continue;
 		
-		printf("DEBUG: %s - file_value='%s', current='%s'%s\n", 
-			var->name, file_value ? file_value : "NULL", current_value, is_commented ? " (commented)" : "");
+		if (strcmp(current_value, "0_COMMENT_OUT") == 0)
+		{
+			printf("DEBUG: %s - file_value='%s', current='0' -> commenting out with value 1%s\n", 
+				var->name, file_value ? file_value : "NULL", is_commented ? " (was commented)" : "");
+		}
+		else
+		{
+			printf("DEBUG: %s - file_value='%s', current='%s'%s\n", 
+				var->name, file_value ? file_value : "NULL", current_value, is_commented ? " (commented)" : "");
+		}
 		
 		// Escape special characters in current_value for sed
 		char escaped_value[1024];
@@ -1208,30 +1227,51 @@ int cfg_save(uint8_t alt)
 				continue;
 		}
 		
-		// Use sed to update or add the value
-		if (file_value || is_commented)
+		// Special handling for MOUSE_THROTTLE=0 (comment out instead)
+		if (strcmp(escaped_value, "0_COMMENT_OUT") == 0)
 		{
-			if (is_commented)
+			if (file_value || is_commented)
 			{
-				// Uncomment and update the value - need to escape special regex chars
+				// Comment out the existing line and set it to 1
 				snprintf(cmd, sizeof(cmd),
-					"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
-					lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+					"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#]*[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#]*[[:space:]]*%s[[:space:]]*=.*/;%s=1/;}}' \"%s\"",
+					lowercase_name, lowercase_name, lowercase_name, filepath);
 			}
 			else
 			{
-				// Update existing uncommented value
+				// Add commented line
 				snprintf(cmd, sizeof(cmd),
-					"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
-					lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+					"sed -i '/^\\[MiSTer\\]/a\\;%s=1' \"%s\"",
+					lowercase_name, filepath);
 			}
 		}
 		else
 		{
-			// Add new value after [MiSTer] line (missing setting that differs from default)
-			snprintf(cmd, sizeof(cmd),
-				"sed -i.sed '/^\\[MiSTer\\]/a\\%s=%s' \"%s\"",
-				lowercase_name, escaped_value, filepath);
+			// Use sed to update or add the value
+			if (file_value || is_commented)
+			{
+				if (is_commented)
+				{
+					// Uncomment and update the value - need to escape special regex chars
+					snprintf(cmd, sizeof(cmd),
+						"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+						lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+				}
+				else
+				{
+					// Update existing uncommented value
+					snprintf(cmd, sizeof(cmd),
+						"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+						lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+				}
+			}
+			else
+			{
+				// Add new value after [MiSTer] line (missing setting that differs from default)
+				snprintf(cmd, sizeof(cmd),
+					"sed -i.sed '/^\\[MiSTer\\]/a\\%s=%s' \"%s\"",
+					lowercase_name, escaped_value, filepath);
+			}
 		}
 		
 		
