@@ -1064,6 +1064,8 @@ int cfg_save(uint8_t alt)
 	char backuppath[1024];
 	char temppath[1024];
 	
+	printf("DEBUG: Saving to alternate INI %d: %s\n", alt, ini_filename);
+	
 	// Create file paths
 	snprintf(filepath, sizeof(filepath), "%s/%s", getRootDir(), ini_filename);
 	snprintf(backuppath, sizeof(backuppath), "%s.temp", filepath);

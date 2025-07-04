@@ -738,8 +738,8 @@ static int rgb_range_revert_change(void)
 // Save Settings helper functions
 static int save_settings_apply(void)
 {
-	// Actually save the settings
-	cfg_save(0);
+	// Actually save the settings to the currently active alternate INI
+	cfg_save(altcfg(-1));  // Get current alternate INI index
 	return 2; // Special return code to indicate success message should be shown
 }
 

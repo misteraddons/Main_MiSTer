@@ -698,8 +698,8 @@ static void HandleConfirmSaveInput()
     
     if (input & JOY_BTN1)  // Enter/A - Yes, save
     {
-        // Save settings to MiSTer.ini
-        if (cfg_save(0))  // Save to main MiSTer.ini (alt=0)
+        // Save settings to currently active alternate INI
+        if (cfg_save(altcfg(-1)))  // Save to current alternate INI
         {
             settings_changed = false;
             current_state = SETTINGS_STATE_EXIT;
