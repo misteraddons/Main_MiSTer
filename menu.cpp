@@ -7022,16 +7022,16 @@ void HandleUI(void)
 					}
 					else if (dual_sdr)
 					{
-						// Digital IO board - check for secondary SDRAM
+						// Digital mode (io_type=1) - check for secondary SDRAM
 						uint8_t sec_bits = (sdram_cfg >> 3) & 7;  // Capacity bits [5:3]
 						uint8_t sec_present = (sdram_cfg >> 6) & 1; // Hardware present flag bit 6
 						
 						if (should_debug) printf("Secondary SDRAM check: sec_bits=%d, sec_present=%d, sdram_cfg=0x%04X\n", sec_bits, sec_present, sdram_cfg);
 						
-						// Check bit 6 (hardware present flag) for proper secondary SDRAM detection
-						if (sec_present)
+						// Check bit 6 (hardware present flag) AND capacity bits for proper secondary SDRAM detection
+						if (sec_present && sec_bits > 0)
 						{
-							// Secondary SDRAM detected - show icon at position 10
+							// Secondary SDRAM with actual capacity detected - show icon at position 10
 							uint8_t sec_size = sec_bits;
 						
 							switch (sec_size)
@@ -7049,7 +7049,7 @@ void HandleUI(void)
 								str[n] = 0x93; // 32MB
 								break;
 							default:
-								str[n] = 0x92; // none
+								str[n] = 0x92; // unknown capacity
 								break;
 							}
 							n++;
