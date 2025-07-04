@@ -6972,7 +6972,18 @@ void HandleUI(void)
 				if (hci_get_route(0) >= 0) str[n++] = 4;
 				if (user_io_get_sdram_cfg() & 0x8000)
 				{
-					switch (user_io_get_sdram_cfg() & 7)
+					static int debug_printed = 0;
+					uint16_t sdram_cfg = user_io_get_sdram_cfg();
+					
+					// Print debug info only once
+					if (!debug_printed && user_io_is_dualsdr())
+					{
+						printf("Dual SDRAM detected: cfg=0x%04X, primary_size=%d, secondary_bits=0x%X, sec_present=%d\n", 
+						       sdram_cfg, sdram_cfg & 7, (sdram_cfg >> 3) & 7, (sdram_cfg >> 6) & 1);
+						debug_printed = 1;
+					}
+					
+					switch (sdram_cfg & 7)
 					{
 					case 7:
 						str[n] = 0x95;
@@ -6987,9 +6998,94 @@ void HandleUI(void)
 						str[n] = 0x92;
 						break;
 					}
+					n++;
+					
+					// Show secondary SDRAM and/or video output icons
+					int io_type = fpga_get_io_type();
+					int dual_sdr = user_io_is_dualsdr();
+					int direct_video = cfg.direct_video;
+					
+					// Print IO debug info only once
+					static int io_debug_printed = 0;
+					int should_debug = !io_debug_printed;
+					if (should_debug)
+					{
+						printf("IO type: %d, Dual SDRAM: %d, Direct Video: %d\n", io_type, dual_sdr, direct_video);
+					}
+					
+					// Position 10: Secondary SDRAM OR Analog IO (CRT icon) OR blank
+					if (io_type == 0)
+					{
+						// Analog IO board - show CRT icon at position 10
+						if (should_debug) printf("Analog IO board detected - adding CRT icon at position %d\n", n);
+						str[n++] = 0x97; // CRT icon at position 10
+					}
+					else if (dual_sdr)
+					{
+						// Digital mode (io_type=1) - check for secondary SDRAM
+						uint8_t sec_bits = (sdram_cfg >> 3) & 7;  // Capacity bits [5:3]
+						uint8_t sec_present = (sdram_cfg >> 6) & 1; // Hardware present flag bit 6
+						
+						if (should_debug) printf("Secondary SDRAM check: sec_bits=%d, sec_present=%d, sdram_cfg=0x%04X\n", sec_bits, sec_present, sdram_cfg);
+						
+						// Check bit 6 (hardware present flag) AND capacity bits for proper secondary SDRAM detection
+						if (sec_present && sec_bits > 0)
+						{
+							// Secondary SDRAM with actual capacity detected - show icon at position 10
+							uint8_t sec_size = sec_bits;
+						
+							switch (sec_size)
+							{
+							case 7:
+								str[n] = 0x95; // 128MB
+								break;
+							case 6:
+								str[n] = 0x95; // 128MB (alternate)
+								break;
+							case 3:
+								str[n] = 0x94; // 64MB
+								break;
+							case 1:
+								str[n] = 0x93; // 32MB
+								break;
+							default:
+								str[n] = 0x92; // unknown capacity
+								break;
+							}
+							n++;
+							if (should_debug) printf("Adding secondary SDRAM icon 0x%02X at position %d\n", str[n-1], n-1);
+						}
+						else
+						{
+							if (should_debug) printf("Secondary SDRAM not detected - no icon added\n");
+						}
+					}
+					else
+					{
+						// Digital IO board, no dual SDRAM core - no icon at position 10
+						if (should_debug) printf("No analog IO or secondary SDRAM - position 10 remains blank\n");
+					}
+					
+					// Position 11: Always show video output type (HDMI or Direct Video)
+					if (direct_video)
+					{
+						if (should_debug) printf("Direct video enabled - adding direct video icon at position %d\n", n);
+						str[n++] = 0x98; // Direct Video icon
+					}
+					else
+					{
+						if (should_debug) printf("HDMI output - adding HDMI icon at position %d\n", n);
+						str[n++] = 0x99; // HDMI icon
+					}
+					
+					// Set debug flag after all debug output
+					if (should_debug) io_debug_printed = 1;
 				}
 
 				str[22] = ' ';
+				
+				// Ensure string is null terminated
+				str[n] = 0;
 			}
 
 			OsdWrite(16, "", 1, 0);

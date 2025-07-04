@@ -1332,9 +1332,14 @@ void user_io_init(const char *path, const char *xml)
 	fio_size = fpga_get_fio_size();
 	io_ver = fpga_get_io_version();
 	printf("I/O Board type: %s\n", fpga_get_io_type() ? "digital" : "analogue");
+	printf("Core type detected: 0x%02X (CORE_TYPE_8BIT2=0x%02X)\n", core_type, CORE_TYPE_8BIT2);
 
+	// Reset dual SDRAM flag
+	dual_sdr = 0;
+	
 	if (core_type == CORE_TYPE_8BIT2)
 	{
+		printf("Dual SDRAM core detected - enabling dual_sdr flag\n");
 		dual_sdr = 1;
 		core_type = CORE_TYPE_8BIT;
 	}
@@ -1358,7 +1363,30 @@ void user_io_init(const char *path, const char *xml)
 	if (core_type == CORE_TYPE_8BIT)
 	{
 		printf("Identified 8BIT core");
-		spi_uio_cmd16(UIO_SET_MEMSZ, sdram_sz(-1));
+		
+		// Calculate SDRAM configuration
+		uint16_t sdram_config = sdram_sz(-1);
+		
+		// Only enable dual SDRAM testing for digital IO boards
+		// Analog IO boards need those pins for VGA output
+		if (dual_sdr && fpga_get_io_type() != 0)
+		{
+			// Digital IO board detected - enable dual SDRAM testing
+			sdram_config |= 0x2000; // Set bit 13 (SDRAM2_EN)
+			printf(" with dual SDRAM enabled (digital IO), config=0x%04X", sdram_config);
+		}
+		else if (dual_sdr && fpga_get_io_type() == 0)
+		{
+			// Analog IO board detected - disable dual SDRAM to avoid pin conflicts
+			printf(" with dual SDRAM disabled (analog IO - avoiding VGA pin conflicts), config=0x%04X", sdram_config);
+		}
+		else
+		{
+			printf(" (single SDRAM mode), config=0x%04X", sdram_config);
+		}
+		
+		spi_uio_cmd16(UIO_SET_MEMSZ, sdram_config);
+		printf("\n");
 
 		// send a reset
 		user_io_status_set("[0]", 1);
