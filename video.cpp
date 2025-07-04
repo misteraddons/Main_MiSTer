@@ -1901,6 +1901,7 @@ struct known_direct_video_device {
 static const struct known_direct_video_device direct_video_devices[] = {
 	// Upscalers
 	{"PFX", 0x1A11, "PixelFX", "PixelFX Morph upscaler", NULL, 0},  // Full range (0-255)
+	{"RTK", 0x4206, "RetroTINK", "RetroTINK 4K upscaler", NULL, 0},  // Full range (0-255)
 	
 	// Known HDMI DACs (1024x768 resolution)
 	{"AGO", 0x0001, NULL, "HDMI DAC (1024x768)", "AG6200", 2},  // Limited range (16-255)
