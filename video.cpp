@@ -1848,9 +1848,83 @@ static int is_edid_valid()
 	return !memcmp(edid, magic, sizeof(magic));
 }
 
+// Decode 3-letter manufacturer ID from EDID bytes 8-9
+static void get_edid_manufacturer(char *mfg_id)
+{
+	uint16_t vendor = (edid[8] << 8) | edid[9];
+	mfg_id[0] = ((vendor >> 10) & 0x1F) + 'A' - 1;
+	mfg_id[1] = ((vendor >> 5) & 0x1F) + 'A' - 1;
+	mfg_id[2] = (vendor & 0x1F) + 'A' - 1;
+	mfg_id[3] = '\0';
+}
+
+// Get product code from EDID bytes 10-11
+static uint16_t get_edid_product_code()
+{
+	return edid[10] | (edid[11] << 8);
+}
+
+// Extract display name from EDID descriptors
+static bool get_edid_display_name(char *name, size_t max_len)
+{
+	// Check all 4 descriptor blocks (bytes 54-125)
+	for (int i = 54; i <= 108; i += 18) {
+		if (edid[i] == 0x00 && edid[i+1] == 0x00 && 
+		    edid[i+2] == 0x00 && edid[i+3] == 0xFC) {
+			// Found display name descriptor
+			size_t len = 0;
+			for (int j = 5; j < 18 && len < max_len-1; j++) {
+				if (edid[i+j] == 0x0A || edid[i+j] == 0x00) break;
+				name[len++] = edid[i+j];
+			}
+			name[len] = '\0';
+			// Trim trailing spaces
+			while (len > 0 && name[len-1] == ' ') {
+				name[--len] = '\0';
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
+// Known devices that work well with direct_video
+struct known_direct_video_device {
+	const char *mfg_id;
+	uint16_t product_code;  // 0xFFFF = any product code
+	const char *name_contains;  // NULL = don't check name
+	const char *description;
+	const char *internal_dac;  // NULL = unknown, e.g. "ADV7513", "CH7301C", etc.
+	int rgb_range;  // -1 = use default, 0 = full (0-255), 1 = limited (16-235), 2 = limited (16-255)
+};
+
+static const struct known_direct_video_device direct_video_devices[] = {
+	// Upscalers
+	{"PFX", 0x1A11, "PixelFX", "PixelFX Morph upscaler", NULL, 0},  // Full range (0-255)
+	
+	// Known HDMI DACs (1024x768 resolution)
+	{"AGO", 0x0001, NULL, "HDMI DAC (1024x768)", "AG6200", 2},  // Limited range (16-255)
+	{"RGT", 0x1352, NULL, "HDMI DAC (1024x768)", "CS5213", 0},  // Full range (0-255)
+	
+	// Add more devices as discovered
+	// Example entries:
+	// {"XYZ", 0x1234, NULL, "HDMI to VGA DAC", "ADV7513", 0},  // Full range RGB
+	// {"ABC", 0x5678, NULL, "HDMI to Component", "CH7301C", 1}, // Limited range
+	
+	{NULL, 0, NULL, NULL, NULL, -1}  // Terminator
+};
+
 static int should_auto_enable_direct_video()
 {
 	if (!is_edid_valid()) return 0;
+	
+	// Get manufacturer and model info
+	char mfg_id[4];
+	get_edid_manufacturer(mfg_id);
+	uint16_t product_code = get_edid_product_code();
+	
+	char display_name[14];
+	bool has_name = get_edid_display_name(display_name, sizeof(display_name));
 	
 	// Check preferred resolution from EDID
 	uint8_t *x = edid + 0x36;
@@ -1859,6 +1933,39 @@ static int should_auto_enable_direct_video()
 	
 	int hact = (x[2] + ((x[4] & 0xf0) << 4));
 	int vact = (x[5] + ((x[7] & 0xf0) << 4));
+	
+	printf("EDID: Manufacturer: %s, Product: 0x%04X", mfg_id, product_code);
+	if (has_name) printf(", Name: \"%s\"", display_name);
+	printf(", Resolution: %dx%d\n", hact, vact);
+	
+	// Check against known devices list
+	for (const struct known_direct_video_device *dev = direct_video_devices; dev->mfg_id != NULL; dev++) {
+		// Check manufacturer ID
+		if (strcmp(mfg_id, dev->mfg_id) != 0) continue;
+		
+		// Check product code if specified
+		if (dev->product_code != 0xFFFF && product_code != dev->product_code) continue;
+		
+		// Check display name if specified
+		if (dev->name_contains != NULL) {
+			if (!has_name || strstr(display_name, dev->name_contains) == NULL) continue;
+		}
+		
+		// Found a match!
+		printf("EDID: Detected %s", dev->description);
+		if (dev->internal_dac) {
+			printf(" [DAC: %s]", dev->internal_dac);
+		}
+		if (dev->rgb_range >= 0) {
+			// Apply RGB range setting if specified
+			cfg.hdmi_limited = dev->rgb_range;
+			const char *range_str = (dev->rgb_range == 0) ? "Full (0-255)" :
+			                       (dev->rgb_range == 1) ? "Limited (16-235)" : "Limited (16-255)";
+			printf(" [RGB: %s]", range_str);
+		}
+		printf(", auto-enabling direct video.\n");
+		return 1;
+	}
 	
 	// Common resolutions for HDMI DACs that benefit from direct video
 	if (hact == 1024 && vact == 768) {
@@ -2060,6 +2167,18 @@ static int get_edid_vmode(vmode_custom_t *v)
 	double Fpix = pixclk_khz / 1000.f;
 	double frame_rate = Fpix * 1000000.f / ((hact + hfp + hbp + hsync)*(vact + vfp + vbp + vsync));
 	printf("EDID: preferred mode: %dx%d@%.1f, pixel clock: %.3fMHz\n", hact, vact, frame_rate, Fpix);
+	
+	// Display manufacturer and model info
+	char mfg_id[4];
+	get_edid_manufacturer(mfg_id);
+	uint16_t product_code = get_edid_product_code();
+	char display_name[14];
+	bool has_name = get_edid_display_name(display_name, sizeof(display_name));
+	
+	printf("EDID: Monitor ID: %s", mfg_id);
+	if (product_code) printf(" 0x%04X", product_code);
+	if (has_name) printf(" \"%s\"", display_name);
+	printf("\n");
 
 	if (hact >= 1920) support_FHD = 1;
 
