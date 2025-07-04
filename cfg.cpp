@@ -928,13 +928,25 @@ static void format_ini_value(char *buffer, size_t buffer_size, const ini_var_t *
 }
 
 // Parse a value from an INI file line and return it as a string
-static char* extract_ini_file_value(char* line, const char* key)
+// Returns the value if found, or a special marker if commented out
+static char* extract_ini_file_value(char* line, const char* key, int* is_commented)
 {
 	static char value[512];
 	value[0] = '\0';
+	*is_commented = 0;
+	
+	char* original_line = line;
 	
 	// Skip whitespace at start
 	while (*line && CHAR_IS_SPACE(*line)) line++;
+	
+	// Check if line is commented out
+	if (*line == ';' || *line == '#')
+	{
+		*is_commented = 1;
+		line++; // Skip comment character
+		while (*line && CHAR_IS_SPACE(*line)) line++; // Skip whitespace after comment
+	}
 	
 	// Check if line starts with the key
 	int key_len = strlen(key);
@@ -963,6 +975,63 @@ static char* extract_ini_file_value(char* line, const char* key)
 		value[--i] = '\0';
 	
 	return value;
+}
+
+// Check if current value differs from default value
+static int value_differs_from_default(const ini_var_t *var)
+{
+	char current_value[512];
+	format_ini_value(current_value, sizeof(current_value), var);
+	
+	// Get default value by checking what the variable would be after memset+defaults
+	const char* default_str = "";
+	
+	// Special cases - these have explicit defaults set in cfg_parse()
+	if (!strcasecmp(var->name, "BOOTSCREEN")) default_str = "1";
+	else if (!strcasecmp(var->name, "FB_TERMINAL")) default_str = "1";
+	else if (!strcasecmp(var->name, "CONTROLLER_INFO")) default_str = "6";
+	else if (!strcasecmp(var->name, "BROWSE_EXPAND")) default_str = "1";
+	else if (!strcasecmp(var->name, "LOGO")) default_str = "1";
+	else if (!strcasecmp(var->name, "RUMBLE")) default_str = "1";
+	else if (!strcasecmp(var->name, "WHEEL_FORCE")) default_str = "50";
+	else if (!strcasecmp(var->name, "DVI_MODE")) default_str = "2";
+	else if (!strcasecmp(var->name, "HDR")) default_str = "0";
+	else if (!strcasecmp(var->name, "HDR_MAX_NITS")) default_str = "1000";
+	else if (!strcasecmp(var->name, "HDR_AVG_NITS")) default_str = "250";
+	else if (!strcasecmp(var->name, "VIDEO_BRIGHTNESS")) default_str = "50";
+	else if (!strcasecmp(var->name, "VIDEO_CONTRAST")) default_str = "50";
+	else if (!strcasecmp(var->name, "VIDEO_SATURATION")) default_str = "100";
+	else if (!strcasecmp(var->name, "VIDEO_HUE")) default_str = "0";
+	else if (!strcasecmp(var->name, "VIDEO_GAIN_OFFSET")) default_str = "1, 0, 1, 0, 1, 0";
+	else if (!strcasecmp(var->name, "MAIN")) default_str = "MiSTer";
+	else if (!strcasecmp(var->name, "YPBPR")) default_str = "0"; // Special legacy case
+	else 
+	{
+		// For all other variables, default is based on type after memset to 0
+		switch (var->type)
+		{
+			case INI_UINT8:
+			case INI_INT8:
+			case INI_UINT16:
+			case INI_INT16:
+			case INI_UINT32:
+			case INI_INT32:
+			case INI_HEX8:
+			case INI_HEX16:
+			case INI_HEX32:
+			case INI_FLOAT:
+				default_str = "0";
+				break;
+			case INI_STRING:
+				default_str = ""; // Empty string
+				break;
+			default:
+				default_str = "";
+				break;
+		}
+	}
+	
+	return strcmp(current_value, default_str) != 0;
 }
 
 // Check if current memory value differs from file value
@@ -1069,6 +1138,14 @@ int cfg_save(uint8_t alt)
 		if (strlen(current_value) == 0)
 			continue;
 		
+		// Convert variable name to lowercase for sed (file uses lowercase)
+		char lowercase_name[256];
+		for (int i = 0; var->name[i] && i < 255; i++)
+		{
+			lowercase_name[i] = tolower(var->name[i]);
+		}
+		lowercase_name[strlen(var->name)] = '\0';
+		
 		// Check if this value exists in the file and differs
 		FILE *fp = fopen(filepath, "r");
 		if (!fp) continue;
@@ -1076,6 +1153,7 @@ int cfg_save(uint8_t alt)
 		char line[1024];
 		char *file_value = NULL;
 		int in_mister_section = 0;
+		int is_commented = 0;
 		
 		while (fgets(line, sizeof(line), fp))
 		{
@@ -1092,7 +1170,7 @@ int cfg_save(uint8_t alt)
 			// Only look for variables in [MiSTer] section
 			if (in_mister_section)
 			{
-				char *extracted = extract_ini_file_value(trimmed, var->name);
+				char *extracted = extract_ini_file_value(trimmed, lowercase_name, &is_commented);
 				if (extracted)
 				{
 					file_value = extracted;
@@ -1103,24 +1181,59 @@ int cfg_save(uint8_t alt)
 		fclose(fp);
 		
 		// Check if update is needed
-		if (!value_needs_update(var, file_value))
+		if (!value_needs_update(var, file_value) && !is_commented)
 			continue;
 		
-		// Use sed to update or add the value
-		if (file_value)
+		printf("DEBUG: %s - file_value='%s', current='%s'%s\n", 
+			var->name, file_value ? file_value : "NULL", current_value, is_commented ? " (commented)" : "");
+		
+		// Escape special characters in current_value for sed
+		char escaped_value[1024];
+		int j = 0;
+		for (int i = 0; current_value[i] && j < 1023; i++)
 		{
-			// Update existing value using sed
-			snprintf(cmd, sizeof(cmd),
-				"sed -i.sed '/^\\[MiSTer\\]/,/^\\[/{s/^\\s*%s\\s*=.*/%s=%s/;}' \"%s\"",
-				var->name, var->name, current_value, filepath);
+			if (current_value[i] == '/' || current_value[i] == '&' || current_value[i] == '\\')
+			{
+				escaped_value[j++] = '\\';
+			}
+			escaped_value[j++] = current_value[i];
+		}
+		escaped_value[j] = '\0';
+		
+		// For missing values, only add if they differ from defaults
+		if (!file_value && !is_commented)
+		{
+			// Only add missing settings if current value differs from default
+			if (!value_differs_from_default(var))
+				continue;
+		}
+		
+		// Use sed to update or add the value
+		if (file_value || is_commented)
+		{
+			if (is_commented)
+			{
+				// Uncomment and update the value - need to escape special regex chars
+				snprintf(cmd, sizeof(cmd),
+					"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+					lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+			}
+			else
+			{
+				// Update existing uncommented value
+				snprintf(cmd, sizeof(cmd),
+					"sed -i '/^\\[MiSTer\\]/,/^\\[.*\\]/{/^[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+					lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+			}
 		}
 		else
 		{
-			// Add new value after [MiSTer] line
+			// Add new value after [MiSTer] line (missing setting that differs from default)
 			snprintf(cmd, sizeof(cmd),
 				"sed -i.sed '/^\\[MiSTer\\]/a\\%s=%s' \"%s\"",
-				var->name, current_value, filepath);
+				lowercase_name, escaped_value, filepath);
 		}
+		
 		
 		if (system(cmd) != 0)
 		{

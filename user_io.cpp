@@ -2847,12 +2847,11 @@ void user_io_send_buttons(char force)
 		if (cfg.vga_mode_int == 1) current_video_map |= CONF_YPBPR;
 		if (cfg.vga_mode_int == 2) {
 			// S-Video mode - may require core reload
-			printf("DEBUG: Configuring S-Video mode (vga_mode_int=2)\n");
 			// TODO: Add CONF_SVIDEO flag when available in hardware
 		}
 		if (cfg.vga_mode_int == 3) {
 			// CVBS mode - may require core reload  
-			printf("DEBUG: Configuring CVBS mode (vga_mode_int=3)\n");
+			//printf("DEBUG: Configuring CVBS mode (vga_mode_int=3)\n");
 			// TODO: Add CONF_CVBS flag when available in hardware
 		}
 		if (cfg.forced_scandoubler) current_video_map |= CONF_FORCED_SCANDOUBLER;
