@@ -4224,12 +4224,12 @@ void HandleUI(void)
 		}
 		OsdWrite(13, s, menusub == 2);
 
-		OsdWrite(15, STD_EXIT, menusub == 2, 0, OSD_ARROW_RIGHT);
+		OsdWrite(15, STD_EXIT, menusub == 3, 0, OSD_ARROW_RIGHT);
 		break;
 
 	case MENU_MISC2:
 		printSysInfo();
-		if ((select && menusub == 2) || menu)
+		if ((select && menusub == 3) || menu)
 		{
 			menustate = MENU_NONE1;
 			break;
@@ -4404,7 +4404,12 @@ void HandleUI(void)
 				
 			case 4:
 				// Save All Settings - show confirmation screen with warning
-				setup_save_confirmation_screen("Save All Settings", "Current MiSTer.ini\nwill be overwritten!", "Continue?", save_settings_apply, save_settings_revert, MENU_SETTINGS1, 4);
+				{
+					const char *ini_filename = cfg_get_name(altcfg(-1));
+					char warning_message[128];
+					snprintf(warning_message, sizeof(warning_message), "Current %s\nwill be overwritten!", ini_filename);
+					setup_save_confirmation_screen("Save All Settings", warning_message, "Continue?", save_settings_apply, save_settings_revert, MENU_SETTINGS1, 4);
+				}
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 				break;
@@ -7139,8 +7144,9 @@ void HandleUI(void)
 					
 					if (result == 2)
 					{
-						// Show success message
-						setup_confirmation_screen("Settings Saved", "MiSTer.ini has been updated", "Settings saved successfully", NULL, NULL, confirm_state.return_menustate, confirm_state.return_menusub);
+						// Show success message with correct INI filename on separate lines
+						const char *ini_filename = cfg_get_name(altcfg(-1));
+						setup_confirmation_screen("Settings Saved", ini_filename, "has been updated", NULL, NULL, confirm_state.return_menustate, confirm_state.return_menusub);
 						confirm_state.revert_timer = GetTimer(3000); // Show for 3 seconds then auto-dismiss
 						menustate = MENU_CONFIRM_CHANGE1;
 						menusub = 0; // Default to "OK" for success message

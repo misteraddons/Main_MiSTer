@@ -453,7 +453,12 @@ static void DrawConfirmSave()
     OsdSetTitle("Confirm Save", 0);
     
     int line = 4;
-    OsdWrite(line++, "Save changes to MiSTer.ini?", 0, 0);
+    
+    // Get the current INI filename and display it
+    const char *ini_filename = cfg_get_name(altcfg(-1));
+    char save_message[64];
+    snprintf(save_message, sizeof(save_message), "Save changes to %s?", ini_filename);
+    OsdWrite(line++, save_message, 0, 0);
     line++;
     
     if (needs_reboot)
