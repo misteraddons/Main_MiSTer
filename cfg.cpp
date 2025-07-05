@@ -1294,3 +1294,425 @@ int cfg_save(uint8_t alt)
 	printf("Configuration saved to: %s\n", filepath);
 	return 1;
 }
+
+// Get global setting value from [MiSTer] section for comparison with core-specific values
+static char* get_global_setting_value(const char* filepath, const char* lowercase_name)
+{
+	static char global_value[512];
+	global_value[0] = '\0';
+	
+	FILE *fp = fopen(filepath, "r");
+	if (!fp) return NULL;
+	
+	char line[1024];
+	int in_mister_section = 0;
+	int is_commented = 0;
+	
+	while (fgets(line, sizeof(line), fp))
+	{
+		char *trimmed = line;
+		while (*trimmed && CHAR_IS_SPACE(*trimmed)) trimmed++;
+		
+		// Check for section headers
+		if (*trimmed == '[')
+		{
+			in_mister_section = (strncasecmp(trimmed, "[MiSTer]", 8) == 0);
+			continue;
+		}
+		
+		// Only look for variables in [MiSTer] section
+		if (in_mister_section)
+		{
+			char *extracted = extract_ini_file_value(trimmed, lowercase_name, &is_commented);
+			if (extracted && !is_commented) // Only uncommented values count as global
+			{
+				strncpy(global_value, extracted, sizeof(global_value) - 1);
+				global_value[sizeof(global_value) - 1] = '\0';
+				fclose(fp);
+				return global_value;
+			}
+		}
+	}
+	fclose(fp);
+	return NULL;
+}
+
+// Save core-specific configuration to [CoreName] section
+int cfg_save_core_specific(uint8_t alt)
+{
+	// Get current core name
+	const char *core_name = user_io_get_core_name(0);
+	if (!core_name || !core_name[0])
+	{
+		printf("DEBUG: Not saving core-specific settings - no core loaded\n");
+		return 0;
+	}
+	
+	// Special case: MENU core maps to [MiSTer] section
+	const char *section_name;
+	if (!strcasecmp(core_name, "MENU"))
+	{
+		section_name = "MiSTer";
+		printf("DEBUG: MENU core detected - saving to [MiSTer] section\n");
+		// For MENU core, just use the regular cfg_save function
+		return cfg_save(alt);
+	}
+	else
+	{
+		section_name = core_name;
+	}
+	
+	const char *ini_filename = cfg_get_name(alt);
+	char filepath[1024];
+	char backuppath[1024];
+	
+	printf("DEBUG: Saving core-specific settings to [%s] section in %s\n", section_name, ini_filename);
+	
+	// Create file paths
+	snprintf(filepath, sizeof(filepath), "%s/%s", getRootDir(), ini_filename);
+	snprintf(backuppath, sizeof(backuppath), "%s.temp", filepath);
+	
+	// Create backup
+	char cmd[2048];
+	snprintf(cmd, sizeof(cmd), "cp \"%s\" \"%s\" 2>/dev/null", filepath, backuppath);
+	system(cmd);
+	
+	// Check if file exists and has the core section
+	FILE *check_fp = fopen(filepath, "r");
+	int has_core_section = 0;
+	int file_exists = (check_fp != NULL);
+	
+	if (check_fp)
+	{
+		char line[1024];
+		while (fgets(line, sizeof(line), check_fp))
+		{
+			char *trimmed = line;
+			while (*trimmed && CHAR_IS_SPACE(*trimmed)) trimmed++;
+			
+			if (*trimmed == '[' && strncasecmp(trimmed + 1, section_name, strlen(section_name)) == 0)
+			{
+				has_core_section = 1;
+				break;
+			}
+		}
+		fclose(check_fp);
+	}
+	
+	// Track whether we need to create the section
+	int need_to_create_section = (!file_exists || !has_core_section);
+	int any_settings_to_save = 0;
+	
+	// Define whitelist of settings that can be saved via core settings menu
+	// Only include settings that are actually accessible through the core settings interface
+	const char* core_settings_whitelist[] = {
+		// Basic Video settings
+		"direct_video", "video_conf", "vsync_adjust", "vscale_mode", "hdmi_limited", 
+		"vga_mode", "vga_scaler", "forced_scandoubler", "csync", "vga_sog", "ntsc_mode",
+		"hdmi_audio_96k",
+		// Advanced Video settings  
+		"video_brightness", "video_contrast", "video_saturation", "video_hue",
+		"video_gamma", "hdr", "dv_mode", "vrr_mode", "vrr_min_framerate", "vrr_max_framerate",
+		"vrr_vesa_framerate", "hdmi_game_mode", "custom_aspect_ratio_1", "custom_aspect_ratio_2",
+		// Input & Controls settings
+		"controller_info", "wheel_force", "wheel_range", "rumble", "gun_mode", "mouse_throttle",
+		"key_menu_as_rgui", "reset_combo", "fb_size", "fb_terminal", 
+		// System & Storage settings
+		"bootscreen", "recents", "osd_timeout", "direct_video", "dvi_mode",
+		// Legacy compatibility
+		"ypbpr",
+		NULL  // End marker
+	};
+	
+	// Process each variable that might need core-specific saving
+	for (int i = 0; i < nvars; i++)
+	{
+		const ini_var_t *var = &ini_vars[i];
+		
+		// Skip array types for now
+		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
+			continue;
+		
+		// Check if this variable is in our whitelist
+		int is_whitelisted = 0;
+		for (int w = 0; core_settings_whitelist[w] != NULL; w++)
+		{
+			if (strcasecmp(var->name, core_settings_whitelist[w]) == 0)
+			{
+				is_whitelisted = 1;
+				break;
+			}
+		}
+		
+		// Skip variables not in whitelist
+		if (!is_whitelisted)
+		{
+			printf("DEBUG: Skipping non-whitelisted variable: %s\n", var->name);
+			continue;
+		}
+		
+		char current_value[512];
+		
+		// Special case for YPBPR: always write 0 (legacy compatibility)
+		if (!strcasecmp(var->name, "YPBPR"))
+		{
+			strcpy(current_value, "0");
+		}
+		// Special case for MOUSE_THROTTLE: if 0, comment out with value 1
+		else if (!strcasecmp(var->name, "MOUSE_THROTTLE"))
+		{
+			format_ini_value(current_value, sizeof(current_value), var);
+			if (strcmp(current_value, "0") == 0)
+			{
+				strcpy(current_value, "0_COMMENT_OUT");
+			}
+		}
+		else
+		{
+			format_ini_value(current_value, sizeof(current_value), var);
+		}
+		
+		// Only process if we have a value to write
+		if (strlen(current_value) == 0)
+			continue;
+		
+		// Convert variable name to lowercase for sed (file uses lowercase)
+		char lowercase_name[256];
+		for (int i = 0; var->name[i] && i < 255; i++)
+		{
+			lowercase_name[i] = tolower(var->name[i]);
+		}
+		lowercase_name[strlen(var->name)] = '\0';
+		
+		// Get the global [MiSTer] value for comparison
+		char *global_value = get_global_setting_value(filepath, lowercase_name);
+		
+		// Only save core-specific setting if it differs from the global [MiSTer] value
+		// If no global value exists, don't save it unless it's been explicitly changed
+		int should_save = 0;
+		if (global_value)
+		{
+			// Compare against global [MiSTer] value
+			should_save = (strcmp(current_value, global_value) != 0);
+			if (should_save)
+			{
+				printf("DEBUG: %s differs from [MiSTer] value: '%s' != '%s'\n", 
+					var->name, current_value, global_value);
+			}
+		}
+		else
+		{
+			// No global value exists - check if current differs from default
+			// Only save if user changed it from the hardcoded default
+			should_save = value_differs_from_default(var);
+			if (should_save)
+			{
+				printf("DEBUG: %s differs from default (no [MiSTer] entry): current='%s'\n", 
+					var->name, current_value);
+			}
+		}
+		
+		if (!should_save)
+			continue;
+		
+		printf("DEBUG: Core setting %s - global='%s', current='%s'\n", 
+			var->name, global_value ? global_value : "NULL", current_value);
+		
+		// Check if this value exists in the core section
+		FILE *fp = fopen(filepath, "r");
+		if (!fp) continue;
+		
+		char line[1024];
+		char *core_file_value = NULL;
+		int in_core_section = 0;
+		int is_commented = 0;
+		
+		while (fgets(line, sizeof(line), fp))
+		{
+			char *trimmed = line;
+			while (*trimmed && CHAR_IS_SPACE(*trimmed)) trimmed++;
+			
+			// Check for section headers
+			if (*trimmed == '[')
+			{
+				in_core_section = (strncasecmp(trimmed + 1, section_name, strlen(section_name)) == 0);
+				continue;
+			}
+			
+			// Only look for variables in core section
+			if (in_core_section)
+			{
+				char *extracted = extract_ini_file_value(trimmed, lowercase_name, &is_commented);
+				if (extracted)
+				{
+					core_file_value = extracted;
+					break;
+				}
+			}
+		}
+		fclose(fp);
+		
+		// Check if update is needed
+		if (!value_needs_update(var, core_file_value) && !is_commented)
+			continue;
+		
+		// Escape special characters in current_value for sed
+		char escaped_value[1024];
+		int j = 0;
+		for (int i = 0; current_value[i] && j < 1023; i++)
+		{
+			if (current_value[i] == '/' || current_value[i] == '&' || current_value[i] == '\\')
+			{
+				escaped_value[j++] = '\\';
+			}
+			escaped_value[j++] = current_value[i];
+		}
+		escaped_value[j] = '\0';
+		
+		// Create section if needed and this is our first setting to save
+		if (need_to_create_section && !any_settings_to_save)
+		{
+			FILE *fp = fopen(filepath, file_exists ? "a" : "w");
+			if (!fp)
+			{
+				printf("Failed to create/modify INI file: %s\n", filepath);
+				return 0;
+			}
+			
+			if (file_exists)
+				fprintf(fp, "\n");
+			fprintf(fp, "[%s]\n", section_name);
+			fclose(fp);
+			
+			// Mark that section now exists
+			has_core_section = 1;
+		}
+		
+		// Mark that we have at least one setting to save
+		any_settings_to_save = 1;
+		
+		// Special handling for MOUSE_THROTTLE=0 (comment out instead)
+		if (strcmp(escaped_value, "0_COMMENT_OUT") == 0)
+		{
+			if (core_file_value || is_commented)
+			{
+				// Comment out the existing line and set it to 1
+				snprintf(cmd, sizeof(cmd),
+					"sed -i '/^\\[%s\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#]*[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#]*[[:space:]]*%s[[:space:]]*=.*/;%s=1/;}}' \"%s\"",
+					section_name, lowercase_name, lowercase_name, lowercase_name, filepath);
+			}
+			else
+			{
+				// Add commented line to core section
+				snprintf(cmd, sizeof(cmd),
+					"sed -i '/^\\[%s\\]/a\\;%s=1' \"%s\"",
+					section_name, lowercase_name, filepath);
+			}
+		}
+		else
+		{
+			// Use sed to update or add the value in core section
+			if (core_file_value || is_commented)
+			{
+				if (is_commented)
+				{
+					// Uncomment and update the value
+					snprintf(cmd, sizeof(cmd),
+						"sed -i '/^\\[%s\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*[;#][[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+						section_name, lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+				}
+				else
+				{
+					// Update existing uncommented value
+					snprintf(cmd, sizeof(cmd),
+						"sed -i '/^\\[%s\\]/,/^\\[.*\\]/{/^[[:space:]]*%s[[:space:]]*=/{s/^[[:space:]]*%s[[:space:]]*=.*/%s=%s/;}}' \"%s\"",
+						section_name, lowercase_name, lowercase_name, lowercase_name, escaped_value, filepath);
+				}
+			}
+			else
+			{
+				// Add new value after [CoreName] line
+				snprintf(cmd, sizeof(cmd),
+					"sed -i '/^\\[%s\\]/a\\%s=%s' \"%s\"",
+					section_name, lowercase_name, escaped_value, filepath);
+			}
+		}
+		
+		if (system(cmd) != 0)
+		{
+			printf("Error: sed command failed for %s in [%s] section\n", var->name, core_name);
+			printf("Restoring backup...\n");
+			snprintf(cmd, sizeof(cmd), "mv \"%s\" \"%s\"", backuppath, filepath);
+			system(cmd);
+			return 0;
+		}
+	}
+	
+	// Clean up non-whitelisted variables from the core section
+	printf("DEBUG: Cleaning up non-whitelisted variables from [%s] section\n", section_name);
+	for (int i = 0; i < nvars; i++)
+	{
+		const ini_var_t *var = &ini_vars[i];
+		
+		// Skip array types
+		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
+			continue;
+		
+		// Check if this variable is in our whitelist
+		int is_whitelisted = 0;
+		for (int w = 0; core_settings_whitelist[w] != NULL; w++)
+		{
+			if (strcasecmp(var->name, core_settings_whitelist[w]) == 0)
+			{
+				is_whitelisted = 1;
+				break;
+			}
+		}
+		
+		// If not whitelisted, remove it from the core section
+		if (!is_whitelisted)
+		{
+			char lowercase_name[256];
+			for (int j = 0; var->name[j] && j < 255; j++)
+			{
+				lowercase_name[j] = tolower(var->name[j]);
+			}
+			lowercase_name[strlen(var->name)] = '\0';
+			
+			// Remove the line from core section
+			snprintf(cmd, sizeof(cmd),
+				"sed -i '/^\\[%s\\]/,/^\\[.*\\]/{/^[[:space:]]*[;#]*[[:space:]]*%s[[:space:]]*=/d}' \"%s\"",
+				section_name, lowercase_name, filepath);
+			system(cmd);
+		}
+	}
+	
+	// Clean up sed backup files
+	snprintf(cmd, sizeof(cmd), "rm -f \"%s.sed\"", filepath);
+	system(cmd);
+	
+	// If no settings were saved and section exists, remove the empty section
+	if (!any_settings_to_save && has_core_section)
+	{
+		// Use awk to remove empty sections - more reliable than sed
+		snprintf(cmd, sizeof(cmd),
+			"awk 'BEGIN{p=1} /^\\[%s\\]/{p=0; hold=$0; next} "
+			"/^\\[.*\\]/{if(!p && !content) print hold; p=1; content=0} "
+			"p{print} !p && /^[^[]/{content=1; if(hold){print hold; hold=\"\"} print}' "
+			"\"%s\" > \"%s.tmp\" && mv \"%s.tmp\" \"%s\"",
+			section_name, filepath, filepath, filepath, filepath);
+		system(cmd);
+		
+		printf("No core-specific settings to save - empty [%s] section removed\n", core_name);
+	}
+	else if (any_settings_to_save)
+	{
+		printf("Core-specific configuration saved to [%s] section in: %s\n", core_name, filepath);
+	}
+	else
+	{
+		printf("No core-specific settings to save - [%s] section not created\n", core_name);
+	}
+	
+	return 1;
+}

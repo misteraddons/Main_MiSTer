@@ -216,6 +216,10 @@ enum MENU
 	MENU_SETTINGS_HDMI1,
 	MENU_SETTINGS_HDMI2,
 
+	// Core-specific settings menus
+	MENU_CORE_SETTINGS1,
+	MENU_CORE_SETTINGS2,
+
 	MENU_SELECT_INI1,
 	MENU_SELECT_INI2,
 
@@ -407,6 +411,9 @@ static char hdmi_new_resolution[64];
 // VRR confirmation functions
 static int vrr_old_value;
 static int vrr_new_value;
+
+// Core settings mode - when 1, settings save to [CoreName] section instead of [MiSTer]
+static int core_settings_mode = 0;
 
 // Apply button system - backup original values when entering settings menu
 typedef struct {
@@ -740,6 +747,13 @@ static int save_settings_apply(void)
 {
 	// Actually save the settings to the currently active alternate INI
 	cfg_save(altcfg(-1));  // Get current alternate INI index
+	return 2; // Special return code to indicate success message should be shown
+}
+
+static int save_core_settings_apply(void)
+{
+	// Save core-specific settings to the currently active alternate INI
+	cfg_save_core_specific(altcfg(-1));  // Get current alternate INI index
 	return 2; // Special return code to indicate success message should be shown
 }
 
@@ -3089,8 +3103,8 @@ void HandleUI(void)
 				s[27] = '\x16';
 				s[28] = 0;
 				MenuWrite(n++, s, menusub == 2, 0);
-				MenuWrite(n++, " Button/Key remap          \x16", menusub == 2, 0);
-				MenuWrite(n++, " Reset player assignment", menusub == 3, 0);
+				MenuWrite(n++, " Button/Key remap          \x16", menusub == 3, 0);
+				MenuWrite(n++, " Reset player assignment", menusub == 4, 0);
 
 				if (user_io_get_uart_mode())
 				{
@@ -3111,7 +3125,7 @@ void HandleUI(void)
 				if (audio_filter_en() >= 0)
 				{
 					MenuWrite(n++);
-					menumask |= 0x600;
+					menumask |= 0x300;
 					sprintf(s, " Audio filter - %s", config_afilter_msg[audio_filter_en() ? 1 : 0]);
 					MenuWrite(n++, s, menusub == 8);
 
@@ -3130,7 +3144,16 @@ void HandleUI(void)
 				{
 					menumask |= 0x6000;
 					MenuWrite(n++);
-					MenuWrite(n++, " Reset settings", menusub == 13, is_archie());
+					// Add core-specific override settings if not in MENU core
+				if (!is_menu())
+				{
+					char settings_text[64];
+					snprintf(settings_text, sizeof(settings_text), " %s Override Settings    \x16", user_io_get_core_name());
+					MenuWrite(n++, settings_text, menusub == 12);
+					menumask |= 0x1000; // Add bit for menusub == 12
+					MenuWrite(n++, "");  // Empty line
+				}
+				MenuWrite(n++, " Reset settings", menusub == 13, is_archie());
 					MenuWrite(n++, " Save settings", menusub == 14, 0);
 				}
 
@@ -3250,6 +3273,15 @@ void HandleUI(void)
 					snprintf(Selected_tmp, sizeof(Selected_tmp), AFILTER_DIR"/%s", audio_get_filter(0));
 					if (!FileExists(Selected_tmp)) snprintf(Selected_tmp, sizeof(Selected_tmp), AFILTER_DIR);
 					SelectFile(Selected_tmp, 0, SCANO_DIR | SCANO_TXT, MENU_AFILTER_FILE_SELECTED, MENU_COMMON1);
+				}
+				break;
+
+			case 12:
+				// Core Override Settings
+				if (!is_menu())
+				{
+					menustate = MENU_CORE_SETTINGS1;
+					menusub = 0;
 				}
 				break;
 
@@ -4311,37 +4343,40 @@ void HandleUI(void)
 		break;
 
 	case MENU_SETTINGS1:
-		if (video_fb_state())
 		{
-			menustate = MENU_NONE1;
+			if (video_fb_state())
+			{
+				menustate = MENU_NONE1;
+				break;
+			}
+
+			OsdSetSize(16);
+			helptext_idx = 0;
+			parentstate = MENU_SYSTEM1;  // Set parent to system menu, not self
+			menumask = 0x1F; // 4 categories + save
+
+			int m = 0;
+			OsdSetTitle("MiSTer Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+			OsdWrite(m++);
+			OsdWrite(m++, " Select Category:");
+			OsdWrite(m++);
+			
+			// Categories
+			OsdWrite(m++, " Basic Video               \x16", menusub == 0);
+			OsdWrite(m++, " Advanced Video            \x16", menusub == 1, cfg.direct_video);
+			OsdWrite(m++, " Input & Controls          \x16", menusub == 2);
+			OsdWrite(m++, " System & Storage          \x16", menusub == 3);
+			
+			OsdWrite(m++);
+			OsdWrite(m++, " Save All Settings", menusub == 4);
+			
+			
+			while (m < OsdGetSize()) OsdWrite(m++);
+			
+			menustate = MENU_SETTINGS2;
 			break;
 		}
-
-		OsdSetSize(16);
-		helptext_idx = 0;
-		parentstate = MENU_SYSTEM1;  // Set parent to system menu, not self
-		menumask = 0x1F; // 4 categories + save
-
-		m = 0;
-		OsdSetTitle("MiSTer Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
-
-		OsdWrite(m++);
-		OsdWrite(m++, " Select Category:");
-		OsdWrite(m++);
-		
-		// Categories
-		OsdWrite(m++, " Basic Video               \x16", menusub == 0);
-		OsdWrite(m++, " Advanced Video            \x16", menusub == 1, cfg.direct_video);
-		OsdWrite(m++, " Input & Controls          \x16", menusub == 2);
-		OsdWrite(m++, " System & Storage          \x16", menusub == 3);
-		
-		OsdWrite(m++);
-		OsdWrite(m++, " Save All Settings", menusub == 4);
-		
-		while (m < OsdGetSize()) OsdWrite(m++);
-		
-		menustate = MENU_SETTINGS2;
-		break;
 
 	case MENU_SETTINGS2:
 		menumask = 0; // Disable general navigation - we handle it ourselves
@@ -4357,12 +4392,23 @@ void HandleUI(void)
 			if (menusub > 0) 
 				menusub--;
 			else 
-				menusub = 4; // wrap to last item (Save All Settings)
+			{
+				// Check if core-specific save option is available
+				const char *core_name = user_io_get_core_name(0);
+				if (core_name && core_name[0] && strcasecmp(core_name, "MENU"))
+					menusub = 5; // wrap to core save option
+				else
+					menusub = 4; // wrap to Save All Settings
+			}
 			menustate = MENU_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < 4) 
+			// Check if core-specific save option is available
+			const char *core_name = user_io_get_core_name(0);
+			int max_menusub = (core_name && core_name[0] && strcasecmp(core_name, "MENU")) ? 5 : 4;
+			
+			if (menusub < max_menusub) 
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -4413,9 +4459,130 @@ void HandleUI(void)
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 				break;
+				
 			}
 			
 			// Stay in MENU_SETTINGS2 but now we're in submenu mode
+		}
+		break;
+
+	case MENU_CORE_SETTINGS1:
+		{
+			if (video_fb_state())
+			{
+				menustate = MENU_NONE1;
+				break;
+			}
+
+			OsdSetSize(16);
+			helptext_idx = 0;
+			parentstate = MENU_COMMON1;  // Return to F12 menu
+			menumask = 0x1F; // 4 categories + save
+
+			int m = 0;
+			char title[64];
+			const char *core_name = user_io_get_core_name(0);
+			snprintf(title, sizeof(title), "%s Override Settings", core_name ? core_name : "Core");
+			OsdSetTitle(title, OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
+
+			OsdWrite(m++, "");
+			OsdWrite(m++, " Select Category:");
+			OsdWrite(m++, "");
+			
+			// Categories - same as main settings
+			OsdWrite(m++, " Basic Video               \x16", menusub == 0);
+			OsdWrite(m++, " Advanced Video            \x16", menusub == 1, cfg.direct_video);
+			OsdWrite(m++, " Input & Controls          \x16", menusub == 2);
+			OsdWrite(m++, " System & Storage          \x16", menusub == 3);
+			
+			OsdWrite(m++, "");
+			char save_text[64];
+			snprintf(save_text, sizeof(save_text), " Save %s Settings", core_name ? core_name : "Core");
+			OsdWrite(m++, save_text, menusub == 4);
+			
+			while (m < OsdGetSize()) OsdWrite(m++);
+			
+			menustate = MENU_CORE_SETTINGS2;
+			break;
+		}
+
+	case MENU_CORE_SETTINGS2:
+		menumask = 0; // Disable general navigation - we handle it ourselves
+		if (menu)
+		{
+			// Go back to F12 menu and reset core settings mode
+			core_settings_mode = 0;
+			menustate = MENU_COMMON1;
+			menusub = 12; // Return to override settings option
+			break;
+		}
+		else if (up)
+		{
+			if (menusub > 0)
+				menusub--;
+			else 
+				menusub = 4; // wrap to save option
+			menustate = MENU_CORE_SETTINGS1; // refresh display
+		}
+		else if (down)
+		{
+			if (menusub < 4)
+				menusub++;
+			else 
+				menusub = 0; // wrap to first item
+			menustate = MENU_CORE_SETTINGS1; // refresh display
+		}
+
+		if (select)
+		{
+			switch (menusub)
+			{
+			case 0:
+				// Basic Video - reuse existing menu but set core mode
+				core_settings_mode = 1;
+				menustate = MENU_SETTINGS_ANALOG1;
+				menusub = 0;
+				break;
+
+			case 1:
+				// Advanced Video - reuse existing menu but set core mode
+				core_settings_mode = 1;
+				menustate = MENU_SETTINGS_HDMI1;
+				menusub = 0;
+				break;
+
+			case 2:
+				// Input & Controls - reuse existing menu but set core mode
+				core_settings_mode = 1;
+				menustate = MENU_SETTINGS_INPUT1;
+				menusub = 0;
+				break;
+
+			case 3:
+				// System & Storage - reuse existing menu but set core mode
+				core_settings_mode = 1;
+				menustate = MENU_SETTINGS_SYSTEM1;
+				menusub = 0;
+				break;
+				
+			case 4:
+				// Save Core Settings - show confirmation screen with warning
+				{
+					const char *core_name = user_io_get_core_name(0);
+					const char *ini_filename = cfg_get_name(altcfg(-1));
+					char title_message[128];
+					char warning_message[128];
+					snprintf(title_message, sizeof(title_message), "Save %s Settings", core_name ? core_name : "Core");
+					snprintf(warning_message, sizeof(warning_message), "[%s] section in %s\nwill be updated!", core_name ? core_name : "Core", ini_filename);
+					setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, 4);
+				}
+				menustate = MENU_CONFIRM_CHANGE1;
+				menusub = 1; // Default to "Reject"
+				break;
+				
+			}
+			
+			// Stay in MENU_CORE_SETTINGS2 but now we're in submenu mode
 		}
 		break;
 
@@ -4590,8 +4757,18 @@ void HandleUI(void)
 			// Clear flag to re-enable automatic video adjustments
 			video_settings_menu_active = false;
 			
-			menustate = MENU_SETTINGS1;
-			menusub = 0; // Return to Analog Video category
+			// Return to appropriate settings menu based on mode
+			if (core_settings_mode)
+			{
+				menustate = MENU_CORE_SETTINGS1;
+				menusub = 0; // Return to Basic Video category
+				// Keep core_settings_mode active
+			}
+			else
+			{
+				menustate = MENU_SETTINGS1;
+				menusub = 0; // Return to Basic Video category
+			}
 			break;
 		}
 		else if (select || left || right)
@@ -5098,8 +5275,18 @@ void HandleUI(void)
 		
 		if (menu)
 		{
-			menustate = MENU_SETTINGS1;
-			menusub = 1; // Return to HDMI Video category
+			// Return to appropriate settings menu based on mode
+			if (core_settings_mode)
+			{
+				menustate = MENU_CORE_SETTINGS1;
+				menusub = 1; // Return to Advanced Video category
+				// Keep core_settings_mode active
+			}
+			else
+			{
+				menustate = MENU_SETTINGS1;
+				menusub = 1; // Return to Advanced Video category
+			}
 			break;
 		}
 		else if (select || left || right)
@@ -5249,8 +5436,18 @@ void HandleUI(void)
 	case MENU_SETTINGS_AUDIO2:
 		if (menu)
 		{
-			menustate = MENU_SETTINGS1;
-			menusub = 2; // Return to Input & Controls category
+			// Return to appropriate settings menu based on mode
+			if (core_settings_mode)
+			{
+				menustate = MENU_CORE_SETTINGS1;
+				menusub = 2; // Return to Audio category (reusing Input & Controls index)
+				// Keep core_settings_mode active
+			}
+			else
+			{
+				menustate = MENU_SETTINGS1;
+				menusub = 2; // Return to Audio category
+			}
 			break;
 		}
 		else if (select || left || right)
@@ -5357,8 +5554,18 @@ void HandleUI(void)
 	case MENU_SETTINGS_INPUT2:
 		if (menu)
 		{
-			menustate = MENU_SETTINGS1;
-			menusub = 2; // Return to Input & Controls category
+			// Return to appropriate settings menu based on mode
+			if (core_settings_mode)
+			{
+				menustate = MENU_CORE_SETTINGS1;
+				menusub = 2; // Return to Input & Controls category
+				// Keep core_settings_mode active
+			}
+			else
+			{
+				menustate = MENU_SETTINGS1;
+				menusub = 2; // Return to Input & Controls category
+			}
 			break;
 		}
 		else if (select || left || right)
@@ -5600,8 +5807,18 @@ void HandleUI(void)
 	case MENU_SETTINGS_SYSTEM2:
 		if (menu)
 		{
-			menustate = MENU_SETTINGS1;
-			menusub = 3; // Return to System & Storage category
+			// Return to appropriate settings menu based on mode
+			if (core_settings_mode)
+			{
+				menustate = MENU_CORE_SETTINGS1;
+				menusub = 3; // Return to System & Storage category
+				// Keep core_settings_mode active
+			}
+			else
+			{
+				menustate = MENU_SETTINGS1;
+				menusub = 3; // Return to System & Storage category
+			}
 			break;
 		}
 		else if (select || left || right)
@@ -8497,18 +8714,11 @@ void HandleUI(void)
 			case 11:
 				if (select)
 				{
-					menustate = MENU_NONE1;
-					minimig_set_adjust(minimig_get_adjust() ? 0 : 1);
-				}
-				break;
-
-			case 12:
-				if (select)
-				{
 					menustate = MENU_MINIMIG_MAIN1;
 					menusub = 7;
 				}
 				break;
+
 			}
 		}
 		else if (menu)
