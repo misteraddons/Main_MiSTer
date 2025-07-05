@@ -1019,8 +1019,10 @@ static int value_differs_from_default(const ini_var_t *var)
 			case INI_HEX8:
 			case INI_HEX16:
 			case INI_HEX32:
-			case INI_FLOAT:
 				default_str = "0";
+				break;
+			case INI_FLOAT:
+				default_str = "0.00";  // Match the formatting used by format_ini_value (%.2f)
 				break;
 			case INI_STRING:
 				default_str = ""; // Empty string
@@ -1403,25 +1405,20 @@ int cfg_save_core_specific(uint8_t alt)
 	int need_to_create_section = (!file_exists || !has_core_section);
 	int any_settings_to_save = 0;
 	
-	// Define whitelist of settings that can be saved via core settings menu
-	// Only include settings that are actually accessible through the core settings interface
-	const char* core_settings_whitelist[] = {
-		// Basic Video settings
-		"direct_video", "video_conf", "vsync_adjust", "vscale_mode", "hdmi_limited", 
-		"vga_mode", "vga_scaler", "forced_scandoubler", "csync", "vga_sog", "ntsc_mode",
-		"hdmi_audio_96k",
-		// Advanced Video settings  
-		"video_brightness", "video_contrast", "video_saturation", "video_hue",
-		"video_gamma", "hdr", "dv_mode", "vrr_mode", "vrr_min_framerate", "vrr_max_framerate",
-		"vrr_vesa_framerate", "hdmi_game_mode", "custom_aspect_ratio_1", "custom_aspect_ratio_2",
-		// Input & Controls settings
-		"controller_info", "wheel_force", "wheel_range", "rumble", "gun_mode", "mouse_throttle",
-		"key_menu_as_rgui", "reset_combo", "fb_size", "fb_terminal", 
-		// System & Storage settings
-		"bootscreen", "recents", "osd_timeout", "direct_video", "dvi_mode",
-		// Legacy compatibility
-		"ypbpr",
-		NULL  // End marker
+	// Determine which settings can be saved to core sections based on categories
+	// Include settings from categories that are accessible through the core settings menu
+	const osd_category_t allowed_categories[] = {
+		CAT_VIDEO_DISPLAY,     // Basic Video and Advanced Video settings
+		CAT_AUDIO,             // Audio settings (96kHz, etc.)
+		CAT_INPUT_CONTROLLERS, // Input & Controls settings
+		CAT_SYSTEM_BOOT,       // System & Storage settings
+		(osd_category_t)-1     // End marker
+	};
+	
+	// Blacklist specific settings that are in allowed categories but shouldn't be core-specific
+	// Keep this minimal - only for settings that should NEVER be core-specific
+	const char* blacklisted_settings[] = {
+		NULL  // Currently empty - let menu accessibility determine what's saveable
 	};
 	
 	// Process each variable that might need core-specific saving
@@ -1433,21 +1430,39 @@ int cfg_save_core_specific(uint8_t alt)
 		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
 			continue;
 		
-		// Check if this variable is in our whitelist
-		int is_whitelisted = 0;
-		for (int w = 0; core_settings_whitelist[w] != NULL; w++)
+		// Check if this variable's category is allowed for core settings
+		int is_allowed = 0;
+		for (int c = 0; allowed_categories[c] != (osd_category_t)-1; c++)
 		{
-			if (strcasecmp(var->name, core_settings_whitelist[w]) == 0)
+			if (var->category == allowed_categories[c])
 			{
-				is_whitelisted = 1;
+				is_allowed = 1;
 				break;
 			}
 		}
 		
-		// Skip variables not in whitelist
-		if (!is_whitelisted)
+		// Skip variables from non-allowed categories
+		if (!is_allowed)
 		{
-			printf("DEBUG: Skipping non-whitelisted variable: %s\n", var->name);
+			printf("DEBUG: Skipping variable from non-allowed category: %s (category %d)\n", var->name, var->category);
+			continue;
+		}
+		
+		// Check if this variable is blacklisted
+		int is_blacklisted = 0;
+		for (int b = 0; blacklisted_settings[b] != NULL; b++)
+		{
+			if (strcasecmp(var->name, blacklisted_settings[b]) == 0)
+			{
+				is_blacklisted = 1;
+				break;
+			}
+		}
+		
+		// Skip blacklisted variables
+		if (is_blacklisted)
+		{
+			printf("DEBUG: Skipping blacklisted variable: %s\n", var->name);
 			continue;
 		}
 		
@@ -1648,8 +1663,8 @@ int cfg_save_core_specific(uint8_t alt)
 		}
 	}
 	
-	// Clean up non-whitelisted variables from the core section
-	printf("DEBUG: Cleaning up non-whitelisted variables from [%s] section\n", section_name);
+	// Clean up variables from non-allowed categories from the core section
+	printf("DEBUG: Cleaning up variables from non-allowed categories from [%s] section\n", section_name);
 	for (int i = 0; i < nvars; i++)
 	{
 		const ini_var_t *var = &ini_vars[i];
@@ -1658,19 +1673,33 @@ int cfg_save_core_specific(uint8_t alt)
 		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
 			continue;
 		
-		// Check if this variable is in our whitelist
-		int is_whitelisted = 0;
-		for (int w = 0; core_settings_whitelist[w] != NULL; w++)
+		// Check if this variable's category is allowed
+		int is_allowed = 0;
+		for (int c = 0; allowed_categories[c] != (osd_category_t)-1; c++)
 		{
-			if (strcasecmp(var->name, core_settings_whitelist[w]) == 0)
+			if (var->category == allowed_categories[c])
 			{
-				is_whitelisted = 1;
+				is_allowed = 1;
 				break;
 			}
 		}
 		
-		// If not whitelisted, remove it from the core section
-		if (!is_whitelisted)
+		// Check if this variable is blacklisted
+		int is_blacklisted = 0;
+		if (is_allowed)
+		{
+			for (int b = 0; blacklisted_settings[b] != NULL; b++)
+			{
+				if (strcasecmp(var->name, blacklisted_settings[b]) == 0)
+				{
+					is_blacklisted = 1;
+					break;
+				}
+			}
+		}
+		
+		// If not allowed or blacklisted, remove it from the core section
+		if (!is_allowed || is_blacklisted)
 		{
 			char lowercase_name[256];
 			for (int j = 0; var->name[j] && j < 255; j++)
