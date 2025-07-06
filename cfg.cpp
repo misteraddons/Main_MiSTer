@@ -13,123 +13,132 @@
 #include "file_io.h"
 #include "user_io.h"
 #include "video.h"
+#include "osd.h"
 #include "support/arcade/mra_loader.h"
 
 cfg_t cfg;
 static FILE *orig_stdout = NULL;
 static FILE *dev_null = NULL;
 
+// File picker support variables
+char cfg_file_picker_initial_path[1024];
+const ini_var_t* cfg_file_picker_current_setting = NULL;
+int cfg_file_picker_return_state = 0;
+
 // Types now defined in cfg.h
 
 // Category information
 static const osd_category_info_t category_info[CAT_COUNT] = {
-	{ "Video & Display", "\x8D", "Video output and display settings" },
-	{ "Audio", "\x8D", "Audio output configuration" },
-	{ "Input & Controllers", "\x82", "Keyboard, mouse, and controller settings" },
-	{ "System & Boot", "\x80", "System startup and core settings" },
-	{ "Network & Storage", "\x1C", "Network and storage options" },
-	{ "Advanced", "\x81", "Advanced settings and developer options" }
+	{ "Digital AV", "HDMI output and display settings" },
+	{ "Analog AV", "VGA/YPbPr analog video settings" },
+	{ "Controllers", "Gamepad and controller settings" },
+	{ "Arcade Input", "Arcade stick and spinner settings" },
+	{ "Keyboard & Mouse", "Keyboard and mouse settings" },
+	{ "User Interface", "Menu and OSD settings" },
+	{ "System", "System boot and core settings" },
+	{ "Filters", "Video and audio filter defaults" }
 };
 
 const ini_var_t ini_vars[] =
 {
-	{ "YPBPR", (void*)(&(cfg.vga_mode_int)), INI_UINT8, 0, 1, "YPbPr Output", "Enable component video output (legacy)", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "COMPOSITE_SYNC", (void*)(&(cfg.csync)), INI_UINT8, 0, 1, "Composite Sync", "Enable composite sync on HSync or separate sync on Hsync and Vsync. Composite sync is best for most everything except PC CRTs.", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "FORCED_SCANDOUBLER", (void*)(&(cfg.forced_scandoubler)), INI_UINT8, 0, 1, "Force Scandoubler", "Scandouble 15kHz cores to 31kHz. Some cores don't have the scandoubler module (PSX, N64, etc.)", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "VGA_SCALER", (void*)(&(cfg.vga_scaler)), INI_UINT8, 0, 1, "VGA Scaler", "Use scaler for VGA/DVI output", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "VGA_SOG", (void*)(&(cfg.vga_sog)), INI_UINT8, 0, 1, "VGA Sync-on-Green", "Enable sync-on-green for VGA and YPbPr", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "KEYRAH_MODE", (void*)(&(cfg.keyrah_mode)), INI_HEX32, 0, 0xFFFFFFFF, "Keyrah Mode", "Keyrah interface mode", CAT_ADVANCED, NULL, true },
-	{ "RESET_COMBO", (void*)(&(cfg.reset_combo)), INI_UINT8, 0, 3, "Reset Key Combo", "Keyboard combination for reset", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "KEY_MENU_AS_RGUI", (void*)(&(cfg.key_menu_as_rgui)), INI_UINT8, 0, 1, "Menu Key as Right GUI", "Use Menu key as Right GUI", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Auto mode uses HDMI EDID to set optimal resolution. All other settings override the EDID value.", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "VIDEO_MODE_PAL", (void*)(cfg.video_conf_pal), INI_STRING, 0, sizeof(cfg.video_conf_pal) - 1, "Video Mode (PAL)", "Video mode for PAL cores", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "VIDEO_MODE_NTSC", (void*)(cfg.video_conf_ntsc), INI_STRING, 0, sizeof(cfg.video_conf_ntsc) - 1, "Video Mode (NTSC)", "Video mode for NTSC cores", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "VIDEO_INFO", (void*)(&(cfg.video_info)), INI_UINT8, 0, 10, "Video Info Display", "Show video information on screen", CAT_VIDEO_DISPLAY, "sec", false },
-	{ "VSYNC_ADJUST", (void*)(&(cfg.vsync_adjust)), INI_UINT8, 0, 2, "VSync Adjustment", "Automatic refresh rate adjustment. `3 buffer 60Hz` = robust sync with the most latency. `3 buffer match` = robust sync, matching the core's sync. `1 buffer match` = lowest latency but may not work with all cores on all displays.", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "HDMI_AUDIO_96K", (void*)(&(cfg.hdmi_audio_96k)), INI_UINT8, 0, 1, "HDMI 96kHz Audio", "Enable 96kHz audio output. May cause compatibility issues with AV equipment and DACs.", CAT_AUDIO, NULL, true },
-	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), INI_UINT8, 0, 1, "DVI Mode", "Disable HDMI features for DVI displays", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), INI_UINT8, 0, 2, "HDMI Color Range", "HDMI color range. Set full for most devices. Limited (16-235) for older displays. Limited (16-255) for some HDMI DACs.", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), INI_UINT8, 0, 1, "Disable Mouse", "Disable mouse emulation via keyboard", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), INI_UINT8, 1, 100, "Mouse Throttle", "Mouse movement speed", CAT_INPUT_CONTROLLERS, "%", false },
-	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), INI_UINT8, 0, 1, "Boot Screen", "Show boot screen on startup", CAT_SYSTEM_BOOT, NULL, false },
-	{ "VSCALE_MODE", (void*)(&(cfg.vscale_mode)), INI_UINT8, 0, 5, "Vertical Scale Mode", "Vertical scaling algorithm", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "VSCALE_BORDER", (void*)(&(cfg.vscale_border)), INI_UINT16, 0, 399, "Vertical Scale Border", "Border size for scaled image", CAT_VIDEO_DISPLAY, "px", false },
-	{ "RBF_HIDE_DATECODE", (void*)(&(cfg.rbf_hide_datecode)), INI_UINT8, 0, 1, "Hide Core Dates", "Hide date codes in core names", CAT_SYSTEM_BOOT, NULL, false },
-	{ "MENU_PAL", (void*)(&(cfg.menu_pal)), INI_UINT8, 0, 1, "Menu PAL Mode", "Use PAL mode for menu core", CAT_SYSTEM_BOOT, NULL, true },
-	{ "BOOTCORE", (void*)(&(cfg.bootcore)), INI_STRING, 0, sizeof(cfg.bootcore) - 1, "Boot Core", "Core to load on startup", CAT_SYSTEM_BOOT, NULL, false },
-	{ "BOOTCORE_TIMEOUT", (void*)(&(cfg.bootcore_timeout)), INI_INT16, 2, 30, "Boot Core Timeout", "Timeout before loading boot core", CAT_SYSTEM_BOOT, "sec", false },
-	{ "FONT", (void*)(&(cfg.font)), INI_STRING, 0, sizeof(cfg.font) - 1, "Custom Font", "Custom font file path", CAT_SYSTEM_BOOT, NULL, true },
-	{ "FB_SIZE", (void*)(&(cfg.fb_size)), INI_UINT8, 0, 4, "Framebuffer Size", "Linux framebuffer size", CAT_SYSTEM_BOOT, NULL, true },
-	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), INI_UINT8, 0, 1, "Framebuffer Terminal", "Enable Linux terminal on HDMI and scaled analog video.", CAT_SYSTEM_BOOT, NULL, true },
-	{ "OSD_TIMEOUT", (void*)(&(cfg.osd_timeout)), INI_INT16, 0, 3600, "OSD Timeout", "Hide OSD after inactivity.", CAT_SYSTEM_BOOT, "sec", false },
-	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays and HDMI DACs.", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "OSD_ROTATE", (void*)(&(cfg.osd_rotate)), INI_UINT8, 0, 2, "OSD Rotation", "Off (Yoko), 1=90° Clockwise (Tate), 2=90° Counter-Clockwise (Tate)", CAT_SYSTEM_BOOT, NULL, false },
-	{ "DEADZONE", (void*)(&(cfg.controller_deadzone)), INI_STRINGARR, sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone), sizeof(*cfg.controller_deadzone), "Controller Deadzone", "Analog stick deadzone configuration", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "'Name' means Xbox 'A' button is mapped to SNES 'A' button. 'Positional' means Xbox 'A' button is mapped to SNES 'B' button.", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "RECENTS", (void*)(&(cfg.recents)), INI_UINT8, 0, 1, "Recent Files", "Track recently used files", CAT_SYSTEM_BOOT, NULL, false },
-	{ "CONTROLLER_INFO", (void*)(&(cfg.controller_info)), INI_UINT8, 0, 10, "Controller Info", "Display controller information when a new core is loaded.", CAT_INPUT_CONTROLLERS, "sec", false },
-	{ "REFRESH_MIN", (void*)(&(cfg.refresh_min)), INI_FLOAT, 0, 150, "Minimum Refresh Rate", "Minimum allowed refresh rate", CAT_VIDEO_DISPLAY, "Hz", false },
-	{ "REFRESH_MAX", (void*)(&(cfg.refresh_max)), INI_FLOAT, 0, 150, "Maximum Refresh Rate", "Maximum allowed refresh rate", CAT_VIDEO_DISPLAY, "Hz", false },
-	{ "JAMMA_VID", (void*)(&(cfg.jamma_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA VID", "JAMMA interface vendor ID", CAT_ADVANCED, NULL, false },
-	{ "JAMMA_PID", (void*)(&(cfg.jamma_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA PID", "JAMMA interface product ID", CAT_ADVANCED, NULL, false },
-	{ "JAMMA2_VID", (void*)(&(cfg.jamma2_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 VID", "Second JAMMA interface vendor ID", CAT_ADVANCED, NULL, false },
-	{ "JAMMA2_PID", (void*)(&(cfg.jamma2_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 PID", "Second JAMMA interface product ID", CAT_ADVANCED, NULL, false },
-	{ "SNIPER_MODE", (void*)(&(cfg.sniper_mode)), INI_UINT8, 0, 1, "Sniper Mode", "Enable precision aiming mode", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "BROWSE_EXPAND", (void*)(&(cfg.browse_expand)), INI_UINT8, 0, 1, "Browse Expand", "Expand file browser by default", CAT_SYSTEM_BOOT, NULL, false },
-	{ "LOGO", (void*)(&(cfg.logo)), INI_UINT8, 0, 1, "Show Logo", "Display MiSTer logo on startup", CAT_SYSTEM_BOOT, NULL, false },
-	{ "SHARED_FOLDER", (void*)(&(cfg.shared_folder)), INI_STRING, 0, sizeof(cfg.shared_folder) - 1, "Shared Folder", "Network shared folder path", CAT_NETWORK_STORAGE, NULL, false },
-	{ "NO_MERGE_VID", (void*)(&(cfg.no_merge_vid)), INI_HEX16, 0, 0xFFFF, "No Merge VID", "USB device vendor ID to prevent merging", CAT_ADVANCED, NULL, false },
-	{ "NO_MERGE_PID", (void*)(&(cfg.no_merge_pid)), INI_HEX16, 0, 0xFFFF, "No Merge PID", "USB device product ID to prevent merging", CAT_ADVANCED, NULL, false },
-	{ "NO_MERGE_VIDPID", (void*)(cfg.no_merge_vidpid), INI_HEX32ARR, 0, 0xFFFFFFFF, "No Merge VID:PID", "USB VID:PID pairs to prevent merging", CAT_ADVANCED, NULL, false },
-	{ "CUSTOM_ASPECT_RATIO_1", (void*)(&(cfg.custom_aspect_ratio[0])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[0]) - 1, "Custom Aspect Ratio 1", "First custom aspect ratio", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "CUSTOM_ASPECT_RATIO_2", (void*)(&(cfg.custom_aspect_ratio[1])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[1]) - 1, "Custom Aspect Ratio 2", "Second custom aspect ratio", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "SPINNER_VID", (void*)(&(cfg.spinner_vid)), INI_HEX16, 0, 0xFFFF, "Spinner VID", "Spinner device vendor ID", CAT_ADVANCED, NULL, false },
-	{ "SPINNER_PID", (void*)(&(cfg.spinner_pid)), INI_HEX16, 0, 0xFFFF, "Spinner PID", "Spinner device product ID", CAT_ADVANCED, NULL, false },
-	{ "SPINNER_AXIS", (void*)(&(cfg.spinner_axis)), INI_UINT8, 0, 2, "Spinner Axis", "Spinner axis configuration", CAT_ADVANCED, NULL, false },
-	{ "SPINNER_THROTTLE", (void*)(&(cfg.spinner_throttle)), INI_INT32, -10000, 10000, "Spinner Throttle", "Spinner sensitivity adjustment", CAT_ADVANCED, NULL, false },
-	{ "AFILTER_DEFAULT", (void*)(&(cfg.afilter_default)), INI_STRING, 0, sizeof(cfg.afilter_default) - 1, "Default Audio Filter", "Default audio filter file", CAT_AUDIO, NULL, false },
-	{ "VFILTER_DEFAULT", (void*)(&(cfg.vfilter_default)), INI_STRING, 0, sizeof(cfg.vfilter_default) - 1, "Default Video Filter", "Default video filter file", CAT_ADVANCED, NULL, false },
-	{ "VFILTER_VERTICAL_DEFAULT", (void*)(&(cfg.vfilter_vertical_default)), INI_STRING, 0, sizeof(cfg.vfilter_vertical_default) - 1, "Default Vertical Filter", "Default vertical filter file", CAT_ADVANCED, NULL, false },
-	{ "VFILTER_SCANLINES_DEFAULT", (void*)(&(cfg.vfilter_scanlines_default)), INI_STRING, 0, sizeof(cfg.vfilter_scanlines_default) - 1, "Default Scanlines Filter", "Default scanlines filter file", CAT_ADVANCED, NULL, false },
-	{ "SHMASK_DEFAULT", (void*)(&(cfg.shmask_default)), INI_STRING, 0, sizeof(cfg.shmask_default) - 1, "Default Shadow Mask", "Default shadow mask file", CAT_ADVANCED, NULL, false },
-	{ "SHMASK_MODE_DEFAULT", (void*)(&(cfg.shmask_mode_default)), INI_UINT8, 0, 255, "Default Shadow Mask Mode", "Default shadow mask mode", CAT_ADVANCED, NULL, false },
-	{ "PRESET_DEFAULT", (void*)(&(cfg.preset_default)), INI_STRING, 0, sizeof(cfg.preset_default) - 1, "Default Preset", "Default video preset file", CAT_ADVANCED, NULL, false },
-	{ "LOG_FILE_ENTRY", (void*)(&(cfg.log_file_entry)), INI_UINT8, 0, 1, "Log File Entry", "Enable file access logging", CAT_ADVANCED, NULL, false },
-	{ "BT_AUTO_DISCONNECT", (void*)(&(cfg.bt_auto_disconnect)), INI_UINT32, 0, 180, "BT Auto Disconnect", "Bluetooth auto-disconnect timeout", CAT_ADVANCED, "min", false },
-	{ "BT_RESET_BEFORE_PAIR", (void*)(&(cfg.bt_reset_before_pair)), INI_UINT8, 0, 1, "BT Reset Before Pair", "Reset Bluetooth before pairing", CAT_ADVANCED, NULL, false },
-	{ "WAITMOUNT", (void*)(&(cfg.waitmount)), INI_STRING, 0, sizeof(cfg.waitmount) - 1, "Wait for Mount", "Devices to wait for before continuing", CAT_NETWORK_STORAGE, NULL, false },
-	{ "RUMBLE", (void *)(&(cfg.rumble)), INI_UINT8, 0, 1, "Controller Rumble", "Enable force feedback/rumble", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force Feedback", "Force feedback strength", CAT_INPUT_CONTROLLERS, "%", false },
-	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLERS, "°", false },
-	{ "HDMI_GAME_MODE", (void *)(&(cfg.hdmi_game_mode)), INI_UINT8, 0, 1, "HDMI Game Mode", "Enable low-latency game mode", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "VRR_MODE", (void *)(&(cfg.vrr_mode)), INI_UINT8, 0, 3, "Variable Refresh Rate", "VRR mode selection", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "VRR_MIN_FRAMERATE", (void *)(&(cfg.vrr_min_framerate)), INI_UINT8, 0, 255, "VRR Min Framerate", "Minimum VRR framerate", CAT_VIDEO_DISPLAY, "Hz", false },
-	{ "VRR_MAX_FRAMERATE", (void *)(&(cfg.vrr_max_framerate)), INI_UINT8, 0, 255, "VRR Max Framerate", "Maximum VRR framerate", CAT_VIDEO_DISPLAY, "Hz", false },
-	{ "VRR_VESA_FRAMERATE", (void *)(&(cfg.vrr_vesa_framerate)), INI_UINT8, 0, 255, "VRR VESA Framerate", "VESA VRR framerate", CAT_VIDEO_DISPLAY, "Hz", false },
-	{ "VIDEO_OFF", (void*)(&(cfg.video_off)), INI_INT16, 0, 3600, "Video Off Timeout", "Turn off video after inactivity", CAT_VIDEO_DISPLAY, "sec", false },
-	{ "PLAYER_1_CONTROLLER", (void*)(&(cfg.player_controller[0])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 1 Controller", "Controller mapping for player 1", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "PLAYER_2_CONTROLLER", (void*)(&(cfg.player_controller[1])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 2 Controller", "Controller mapping for player 2", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "PLAYER_3_CONTROLLER", (void*)(&(cfg.player_controller[2])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 3 Controller", "Controller mapping for player 3", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "PLAYER_4_CONTROLLER", (void*)(&(cfg.player_controller[3])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 4 Controller", "Controller mapping for player 4", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "PLAYER_5_CONTROLLER", (void*)(&(cfg.player_controller[4])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 5 Controller", "Controller mapping for player 5", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 6 Controller", "Controller mapping for player 6", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), INI_UINT8, 0, 1, "Disable Autofire", "Disable autofire functionality", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), INI_UINT8, 0, 100, "Video Brightness", "Adjust video brightness", CAT_VIDEO_DISPLAY, "%", false },
-	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), INI_UINT8, 0, 100, "Video Contrast", "Adjust video contrast", CAT_VIDEO_DISPLAY, "%", false },
-	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), INI_UINT8, 0, 100, "Video Saturation", "Adjust video saturation", CAT_VIDEO_DISPLAY, "%", false },
-	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Video Hue", "Adjust video hue", CAT_VIDEO_DISPLAY, "°", false },
-	{ "VIDEO_GAIN_OFFSET", (void *)(&(cfg.video_gain_offset)), INI_STRING, 0, sizeof(cfg.video_gain_offset), "Video Gain/Offset", "RGB gain and offset adjustments", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Brightness", "Maximum HDR brightness", CAT_VIDEO_DISPLAY, "nits", false },
-	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Average Brightness", "Average HDR brightness", CAT_VIDEO_DISPLAY, "nits", false },
-	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode.", CAT_VIDEO_DISPLAY, NULL, true },
-	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "NTSC Mode", "NTSC color encoding mode", CAT_VIDEO_DISPLAY, NULL, false },
-	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Controller Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLERS, NULL, false },
-	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_SYSTEM_BOOT, NULL, false },
-	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_SYSTEM_BOOT, "sec", false },
-	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_ADVANCED, NULL, false },
-	{ "MAIN", (void*)(&(cfg.main)), INI_STRING, 0, sizeof(cfg.main) - 1, "Main Directory", "Main MiSTer directory name", CAT_SYSTEM_BOOT, NULL, false },
-	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_ADVANCED, NULL, false },
+	{ "YPBPR", (void*)(&(cfg.vga_mode_int)), INI_UINT8, 0, 1, "YPbPr Output", "Enable component video output (legacy)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_BOTH },
+	{ "COMPOSITE_SYNC", (void*)(&(cfg.csync)), INI_UINT8, 0, 1, "Composite Sync", "Enable composite sync on HSync or separate sync on Hsync and Vsync. Composite sync is best for most everything except PC CRTs.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN },
+	{ "FORCED_SCANDOUBLER", (void*)(&(cfg.forced_scandoubler)), INI_UINT8, 0, 1, "Force Scandoubler", "Scandouble 15kHz cores to 31kHz. Some cores don't have the scandoubler module (PSX, N64, etc.)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 1, MENU_MAIN },
+	{ "VGA_SCALER", (void*)(&(cfg.vga_scaler)), INI_UINT8, 0, 1, "VGA Scaler", "Use scaler for VGA/DVI output", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 2, MENU_MAIN },
+	{ "VGA_SOG", (void*)(&(cfg.vga_sog)), INI_UINT8, 0, 1, "VGA Sync-on-Green", "Enable sync-on-green for VGA and YPbPr", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN },
+	{ "SYNC_MODE", (void*)(&(cfg.sync_mode)), INI_UINT8, 0, 2, "Sync Mode", "Analog sync mode: Separate=HSync+VSync, Composite=HSync only, Sync-on-Green=embedded in green signal", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 3, MENU_MAIN },
+	{ "KEYRAH_MODE", (void*)(&(cfg.keyrah_mode)), INI_HEX32, 0, 0xFFFFFFFF, "Keyrah Mode", "Keyrah interface mode", CAT_INPUT_KB_MOUSE, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
+	{ "RESET_COMBO", (void*)(&(cfg.reset_combo)), INI_UINT8, 0, 3, "Reset Key Combo", "Keyboard combination for reset", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "KEY_MENU_AS_RGUI", (void*)(&(cfg.key_menu_as_rgui)), INI_UINT8, 0, 1, "Menu Key as Right GUI", "Use Menu key as Right GUI", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Auto mode uses HDMI EDID to set optimal resolution. All other settings override the EDID value.", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 1, MENU_BOTH },
+	{ "VIDEO_MODE_PAL", (void*)(cfg.video_conf_pal), INI_STRING, 0, sizeof(cfg.video_conf_pal) - 1, "Video Mode (PAL)", "Video mode for PAL cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 25, MENU_BOTH },
+	{ "VIDEO_MODE_NTSC", (void*)(cfg.video_conf_ntsc), INI_STRING, 0, sizeof(cfg.video_conf_ntsc) - 1, "Video Mode (NTSC)", "Video mode for NTSC cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 26, MENU_BOTH },
+	{ "VIDEO_INFO", (void*)(&(cfg.video_info)), INI_UINT8, 0, 10, "Video Info Display", "Show video information on screen", CAT_UI, "s", false, NULL, 0, 0, 2, MENU_BOTH },
+	{ "VSYNC_ADJUST", (void*)(&(cfg.vsync_adjust)), INI_UINT8, 0, 2, "VSync Adjustment", "Automatic refresh rate adjustment. `3 buffer 60Hz` = robust sync with the most latency. `3 buffer match` = robust sync, matching the core's sync. `1 buffer match` = lowest latency but may not work with all cores on all displays.", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 4, MENU_BOTH },
+	{ "HDMI_AUDIO_96K", (void*)(&(cfg.hdmi_audio_96k)), INI_UINT8, 0, 1, "HDMI 96kHz Audio", "Enable 96kHz audio output. May cause compatibility issues with AV equipment and DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
+	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), INI_UINT8, 0, 1, "DVI Mode", "Disable HDMI features for DVI displays", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 4, MENU_MAIN },
+	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), INI_UINT8, 0, 2, "HDMI Color Range", "HDMI color range. Set full for most devices. Limited (16-235) for older displays. Limited (16-255) for some HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 7, MENU_MAIN },
+	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), INI_UINT8, 0, 1, "Disable Mouse", "Disable mouse emulation via keyboard", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), INI_UINT8, 1, 100, "Mouse Throttle", "Mouse movement speed", CAT_INPUT_KB_MOUSE, "%", false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), INI_UINT8, 0, 1, "Boot Screen", "Show boot screen on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VSCALE_MODE", (void*)(&(cfg.vscale_mode)), INI_UINT8, 0, 5, "Vertical Scale Mode", "Vertical scaling algorithm", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 3, MENU_BOTH },
+	{ "VSCALE_BORDER", (void*)(&(cfg.vscale_border)), INI_UINT16, 0, 399, "Vertical Scale Border", "Border size for scaled image", CAT_AV_DIGITAL, "px", false, "DIRECT_VIDEO", 0, 0, 22, MENU_BOTH },
+	{ "RBF_HIDE_DATECODE", (void*)(&(cfg.rbf_hide_datecode)), INI_UINT8, 0, 1, "Hide Core Dates", "Hide date codes in core names", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "MENU_PAL", (void*)(&(cfg.menu_pal)), INI_UINT8, 0, 1, "Menu PAL Mode", "Use PAL mode for menu core", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 98, MENU_MAIN },
+	{ "BOOTCORE", (void*)(&(cfg.bootcore)), INI_STRING, 0, sizeof(cfg.bootcore) - 1, "Boot Core", "Core to load on startup", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "BOOTCORE_TIMEOUT", (void*)(&(cfg.bootcore_timeout)), INI_INT16, 2, 30, "Boot Core Timeout", "Timeout before loading boot core", CAT_SYSTEM, "sec", false, "BOOTCORE", 1, 1, 99, MENU_MAIN },
+	{ "FONT", (void*)(&(cfg.font)), INI_STRING, 0, sizeof(cfg.font) - 1, "Custom Font", "Custom font file path", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH },
+	{ "FB_SIZE", (void*)(&(cfg.fb_size)), INI_UINT8, 0, 4, "Framebuffer Size", "Linux framebuffer size", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH },
+	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), INI_UINT8, 0, 1, "Framebuffer Terminal", "Enable Linux terminal on HDMI and scaled analog video.", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
+	{ "OSD_TIMEOUT", (void*)(&(cfg.osd_timeout)), INI_INT16, 0, 3600, "OSD Timeout", "Hide OSD after inactivity.", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays and HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 0, MENU_MAIN },
+	{ "OSD_ROTATE", (void*)(&(cfg.osd_rotate)), INI_UINT8, 0, 2, "OSD Rotation", "Off (Yoko), 1=90° Clockwise (Tate), 2=90° Counter-Clockwise (Tate)", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "DEADZONE", (void*)(&(cfg.controller_deadzone)), INI_STRINGARR, sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone), sizeof(*cfg.controller_deadzone), "Controller Deadzone", "Analog stick deadzone configuration", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "'Name' means Xbox 'A' button is mapped to SNES 'A' button. 'Positional' means Xbox 'A' button is mapped to SNES 'B' button.", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "RECENTS", (void*)(&(cfg.recents)), INI_UINT8, 0, 1, "Recent Files", "Track recently used files", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "CONTROLLER_INFO", (void*)(&(cfg.controller_info)), INI_UINT8, 0, 60, "Controller Info", "Display controller information when a new core is loaded.", CAT_INPUT_CONTROLLER, "s", false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "REFRESH_MIN", (void*)(&(cfg.refresh_min)), INI_FLOAT, 0, 150, "Minimum Refresh Rate", "Minimum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 23, MENU_BOTH },
+	{ "REFRESH_MAX", (void*)(&(cfg.refresh_max)), INI_FLOAT, 0, 150, "Maximum Refresh Rate", "Maximum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 24, MENU_BOTH },
+	{ "JAMMA_VID", (void*)(&(cfg.jamma_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA VID", "JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "JAMMA_PID", (void*)(&(cfg.jamma_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA PID", "JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "JAMMA2_VID", (void*)(&(cfg.jamma2_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 VID", "Second JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "JAMMA2_PID", (void*)(&(cfg.jamma2_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 PID", "Second JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SNIPER_MODE", (void*)(&(cfg.sniper_mode)), INI_UINT8, 0, 1, "Sniper Mode", "Enable precision aiming mode", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force", "Force feedback strength for steering wheels", CAT_INPUT_CONTROLLER, "%", false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "BROWSE_EXPAND", (void*)(&(cfg.browse_expand)), INI_UINT8, 0, 1, "Browse Expand", "Expand file browser by default", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "LOGO", (void*)(&(cfg.logo)), INI_UINT8, 0, 1, "Show Logo", "Display MiSTer logo on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SHARED_FOLDER", (void*)(&(cfg.shared_folder)), INI_STRING, 0, sizeof(cfg.shared_folder) - 1, "Shared Folder", "Network shared folder path", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "NO_MERGE_VID", (void*)(&(cfg.no_merge_vid)), INI_HEX16, 0, 0xFFFF, "No Merge VID", "USB device vendor ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH },
+	{ "NO_MERGE_PID", (void*)(&(cfg.no_merge_pid)), INI_HEX16, 0, 0xFFFF, "No Merge PID", "USB device product ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH },
+	{ "NO_MERGE_VIDPID", (void*)(cfg.no_merge_vidpid), INI_HEX32ARR, 0, 0xFFFFFFFF, "No Merge VID:PID", "USB VID:PID pairs to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "CUSTOM_ASPECT_RATIO_1", (void*)(&(cfg.custom_aspect_ratio[0])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[0]) - 1, "Custom Aspect Ratio 1", "First custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 20, MENU_BOTH },
+	{ "CUSTOM_ASPECT_RATIO_2", (void*)(&(cfg.custom_aspect_ratio[1])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[1]) - 1, "Custom Aspect Ratio 2", "Second custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 21, MENU_BOTH },
+	{ "SPINNER_VID", (void*)(&(cfg.spinner_vid)), INI_HEX16, 0, 0xFFFF, "Spinner VID", "Spinner device vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SPINNER_PID", (void*)(&(cfg.spinner_pid)), INI_HEX16, 0, 0xFFFF, "Spinner PID", "Spinner device product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SPINNER_AXIS", (void*)(&(cfg.spinner_axis)), INI_UINT8, 0, 2, "Spinner Axis", "Spinner axis configuration", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "SPINNER_THROTTLE", (void*)(&(cfg.spinner_throttle)), INI_INT32, -10000, 10000, "Spinner Throttle", "Spinner sensitivity adjustment", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "AFILTER_DEFAULT", (void*)(&(cfg.afilter_default)), INI_STRING, 0, sizeof(cfg.afilter_default) - 1, "Default Audio Filter", "Default audio filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VFILTER_DEFAULT", (void*)(&(cfg.vfilter_default)), INI_STRING, 0, sizeof(cfg.vfilter_default) - 1, "Default Video Filter", "Default video filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VFILTER_VERTICAL_DEFAULT", (void*)(&(cfg.vfilter_vertical_default)), INI_STRING, 0, sizeof(cfg.vfilter_vertical_default) - 1, "Default Vertical Filter", "Default vertical filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VFILTER_SCANLINES_DEFAULT", (void*)(&(cfg.vfilter_scanlines_default)), INI_STRING, 0, sizeof(cfg.vfilter_scanlines_default) - 1, "Default Scanlines Filter", "Default scanlines filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SHMASK_DEFAULT", (void*)(&(cfg.shmask_default)), INI_STRING, 0, sizeof(cfg.shmask_default) - 1, "Default Shadow Mask", "Default shadow mask file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "SHMASK_MODE_DEFAULT", (void*)(&(cfg.shmask_mode_default)), INI_UINT8, 0, 255, "Default Shadow Mask Mode", "Default shadow mask mode", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PRESET_DEFAULT", (void*)(&(cfg.preset_default)), INI_STRING, 0, sizeof(cfg.preset_default) - 1, "Default Preset", "Default video preset file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "LOG_FILE_ENTRY", (void*)(&(cfg.log_file_entry)), INI_UINT8, 0, 1, "Log File Entry", "Enable file access logging", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "BT_AUTO_DISCONNECT", (void*)(&(cfg.bt_auto_disconnect)), INI_UINT32, 0, 180, "BT Auto Disconnect", "Bluetooth auto-disconnect timeout", CAT_INPUT_CONTROLLER, "min", false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "BT_RESET_BEFORE_PAIR", (void*)(&(cfg.bt_reset_before_pair)), INI_UINT8, 0, 1, "BT Reset Before Pair", "Reset Bluetooth before pairing", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "WAITMOUNT", (void*)(&(cfg.waitmount)), INI_STRING, 0, sizeof(cfg.waitmount) - 1, "Wait for Mount", "Devices to wait for before continuing", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "RUMBLE", (void *)(&(cfg.rumble)), INI_UINT8, 0, 1, "Controller Rumble", "Enable force feedback/rumble", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLER, "°", false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "HDMI_GAME_MODE", (void *)(&(cfg.hdmi_game_mode)), INI_UINT8, 0, 1, "HDMI Game Mode", "Enable low-latency game mode", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 5, MENU_BOTH },
+	{ "VRR_MODE", (void *)(&(cfg.vrr_mode)), INI_UINT8, 0, 3, "Variable Refresh Rate", "VRR mode selection", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 15, MENU_BOTH },
+	{ "VRR_MIN_FRAMERATE", (void *)(&(cfg.vrr_min_framerate)), INI_UINT8, 0, 240, "VRR Min Framerate", "Minimum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 17, MENU_BOTH },
+	{ "VRR_MAX_FRAMERATE", (void *)(&(cfg.vrr_max_framerate)), INI_UINT8, 0, 240, "VRR Max Framerate", "Maximum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 16, MENU_BOTH },
+	{ "VRR_VESA_FRAMERATE", (void *)(&(cfg.vrr_vesa_framerate)), INI_UINT8, 0, 240, "VRR VESA Framerate", "VESA VRR base framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 19, MENU_BOTH },
+	{ "VIDEO_OFF", (void*)(&(cfg.video_off)), INI_INT16, 0, 3600, "Video Off Timeout", "Turn off video after inactivity", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_1_CONTROLLER", (void*)(&(cfg.player_controller[0])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 1 Controller", "Controller mapping for player 1", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_2_CONTROLLER", (void*)(&(cfg.player_controller[1])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 2 Controller", "Controller mapping for player 2", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_3_CONTROLLER", (void*)(&(cfg.player_controller[2])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 3 Controller", "Controller mapping for player 3", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_4_CONTROLLER", (void*)(&(cfg.player_controller[3])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 4 Controller", "Controller mapping for player 4", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_5_CONTROLLER", (void*)(&(cfg.player_controller[4])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 5 Controller", "Controller mapping for player 5", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 6 Controller", "Controller mapping for player 6", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), INI_UINT8, 0, 1, "Disable Autofire", "Disable autofire functionality", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), INI_UINT8, 0, 100, "Video Brightness", "Adjust video brightness", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 8, MENU_BOTH },
+	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), INI_UINT8, 0, 100, "Video Contrast", "Adjust video contrast", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 9, MENU_BOTH },
+	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), INI_UINT8, 0, 100, "Video Saturation", "Adjust video saturation", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 10, MENU_BOTH },
+	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Video Hue", "Adjust video hue", CAT_AV_DIGITAL, "°", false, NULL, 0, 0, 10, MENU_BOTH },
+	{ "VIDEO_GAIN_OFFSET", (void *)(&(cfg.video_gain_offset)), INI_STRING, 0, sizeof(cfg.video_gain_offset), "Video Gain/Offset", "RGB gain and offset adjustments", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 12, MENU_BOTH },
+	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 13, MENU_BOTH },
+	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Brightness", "Maximum HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 14, MENU_BOTH },
+	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Average Brightness", "Average HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 15, MENU_BOTH },
+	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 0, MENU_MAIN },
+	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "NTSC Mode", "NTSC color encoding mode", CAT_AV_ANALOG, NULL, false, "YPBPR", 2, 3, 99, MENU_MAIN },
+	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Controller Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
+	{ "MAIN", (void*)(&(cfg.main)), INI_STRING, 0, sizeof(cfg.main) - 1, "Main Directory", "Main MiSTer directory name", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
 };
 
 const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -140,6 +149,331 @@ const osd_category_info_t* cfg_get_category_info(osd_category_t category)
 	if (category >= 0 && category < CAT_COUNT)
 		return &category_info[category];
 	return NULL;
+}
+
+// Get all settings for a specific category
+int cfg_get_settings_for_category(osd_category_t category, const ini_var_t*** settings, int* count, menu_flags_t menu_type)
+{
+	static const ini_var_t* category_settings[256]; // Max settings per category
+	int setting_count = 0;
+	
+	// Iterate through all ini_vars and collect ones matching the category and menu type
+	for (int i = 0; i < nvars; i++)
+	{
+		if (ini_vars[i].category == category && 
+		    ini_vars[i].menu_position != -1 && // Skip hidden settings
+		    (ini_vars[i].menu_flags & menu_type)) // Check if setting appears in this menu type
+		{
+			category_settings[setting_count++] = &ini_vars[i];
+			if (setting_count >= 256) break; // Prevent overflow
+		}
+	}
+	
+	// Sort by menu_position (0=first, 99=auto-sort by name, 255=last)
+	for (int i = 0; i < setting_count - 1; i++)
+	{
+		for (int j = i + 1; j < setting_count; j++)
+		{
+			const ini_var_t* a = category_settings[i];
+			const ini_var_t* b = category_settings[j];
+			
+			// Compare menu_position first
+			if (a->menu_position != b->menu_position)
+			{
+				if (a->menu_position > b->menu_position)
+				{
+					category_settings[i] = b;
+					category_settings[j] = a;
+				}
+			}
+			// If same menu_position (usually 99), sort alphabetically by display name
+			else if (strcmp(a->display_name, b->display_name) > 0)
+			{
+				category_settings[i] = b;
+				category_settings[j] = a;
+			}
+		}
+	}
+	
+	if (settings) *settings = category_settings;
+	if (count) *count = setting_count;
+	
+	return setting_count;
+}
+
+// Auto-detect UI type based on variable characteristics
+ui_type_t cfg_auto_detect_ui_type(const ini_var_t* var)
+{
+	if (!var) return UI_HIDDEN;
+	
+	// Special cases based on name patterns
+	if (strstr(var->name, "DEFAULT") || strstr(var->name, "FILTER") || 
+	    strstr(var->name, "FONT") || strstr(var->name, "PRESET"))
+		return UI_FILE_PICKER;
+	
+	// Based on type and range
+	switch (var->type)
+	{
+		case INI_UINT8:
+		case INI_INT8:
+			// Boolean: 0-1 range = checkbox
+			if (var->min == 0 && var->max == 1)
+				return UI_CHECKBOX;
+			// Small enumeration: 0-5 range = dropdown
+			else if (var->max - var->min <= 5)
+				return UI_DROPDOWN;
+			// Larger range = slider
+			else
+				return UI_SLIDER;
+			
+		case INI_UINT16:
+		case INI_INT16:
+		case INI_UINT32:
+		case INI_INT32:
+		case INI_FLOAT:
+			// Numeric ranges = slider
+			return UI_SLIDER;
+			
+		case INI_STRING:
+			// Video modes and similar = dropdown (if we had options)
+			// For now, default to string input
+			return UI_STRING_INPUT;
+			
+		case INI_HEX8:
+		case INI_HEX16:
+		case INI_HEX32:
+			// Hex values = usually hidden advanced settings
+			return UI_HIDDEN;
+			
+		default:
+			return UI_HIDDEN;
+	}
+}
+
+// Auto-detect which menus this setting should appear in
+menu_flags_t cfg_auto_detect_menu_flags(const ini_var_t* var)
+{
+	if (!var) return MENU_NONE;
+	
+	// Advanced settings (requires_reboot=true) typically not in core menus
+	if (var->requires_reboot)
+		return MENU_MAIN;
+	
+	// Settings that make sense for core overrides
+	switch (var->category)
+	{
+		case CAT_AV_DIGITAL:
+		case CAT_AV_ANALOG:
+		case CAT_INPUT_CONTROLLER:
+		case CAT_INPUT_ARCADE:
+		case CAT_INPUT_KB_MOUSE:
+		case CAT_UI:
+			return MENU_BOTH;  // Both main and core menus
+			
+		case CAT_SYSTEM:
+		case CAT_FILTERS:
+		default:
+			return MENU_MAIN;  // Main menu only
+	}
+}
+
+// Get custom step size for specific slider settings  
+uint8_t cfg_get_custom_step_size(const char* setting_name)
+{
+	if (!setting_name) return 0;
+	
+	// Define custom step sizes for SLIDER settings only
+	if (strcmp(setting_name, "MOUSE_THROTTLE") == 0) return 5;
+	if (strcmp(setting_name, "CONTROLLER_INFO") == 0) return 1;
+	if (strcmp(setting_name, "VIDEO_INFO") == 0) return 1;
+	if (strcmp(setting_name, "WHEEL_FORCE") == 0) return 5;
+	if (strcmp(setting_name, "VIDEO_BRIGHTNESS") == 0) return 5;
+	if (strcmp(setting_name, "VIDEO_CONTRAST") == 0) return 5;
+	if (strcmp(setting_name, "VIDEO_SATURATION") == 0) return 5;
+	if (strcmp(setting_name, "VIDEO_HUE") == 0) return 10;
+	if (strcmp(setting_name, "VRR_MIN_FRAMERATE") == 0) return 10;
+	if (strcmp(setting_name, "VRR_MAX_FRAMERATE") == 0) return 10;
+	if (strcmp(setting_name, "VRR_VESA_FRAMERATE") == 0) return 10;
+	if (strcmp(setting_name, "BOOTCORE_TIMEOUT") == 0) return 1;
+	if (strcmp(setting_name, "OSD_TIMEOUT") == 0) return 30;
+	if (strcmp(setting_name, "WHEEL_RANGE") == 0) return 10;
+	if (strcmp(setting_name, "VSCALE_BORDER") == 0) return 10;
+	if (strcmp(setting_name, "SPINNER_THROTTLE") == 0) return 10;
+	if (strcmp(setting_name, "BT_AUTO_DISCONNECT") == 0) return 5;
+	if (strcmp(setting_name, "HDR_MAX_NITS") == 0) return 100;
+	if (strcmp(setting_name, "HDR_AVG_NITS") == 0) return 25;
+	
+	return 0; // Use auto-detection
+}
+
+// Forward declarations for temp value helpers
+static bool get_temp_uint8_value(const char* setting_name, uint8_t* value);
+
+// Check if a setting is enabled/available based on dependencies
+bool cfg_is_setting_enabled(const char* setting_name)
+{
+	if (!setting_name) return true;
+	
+	// Special case: Sync mode filtering based on VGA mode
+	if (strcmp(setting_name, "SYNC_MODE") == 0)
+	{
+		// Get current VGA mode (check temp settings first)
+		uint8_t vga_mode_int = cfg.vga_mode_int;
+		uint8_t temp_vga_mode;
+		if (get_temp_uint8_value("YPBPR", &temp_vga_mode))
+		{
+			vga_mode_int = temp_vga_mode;
+		}
+		
+		// For S-Video and CVBS (vga_mode >= 2), sync mode is locked to composite
+		// But we don't disable it, we just prevent changing it
+		return true; // Always show but will be locked in S-Video/CVBS mode
+	}
+	
+	// Find the setting in ini_vars to check for dependencies
+	const ini_var_t* var = cfg_get_ini_var(setting_name);
+	if (!var || !var->depends_on) 
+	{
+		return true; // No dependency, always enabled
+	}
+	
+	// Get the dependency setting
+	const ini_var_t* dep_var = cfg_get_ini_var(var->depends_on);
+	if (!dep_var) 
+	{
+		return true; // Dependency setting not found, assume enabled
+	}
+	
+	// Get current value of dependency setting (check temp values first)
+	int64_t dep_value = 0;
+	
+	// Check for temp value first
+	uint8_t temp_uint8;
+	if (dep_var->type == INI_UINT8 && get_temp_uint8_value(dep_var->name, &temp_uint8))
+	{
+		dep_value = temp_uint8;
+	}
+	else
+	{
+		// Fall back to memory value
+		switch (dep_var->type)
+		{
+			case INI_UINT8:
+				dep_value = *(uint8_t*)dep_var->var;
+				break;
+			case INI_INT8:
+				dep_value = *(int8_t*)dep_var->var;
+				break;
+			case INI_UINT16:
+				dep_value = *(uint16_t*)dep_var->var;
+				break;
+			case INI_INT16:
+				dep_value = *(int16_t*)dep_var->var;
+				break;
+			case INI_UINT32:
+				dep_value = *(uint32_t*)dep_var->var;
+				break;
+			case INI_INT32:
+				dep_value = *(int32_t*)dep_var->var;
+				break;
+			case INI_HEX8:
+				dep_value = *(uint8_t*)dep_var->var;
+				break;
+			case INI_HEX16:
+				dep_value = *(uint16_t*)dep_var->var;
+				break;
+			case INI_HEX32:
+				dep_value = *(uint32_t*)dep_var->var;
+				break;
+			case INI_FLOAT:
+				dep_value = (int64_t)*(float*)dep_var->var;
+				break;
+			case INI_STRING:
+				// For strings, check if non-empty (1) or empty (0)
+				{
+					const char* str_val = (const char*)dep_var->var;
+					dep_value = (str_val && str_val[0] != '\0') ? 1 : 0;
+				}
+				break;
+			default:
+				return true; // Unsupported dependency type, assume enabled
+		}
+	}
+	
+	// Check if dependency value is within the required range
+	return (dep_value >= var->depends_min && dep_value <= var->depends_max);
+}
+
+// Auto-detect appropriate step size for sliders
+uint8_t cfg_auto_detect_step_size(const ini_var_t* var)
+{
+	if (!var) return 1;
+	
+	// Check for custom step size first
+	uint8_t custom_step = cfg_get_custom_step_size(var->name);
+	if (custom_step > 0)
+		return custom_step;
+	
+	int64_t range = var->max - var->min;
+	
+	// Auto-detect based on range
+	if (range > 100)
+		return 10;
+	else if (range > 20)
+		return 5;
+	else
+		return 1;
+}
+
+// Helper functions for debugging and development
+const char* cfg_ui_type_to_string(ui_type_t ui_type)
+{
+	switch (ui_type)
+	{
+		case UI_CHECKBOX: return "CHECKBOX";
+		case UI_SLIDER: return "SLIDER";
+		case UI_DROPDOWN: return "DROPDOWN";
+		case UI_FILE_PICKER: return "FILE_PICKER";
+		case UI_STRING_INPUT: return "STRING_INPUT";
+		case UI_HIDDEN: return "HIDDEN";
+		default: return "UNKNOWN";
+	}
+}
+
+const char* cfg_menu_flags_to_string(menu_flags_t flags)
+{
+	switch (flags)
+	{
+		case MENU_NONE: return "NONE";
+		case MENU_MAIN: return "MAIN";
+		case MENU_CORE: return "CORE";
+		case MENU_BOTH: return "BOTH";
+		default: return "UNKNOWN";
+	}
+}
+
+// Print analysis of how UI types would be auto-detected for existing settings
+void cfg_print_ui_analysis(void)
+{
+	printf("=== UI Type Auto-Detection Analysis ===\n");
+	printf("%-20s %-15s %-10s %-8s %s\n", "Setting", "UI Type", "Menu", "Step", "Description");
+	printf("%-20s %-15s %-10s %-8s %s\n", "-------", "-------", "----", "----", "-----------");
+	
+	for (int i = 0; i < nvars && i < 20; i++) // Show first 20 for demo
+	{
+		const ini_var_t* var = &ini_vars[i];
+		ui_type_t ui_type = cfg_auto_detect_ui_type(var);
+		menu_flags_t menu_flags = cfg_auto_detect_menu_flags(var);
+		uint8_t step_size = cfg_auto_detect_step_size(var);
+		
+		printf("%-20s %-15s %-10s %-8d %s\n", 
+			var->name,
+			cfg_ui_type_to_string(ui_type),
+			cfg_menu_flags_to_string(menu_flags),
+			step_size,
+			var->display_name ? var->display_name : "");
+	}
+	printf("... (showing first 20 of %d total settings)\n", nvars);
 }
 
 
@@ -173,6 +507,744 @@ const char* cfg_get_help_text(const char* setting_key)
 	
 	// Return default help text if no specific help found
 	return "Use left/right arrows to change this setting value";
+}
+
+// Override table for settings that need custom display logic
+typedef struct {
+	const char* setting_name;
+	const char* (*render_func)(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size);
+} setting_override_t;
+
+// Custom render function for DIRECT_VIDEO (HDMI Mode abstraction)
+// Forward declaration for temp value helper
+static bool get_temp_string_value(const char* setting_name, char* buffer, size_t buffer_size);
+
+static const char* render_direct_video(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	// Get value from temp settings if available, otherwise use memory
+	uint8_t direct_video_value = cfg.direct_video; // Default to memory value
+	
+	// Check for temp value
+	uint8_t temp_value;
+	if (get_temp_uint8_value("DIRECT_VIDEO", &temp_value))
+	{
+		direct_video_value = temp_value;
+		printf("DEBUG: render_direct_video using temp value %d\n", direct_video_value);
+	}
+	
+	// Show as "HDMI Mode" with HDMI/HDMI DAC abstraction instead of raw Direct Video On/Off
+	const char* mode_text = direct_video_value ? "HDMI DAC" : "HDMI";
+	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	return buffer;
+}
+
+// Custom render function for VRR_MODE
+static const char* render_vrr_mode(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	// Get value from temp settings if available, otherwise use memory
+	uint8_t vrr_mode_value = cfg.vrr_mode; // Default to memory value
+	
+	// Check for temp value
+	uint8_t temp_value;
+	if (get_temp_uint8_value("VRR_MODE", &temp_value))
+	{
+		vrr_mode_value = temp_value;
+	}
+	
+	const char* vrr_text = "Off";
+	switch (vrr_mode_value) {
+		case 1: vrr_text = "Freesync"; break;
+		case 2: vrr_text = "Freesync+"; break;
+		case 3: vrr_text = "HDMI VRR"; break;
+	}
+	snprintf(buffer, buffer_size, " %s: %s", display_name, vrr_text);
+	return buffer;
+}
+
+// Custom render function for SNIPER_MODE
+static const char* render_sniper_mode(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	// Get value from temp settings if available, otherwise use memory
+	uint8_t sniper_mode_value = cfg.sniper_mode; // Default to memory value
+	
+	// Check for temp value
+	uint8_t temp_value;
+	if (get_temp_uint8_value("SNIPER_MODE", &temp_value))
+	{
+		sniper_mode_value = temp_value;
+	}
+	
+	const char* mode_text = sniper_mode_value ? "Swap" : "Norm";
+	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	return buffer;
+}
+
+// Custom render function for GAMEPAD_DEFAULTS
+static const char* render_gamepad_defaults(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	// Get value from temp settings if available, otherwise use memory
+	uint8_t gamepad_defaults_value = cfg.gamepad_defaults; // Default to memory value
+	
+	// Check for temp value
+	uint8_t temp_value;
+	if (get_temp_uint8_value("GAMEPAD_DEFAULTS", &temp_value))
+	{
+		gamepad_defaults_value = temp_value;
+	}
+	
+	const char* mode_text = gamepad_defaults_value ? "Pos." : "Name";
+	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	return buffer;
+}
+
+// Get current VGA mode (checking temp settings first)
+static uint8_t get_current_vga_mode(void)
+{
+	uint8_t vga_mode_int = cfg.vga_mode_int;
+	
+	// Check for temp VGA_MODE string changes
+	char temp_vga_mode[64];
+	if (get_temp_string_value("VGA_MODE", temp_vga_mode, sizeof(temp_vga_mode)))
+	{
+		// Convert string to int
+		if (strcasecmp(temp_vga_mode, "rgb") == 0 || strlen(temp_vga_mode) == 0) vga_mode_int = 0;
+		else if (strcasecmp(temp_vga_mode, "ypbpr") == 0) vga_mode_int = 1;
+		else if (strcasecmp(temp_vga_mode, "svideo") == 0) vga_mode_int = 2;
+		else if (strcasecmp(temp_vga_mode, "cvbs") == 0) vga_mode_int = 3;
+	}
+	
+	return vga_mode_int;
+}
+
+// Check if sync mode is locked based on VGA mode
+static bool is_sync_mode_locked(void)
+{
+	// Sync mode is locked in S-Video and CVBS modes (vga_mode >= 2)
+	return (get_current_vga_mode() >= 2);
+}
+
+// Check if a setting should be stippled (disabled but visible) based on dependencies
+static bool is_setting_stippled(const char* setting_name)
+{
+	uint8_t vga_mode = get_current_vga_mode();
+	
+	// S-Video and CVBS (vga_mode >= 2) can't use scandoubler or scaler
+	if (vga_mode >= 2)
+	{
+		if (strcmp(setting_name, "FORCED_SCANDOUBLER") == 0 ||
+		    strcmp(setting_name, "VGA_SCALER") == 0)
+		{
+			return true;
+		}
+	}
+	
+	// NTSC_MODE is only available in S-Video and CVBS modes (vga_mode >= 2)
+	if (strcmp(setting_name, "NTSC_MODE") == 0)
+	{
+		if (vga_mode < 2) // RGB and YPbPr modes
+		{
+			return true;
+		}
+	}
+	
+	// HDMI settings that depend on DIRECT_VIDEO being disabled
+	if (strcmp(setting_name, "VIDEO_MODE") == 0 ||
+	    strcmp(setting_name, "VSYNC_ADJUST") == 0 ||
+	    strcmp(setting_name, "DVI_MODE") == 0 ||
+	    strcmp(setting_name, "VSCALE_MODE") == 0 ||
+	    strcmp(setting_name, "VSCALE_BORDER") == 0 ||
+	    strcmp(setting_name, "HDMI_GAME_MODE") == 0)
+	{
+		// Check if DIRECT_VIDEO is enabled (temp value or memory value)
+		uint8_t direct_video_value = cfg.direct_video; // Default to memory value
+		
+		// Check for temp value
+		uint8_t temp_value;
+		if (get_temp_uint8_value("DIRECT_VIDEO", &temp_value))
+		{
+			direct_video_value = temp_value;
+		}
+		
+		// If DIRECT_VIDEO is enabled (1), these settings should be stippled
+		if (direct_video_value == 1)
+		{
+			return true;
+		}
+	}
+	
+	// HDR nits settings that depend on HDR mode being enabled (1 or 2)
+	if (strcmp(setting_name, "HDR_MAX_NITS") == 0 ||
+	    strcmp(setting_name, "HDR_AVG_NITS") == 0)
+	{
+		// Check HDR mode (temp value or memory value)
+		uint8_t hdr_value = cfg.hdr; // Default to memory value
+		
+		// Check for temp value
+		uint8_t temp_value;
+		if (get_temp_uint8_value("HDR", &temp_value))
+		{
+			hdr_value = temp_value;
+		}
+		
+		// If HDR is disabled (0), these settings should be stippled
+		if (hdr_value == 0)
+		{
+			return true;
+		}
+	}
+	
+	// VRR framerate settings that depend on VRR_MODE being enabled (1, 2, or 3)
+	if (strcmp(setting_name, "VRR_MIN_FRAMERATE") == 0 ||
+	    strcmp(setting_name, "VRR_MAX_FRAMERATE") == 0 ||
+	    strcmp(setting_name, "VRR_VESA_FRAMERATE") == 0)
+	{
+		// Check VRR_MODE (temp value or memory value)
+		uint8_t vrr_mode_value = cfg.vrr_mode; // Default to memory value
+		
+		// Check for temp value
+		uint8_t temp_value;
+		if (get_temp_uint8_value("VRR_MODE", &temp_value))
+		{
+			vrr_mode_value = temp_value;
+		}
+		
+		// If VRR_MODE is disabled (0), these settings should be stippled
+		if (vrr_mode_value == 0)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+// Custom render function for SYNC_MODE
+static const char* render_sync_mode(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	// Get value from temp settings if available, otherwise use memory
+	uint8_t sync_mode_value = cfg.sync_mode; // Default to memory value
+	
+	// Check for temp value
+	uint8_t temp_value;
+	if (get_temp_uint8_value("SYNC_MODE", &temp_value))
+	{
+		sync_mode_value = temp_value;
+		printf("DEBUG: render_sync_mode using temp value %d\n", sync_mode_value);
+	}
+	
+	uint8_t vga_mode = get_current_vga_mode();
+	const char* sync_labels[] = {"Separate", "Composite", "Sync-on-Green"};
+	const char* label = (sync_mode_value <= 2) ? sync_labels[sync_mode_value] : "Unknown";
+	
+	// Check if sync mode is locked (stippled)
+	if (is_sync_mode_locked())
+	{
+		// Show locked version - force to composite in S-Video/CVBS
+		snprintf(buffer, buffer_size, " %s: Composite", display_name);
+	}
+	else if (vga_mode == 1) // YPbPr mode
+	{
+		// YPbPr can't use separate sync - show available options only
+		if (sync_mode_value == 0) // If set to separate, force to composite
+		{
+			snprintf(buffer, buffer_size, " %s: Composite", display_name);
+		}
+		else
+		{
+			snprintf(buffer, buffer_size, " %s: %s", display_name, label);
+		}
+	}
+	else
+	{
+		snprintf(buffer, buffer_size, " %s: %s", display_name, label);
+	}
+	return buffer;
+}
+
+// Sync functions for SYNC_MODE virtual setting
+void cfg_sync_mode_to_individual()
+{
+	// Convert sync_mode virtual setting to individual csync/vga_sog settings
+	switch (cfg.sync_mode)
+	{
+		case 0: // Separate
+			cfg.csync = 0;
+			cfg.vga_sog = 0;
+			break;
+		case 1: // Composite
+			cfg.csync = 1;
+			cfg.vga_sog = 0;
+			break;
+		case 2: // Sync-on-Green
+			cfg.csync = 0;
+			cfg.vga_sog = 1;
+			break;
+		default:
+			// Invalid value, default to separate
+			cfg.sync_mode = 0;
+			cfg.csync = 1;
+			cfg.vga_sog = 0;
+			break;
+	}
+}
+
+void cfg_sync_individual_to_mode()
+{
+	// Convert individual csync/vga_sog settings to sync_mode virtual setting
+	if (cfg.vga_sog)
+	{
+		cfg.sync_mode = 2; // Sync-on-Green
+	}
+	else if (cfg.csync)
+	{
+		cfg.sync_mode = 1; // Composite
+	}
+	else
+	{
+		cfg.sync_mode = 0; // Separate
+	}
+}
+
+void cfg_auto_set_sync_mode_for_video_mode(int video_mode)
+{
+	// Auto-configure sync mode based on video mode requirements
+	switch (video_mode)
+	{
+		case 0: // RGB
+			// RGB: Leave sync_mode as user configured (any mode supported)
+			printf("DEBUG: RGB mode - keeping user sync_mode=%d\n", cfg.sync_mode);
+			break;
+		case 1: // YPbPr
+			// YPbPr: Force sync-on-green mode for proper component video
+			cfg.sync_mode = 2; // Sync-on-Green
+			printf("DEBUG: Auto-set sync_mode=2 (Sync-on-Green) for YPbPr\n");
+			break;
+		case 2: // S-Video
+			// S-Video: Force composite sync for proper chroma/luma separation
+			cfg.sync_mode = 1; // Composite
+			printf("DEBUG: Auto-set sync_mode=1 (Composite) for S-Video\n");
+			// S-Video: Disable VGA scaler (direct analog output)
+			if (cfg.vga_scaler) {
+				cfg.vga_scaler = 0;
+				printf("DEBUG: Auto-disabled vga_scaler for S-Video mode\n");
+			}
+			break;
+		case 3: // CVBS
+			// CVBS: Force composite sync for proper composite video
+			cfg.sync_mode = 1; // Composite
+			printf("DEBUG: Auto-set sync_mode=1 (Composite) for CVBS\n");
+			// CVBS: Disable VGA scaler (direct analog output)
+			if (cfg.vga_scaler) {
+				cfg.vga_scaler = 0;
+				printf("DEBUG: Auto-disabled vga_scaler for CVBS mode\n");
+			}
+			break;
+		default:
+			printf("DEBUG: Unknown video mode %d - keeping sync_mode=%d\n", video_mode, cfg.sync_mode);
+			break;
+	}
+}
+
+// Auto-configure all VGA-related settings based on VGA mode
+void cfg_auto_configure_vga_settings(int vga_mode_int)
+{
+	printf("DEBUG: Auto-configuring VGA settings for mode %d\n", vga_mode_int);
+	
+	switch (vga_mode_int)
+	{
+		case 0: // RGB
+			// RGB: forced scandoubler on or off (user choice), vga scaler on or off (user choice), 
+			// sync mode separate/composite/sync-on-green (user choice), ntsc mode disabled
+			// Keep forced scandoubler, vga scaler, and sync mode as user configured
+			cfg.ntsc_mode = 0; // Disable NTSC for RGB
+			printf("DEBUG: RGB mode - disabled NTSC, keeping user scandoubler/scaler/sync settings\n");
+			break;
+			
+		case 1: // YPbPr
+			// YPbPr: forced scandoubler on or off (user choice), vga scaler on or off (user choice),
+			// sync mode composite or sync-on-green (not separate), ntsc mode disabled
+			// Keep forced scandoubler and vga scaler as user configured
+			// If sync mode is separate (0), change to sync-on-green (2), otherwise keep user choice
+			if (cfg.sync_mode == 0) // Separate sync not supported for YPbPr
+			{
+				cfg.sync_mode = 2; // Change to Sync-on-Green
+				cfg_sync_mode_to_individual(); // Apply sync mode to individual settings
+				printf("DEBUG: YPbPr mode - changed from separate to sync-on-green\n");
+			}
+			cfg.ntsc_mode = 0; // Disable NTSC for YPbPr
+			printf("DEBUG: YPbPr mode - disabled NTSC, keeping user scandoubler/scaler\n");
+			break;
+			
+		case 2: // S-Video
+			// S-Video: forced scandoubler off, vga scaler (user choice), sync mode composite, ntsc mode enabled defaulted to 0
+			cfg.forced_scandoubler = 0; // Force scandoubler off
+			cfg.sync_mode = 1; // Composite sync (required)
+			cfg.ntsc_mode = 0; // Enable NTSC, default to 0
+			cfg_sync_mode_to_individual(); // Apply sync mode to individual settings
+			printf("DEBUG: S-Video mode - disabled scandoubler, set composite sync, enabled NTSC=0\n");
+			break;
+			
+		case 3: // CVBS (Composite)
+			// CVBS: forced scandoubler off, vga scaler (user choice), sync mode composite, ntsc mode enabled defaulted to 0
+			cfg.forced_scandoubler = 0; // Force scandoubler off
+			cfg.sync_mode = 1; // Composite sync (required)
+			cfg.ntsc_mode = 0; // Enable NTSC, default to 0
+			cfg_sync_mode_to_individual(); // Apply sync mode to individual settings
+			printf("DEBUG: CVBS mode - disabled scandoubler, set composite sync, enabled NTSC=0\n");
+			break;
+			
+		default:
+			printf("DEBUG: Unknown VGA mode %d - no auto-configuration\n", vga_mode_int);
+			break;
+	}
+}
+
+// Auto-configure VGA-related settings in temp mode
+void cfg_auto_configure_vga_settings_temp(int vga_mode_int)
+{
+	printf("DEBUG: Auto-configuring VGA temp settings for mode %d\n", vga_mode_int);
+	
+	// For temp settings, we need to update the temp values, not the memory values
+	// This function will set temp values for the related settings
+	const ini_var_t* forced_scandoubler_setting = cfg_get_ini_var("FORCED_SCANDOUBLER");
+	const ini_var_t* sync_mode_setting = cfg_get_ini_var("SYNC_MODE");
+	const ini_var_t* ntsc_mode_setting = cfg_get_ini_var("NTSC_MODE");
+	
+	switch (vga_mode_int)
+	{
+		case 0: // RGB
+			// RGB: ntsc mode disabled, keep other settings as user configured
+			if (ntsc_mode_setting) cfg_temp_settings_change(ntsc_mode_setting, 0 - cfg.ntsc_mode); // Set to 0
+			printf("DEBUG: RGB temp mode - disabled NTSC temp, keeping user settings\n");
+			break;
+			
+		case 1: // YPbPr
+			// YPbPr: sync mode composite or sync-on-green (not separate), ntsc mode disabled
+			// Only change sync mode if it's currently separate (0)
+			if (sync_mode_setting && cfg.sync_mode == 0) // Separate sync not supported for YPbPr
+			{
+				cfg_temp_settings_change(sync_mode_setting, 2 - cfg.sync_mode); // Change to sync-on-green
+				printf("DEBUG: YPbPr temp mode - changed from separate to sync-on-green temp\n");
+			}
+			if (ntsc_mode_setting) cfg_temp_settings_change(ntsc_mode_setting, 0 - cfg.ntsc_mode); // Set to 0
+			printf("DEBUG: YPbPr temp mode - disabled NTSC temp\n");
+			break;
+			
+		case 2: // S-Video
+		case 3: // CVBS
+			// S-Video/CVBS: forced scandoubler off, sync mode composite, ntsc mode enabled=0
+			if (forced_scandoubler_setting) cfg_temp_settings_change(forced_scandoubler_setting, 0 - cfg.forced_scandoubler); // Set to 0
+			if (sync_mode_setting) cfg_temp_settings_change(sync_mode_setting, 1 - cfg.sync_mode); // Set to 1 (composite)
+			if (ntsc_mode_setting) cfg_temp_settings_change(ntsc_mode_setting, 0 - cfg.ntsc_mode); // Set to 0
+			printf("DEBUG: %s temp mode - disabled scandoubler temp, set composite sync temp, enabled NTSC=0 temp\n", 
+				   (vga_mode_int == 2) ? "S-Video" : "CVBS");
+			break;
+			
+		default:
+			printf("DEBUG: Unknown VGA mode %d - no temp auto-configuration\n", vga_mode_int);
+			break;
+	}
+}
+
+// Override table - add entries here for settings that need custom display logic
+static const setting_override_t setting_overrides[] = {
+	{ "DIRECT_VIDEO", render_direct_video },
+	{ "VRR_MODE", render_vrr_mode },
+	{ "SNIPER_MODE", render_sniper_mode },
+	{ "GAMEPAD_DEFAULTS", render_gamepad_defaults },
+	{ "SYNC_MODE", render_sync_mode },
+	// { "VIDEO_MODE", render_video_mode }, // TODO: Fix linker issue with get_resolution_display_name
+	// Add more overrides here as needed
+	{ NULL, NULL } // Terminator
+};
+
+// Check if a setting has a custom override
+static const char* check_setting_override(const char* setting_name, const char* display_name, char* buffer, size_t buffer_size)
+{
+	for (int i = 0; setting_overrides[i].setting_name != NULL; i++)
+	{
+		if (strcmp(setting_overrides[i].setting_name, setting_name) == 0)
+		{
+			return setting_overrides[i].render_func(setting_name, display_name, buffer, buffer_size);
+		}
+	}
+	return NULL; // No override found
+}
+
+// Check if a setting should be displayed as disabled/grayed out
+bool cfg_is_setting_disabled(const char* setting_name)
+{
+	return !cfg_is_setting_enabled(setting_name);
+}
+
+// UI rendering helper functions for enhanced menu display
+void cfg_render_setting_value(char* buffer, size_t buffer_size, const char* setting_name, const char* display_name)
+{
+	if (!buffer || !setting_name || !display_name) return;
+	
+	// First check for custom overrides
+	const char* override_result = check_setting_override(setting_name, display_name, buffer, buffer_size);
+	if (override_result)
+	{
+		return; // Override handled the rendering
+	}
+	
+	// Find the setting in ini_vars
+	const ini_var_t* var = cfg_get_ini_var(setting_name);
+	if (!var) 
+	{
+		// Fallback to traditional rendering
+		snprintf(buffer, buffer_size, " %s: ???", display_name);
+		return;
+	}
+	
+	// Check if setting is disabled - if so, render as grayed out
+	bool is_disabled = cfg_is_setting_disabled(setting_name);
+	
+	// Get the UI type for this setting
+	ui_type_t ui_type = cfg_auto_detect_ui_type(var);
+	
+	// Get current value as string (use temp value if available)
+	char value_str[64] = "";
+	cfg_get_temp_var_value_as_string(var, value_str, sizeof(value_str));
+	
+	// Render based on UI type
+	switch (ui_type)
+	{
+		case UI_CHECKBOX:
+		{
+			// For 0/1 values, show checkbox symbols - use temp value from value_str
+			int value = atoi(value_str);
+			const char* checkbox_symbol = value ? "\x99" : "\x98";
+			
+			// Stippled settings always show as unchecked
+			if (is_setting_stippled(setting_name)) {
+				checkbox_symbol = "\x98"; // Force unchecked for stippled settings
+			}
+			
+			snprintf(buffer, buffer_size, " %s: %s", display_name, checkbox_symbol);
+			break;
+		}
+		
+		case UI_SLIDER:
+		{
+			// For numeric ranges, show value with progress bar
+			char progress_bar[8] = "";
+			float percentage = 0.0f;
+			
+			if (var->type == INI_FLOAT)
+			{
+				float value = atof(value_str); // Use temp/memory value from value_str
+				if (var->max > var->min)
+					percentage = (value - var->min) / (var->max - var->min);
+				
+				// Create a 5-character progress bar
+				int filled = (int)(percentage * 5.0f);
+				for (int i = 0; i < 5; i++)
+				{
+					progress_bar[i] = (i < filled) ? '\x97' : '\x8C'; // 0x97=filled square, 0x8C=empty square
+				}
+				progress_bar[5] = '\0';
+				
+				snprintf(buffer, buffer_size, " %s: %.1f%s %s", display_name, value, var->unit ? var->unit : "", progress_bar);
+			}
+			else
+			{
+				// Integer types - use temp/memory value from value_str
+				int64_t value = atoll(value_str);
+				
+				if (var->max > var->min)
+					percentage = (float)(value - var->min) / (var->max - var->min);
+				
+				// Create a 5-character progress bar
+				int filled = (int)(percentage * 5.0f);
+				for (int i = 0; i < 5; i++)
+				{
+					progress_bar[i] = (i < filled) ? '\x97' : '\x8C'; // 0x97=filled square, 0x8C=empty square
+				}
+				progress_bar[5] = '\0';
+				
+				snprintf(buffer, buffer_size, " %s: %02lld%s %s", display_name, (long long)value, var->unit ? var->unit : "", progress_bar);
+			}
+			break;
+		}
+		
+		case UI_DROPDOWN:
+		{
+			// For small ranges, show descriptive option names where possible
+			const char* option_name = NULL;
+			int current_value = 0;
+			
+			// Get the current value from temp/memory value_str
+			current_value = atoi(value_str);
+			
+			// Provide readable names for specific settings
+			if (strcmp(var->name, "HDMI_LIMITED") == 0)
+			{
+				if (current_value == 0) option_name = "Full (0-255)";
+				else if (current_value == 1) option_name = "Lim. (16-235)";
+				else if (current_value == 2) option_name = "Lim. (16-255)";
+			}
+			else if (strcmp(var->name, "VSYNC_ADJUST") == 0)
+			{
+				if (current_value == 0) option_name = "3 Buffer 60Hz";
+				else if (current_value == 1) option_name = "3 Buffer Match";
+				else if (current_value == 2) option_name = "1 Buffer Match";
+			}
+			else if (strcmp(var->name, "RESET_COMBO") == 0)
+			{
+				if (current_value == 0) option_name = "LCtrl+LShift+RAlt";
+				else if (current_value == 1) option_name = "LCtrl+LShift+Del";
+				else if (current_value == 2) option_name = "LCtrl+RAlt+Del";
+				else if (current_value == 3) option_name = "LCtrl+LShift+F12";
+			}
+			
+			// Use descriptive name if available, otherwise fall back to value
+			if (option_name)
+				snprintf(buffer, buffer_size, " %s: %s", display_name, option_name);
+			else
+				snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+			break;
+		}
+		
+		case UI_STRING_INPUT:
+		{
+			// For text input strings, show current value with input indicator
+			if (var->type == INI_STRING)
+			{
+				// Use value_str which contains temp value if available, otherwise memory value
+				const char* display_value = (value_str && strlen(value_str) > 0) ? value_str : "Default";
+				
+				// Special handling for specific string settings
+				if (strcmp(var->name, "VIDEO_MODE") == 0 || 
+				    strcmp(var->name, "VIDEO_MODE_PAL") == 0 || 
+				    strcmp(var->name, "VIDEO_MODE_NTSC") == 0)
+				{
+					// Use temp/memory value from value_str for proper temp display
+					if (value_str && strlen(value_str) > 0)
+						snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+					else
+						snprintf(buffer, buffer_size, " %s: Auto", display_name);
+				}
+				else if (strcmp(var->name, "BOOTCORE") == 0)
+				{
+					// Show core name or "None" using temp value
+					if (value_str && strlen(value_str) > 0)
+						snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+					else
+						snprintf(buffer, buffer_size, " %s: None", display_name);
+				}
+				else if (strcmp(var->name, "VGA_MODE") == 0)
+				{
+					// Use value_str which already contains temp value if available
+					// Show VGA mode or "RGB" for empty/default
+					if (value_str && strlen(value_str) > 0)
+						snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+					else
+						snprintf(buffer, buffer_size, " %s: rgb", display_name);
+				}
+				else
+				{
+					// General string display with text input indicator
+					snprintf(buffer, buffer_size, " %s: %s \x10", display_name, display_value); // 0x10 = edit icon
+				}
+			}
+			else
+			{
+				snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+			}
+			break;
+		}
+		
+		case UI_FILE_PICKER:
+		{
+			// For file paths, show filename with browse indicator
+			if (var->type == INI_STRING)
+			{
+				// Use temp/memory value from value_str
+				if (value_str && strlen(value_str) > 0)
+				{
+					// Extract filename from path for display
+					const char* filename = strrchr(value_str, '/');
+					filename = filename ? filename + 1 : value_str;
+					
+					if (strlen(filename) > 0)
+						snprintf(buffer, buffer_size, " %s: %s \x10", display_name, filename); // 0x10 = browse arrow
+					else
+						snprintf(buffer, buffer_size, " %s: Browse... \x10", display_name);
+				}
+				else
+				{
+					snprintf(buffer, buffer_size, " %s: Browse... \x10", display_name);
+				}
+			}
+			else
+			{
+				snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+			}
+			break;
+		}
+		
+		case UI_HIDDEN:
+		default:
+		{
+			// Hidden or unknown types use traditional rendering
+			snprintf(buffer, buffer_size, " %s: %s", display_name, value_str);
+			break;
+		}
+	}
+}
+
+// Helper to get current value of any variable as string
+void cfg_get_var_value_as_string(const ini_var_t* var, char* buffer, size_t buffer_size)
+{
+	if (!var || !buffer) return;
+	
+	switch (var->type)
+	{
+		case INI_UINT8:
+			snprintf(buffer, buffer_size, "%u", *(uint8_t*)var->var);
+			break;
+		case INI_INT8:
+			snprintf(buffer, buffer_size, "%d", *(int8_t*)var->var);
+			break;
+		case INI_UINT16:
+			snprintf(buffer, buffer_size, "%u", *(uint16_t*)var->var);
+			break;
+		case INI_INT16:
+			snprintf(buffer, buffer_size, "%d", *(int16_t*)var->var);
+			break;
+		case INI_UINT32:
+			snprintf(buffer, buffer_size, "%u", *(uint32_t*)var->var);
+			break;
+		case INI_INT32:
+			snprintf(buffer, buffer_size, "%d", *(int32_t*)var->var);
+			break;
+		case INI_HEX8:
+			snprintf(buffer, buffer_size, "0x%02X", *(uint8_t*)var->var);
+			break;
+		case INI_HEX16:
+			snprintf(buffer, buffer_size, "0x%04X", *(uint16_t*)var->var);
+			break;
+		case INI_HEX32:
+			snprintf(buffer, buffer_size, "0x%08X", *(uint32_t*)var->var);
+			break;
+		case INI_FLOAT:
+			snprintf(buffer, buffer_size, "%.2f", *(float*)var->var);
+			break;
+		case INI_STRING:
+		{
+			char* str_value = (char*)var->var;
+			if (str_value && strlen(str_value) > 0)
+				snprintf(buffer, buffer_size, "%s", str_value);
+			else
+				snprintf(buffer, buffer_size, "");
+			break;
+		}
+		default:
+			snprintf(buffer, buffer_size, "???");
+			break;
+	}
 }
 
 
@@ -660,24 +1732,63 @@ void cfg_parse()
 		if (!strcasecmp(cfg.vga_mode, "rgb")) {
 			cfg.vga_mode_int = 0;
 			printf("DEBUG: Set vga_mode_int=0 (RGB)\n");
+			// RGB: Leave sync_mode as user configured (any mode supported)
 		}
 		if (!strcasecmp(cfg.vga_mode, "ypbpr")) {
 			cfg.vga_mode_int = 1;
 			printf("DEBUG: Set vga_mode_int=1 (YPbPr)\n");
+			// YPbPr: Force sync-on-green mode for proper component video
+			cfg.sync_mode = 2; // Sync-on-Green
+			printf("DEBUG: Auto-set sync_mode=2 (Sync-on-Green) for YPbPr\n");
 		}
 		if (!strcasecmp(cfg.vga_mode, "svideo")) {
 			cfg.vga_mode_int = 2;
 			printf("DEBUG: Set vga_mode_int=2 (S-Video)\n");
+			// S-Video: Force composite sync for proper chroma/luma separation
+			cfg.sync_mode = 1; // Composite
+			printf("DEBUG: Auto-set sync_mode=1 (Composite) for S-Video\n");
+			// S-Video: Disable VGA scaler (direct analog output)
+			if (cfg.vga_scaler) {
+				cfg.vga_scaler = 0;
+				printf("DEBUG: Auto-disabled vga_scaler for S-Video mode\n");
+			}
 		}
 		if (!strcasecmp(cfg.vga_mode, "cvbs")) {
 			cfg.vga_mode_int = 3;
 			printf("DEBUG: Set vga_mode_int=3 (CVBS)\n");
+			// CVBS: Force composite sync for proper composite video
+			cfg.sync_mode = 1; // Composite
+			printf("DEBUG: Auto-set sync_mode=1 (Composite) for CVBS\n");
+			// CVBS: Disable VGA scaler (direct analog output)
+			if (cfg.vga_scaler) {
+				cfg.vga_scaler = 0;
+				printf("DEBUG: Auto-disabled vga_scaler for CVBS mode\n");
+			}
 		}
 	}
 	else
 	{
 		printf("DEBUG: No vga_mode string set, using vga_mode_int=%d\n", cfg.vga_mode_int);
+		// Auto-set sync mode based on vga_mode_int value
+		cfg_auto_set_sync_mode_for_video_mode(cfg.vga_mode_int);
 	}
+	
+	// Final sync: if user has explicitly set csync/vga_sog in INI, that takes precedence over auto-setting
+	// Only sync from individual settings if video mode auto-setting didn't override them
+	if (cfg.vga_mode_int == 0) // RGB mode - respect user's explicit sync settings
+	{
+		cfg_sync_individual_to_mode();
+		printf("DEBUG: RGB mode - synced from individual settings: sync_mode=%d\n", cfg.sync_mode);
+	}
+	else
+	{
+		// For other video modes, auto-setting took precedence, now apply to individual settings
+		cfg_sync_mode_to_individual();
+		printf("DEBUG: Video mode %d - applied auto sync_mode=%d to individual settings\n", cfg.vga_mode_int, cfg.sync_mode);
+	}
+	
+	// Test the UI auto-detection system
+	cfg_print_ui_analysis();
 }
 
 bool cfg_has_video_sections()
@@ -994,7 +2105,7 @@ static int value_differs_from_default(const ini_var_t *var)
 	else if (!strcasecmp(var->name, "LOGO")) default_str = "1";
 	else if (!strcasecmp(var->name, "RUMBLE")) default_str = "1";
 	else if (!strcasecmp(var->name, "WHEEL_FORCE")) default_str = "50";
-	else if (!strcasecmp(var->name, "DVI_MODE")) default_str = "2";
+	// DVI_MODE default is 0 (auto-detect) - removed incorrect default_str = "2"
 	else if (!strcasecmp(var->name, "HDR")) default_str = "0";
 	else if (!strcasecmp(var->name, "HDR_MAX_NITS")) default_str = "1000";
 	else if (!strcasecmp(var->name, "HDR_AVG_NITS")) default_str = "250";
@@ -1016,10 +2127,16 @@ static int value_differs_from_default(const ini_var_t *var)
 			case INI_INT16:
 			case INI_UINT32:
 			case INI_INT32:
-			case INI_HEX8:
-			case INI_HEX16:
-			case INI_HEX32:
 				default_str = "0";
+				break;
+			case INI_HEX8:
+				default_str = "0x00";
+				break;
+			case INI_HEX16:
+				default_str = "0x0000";
+				break;
+			case INI_HEX32:
+				default_str = "0x00000000";
 				break;
 			case INI_FLOAT:
 				default_str = "0.00";  // Match the formatting used by format_ini_value (%.2f)
@@ -1033,7 +2150,17 @@ static int value_differs_from_default(const ini_var_t *var)
 		}
 	}
 	
-	return strcmp(current_value, default_str) != 0;
+	int differs = strcmp(current_value, default_str) != 0;
+	
+	// Debug a few key settings
+	if (!strcasecmp(var->name, "COMPOSITE_SYNC") || !strcasecmp(var->name, "DEBUG") || 
+	    !strcasecmp(var->name, "FORCED_SCANDOUBLER") || !strcasecmp(var->name, "HDMI_GAME_MODE"))
+	{
+		printf("DEBUG: %s - current='%s', default='%s', differs=%d\n", 
+		       var->name, current_value, default_str, differs);
+	}
+	
+	return differs;
 }
 
 // Check if current memory value differs from file value
@@ -1046,9 +2173,17 @@ static int value_needs_update(const ini_var_t *var, const char* file_value)
 	if (!file_value && strlen(current_value) == 0)
 		return 0;
 	
-	// If we have no file value but current value exists, update needed
+	// If we have no file value but current value exists and differs from default, update needed
 	if (!file_value && strlen(current_value) > 0)
-		return 1;
+	{
+		int differs = value_differs_from_default(var);
+		if (!strcasecmp(var->name, "COMPOSITE_SYNC") || !strcasecmp(var->name, "DEBUG") || !strcasecmp(var->name, "HDMI_GAME_MODE"))
+		{
+			printf("DEBUG: value_needs_update() %s - current='%s', differs_from_default=%d\n", 
+			       var->name, current_value, differs);
+		}
+		return differs;
+	}
 	
 	// If we have file value but current value is empty, update needed (to remove)
 	if (file_value && strlen(current_value) == 0)
@@ -1072,6 +2207,8 @@ int cfg_save(uint8_t alt)
 	snprintf(filepath, sizeof(filepath), "%s/%s", getRootDir(), ini_filename);
 	snprintf(backuppath, sizeof(backuppath), "%s.temp", filepath);
 	snprintf(temppath, sizeof(temppath), "%s.sed", filepath);
+	
+	printf("DEBUG: Full filepath: %s\n", filepath);
 	
 	// Create backup
 	char cmd[2048];
@@ -1118,6 +2255,10 @@ int cfg_save(uint8_t alt)
 	}
 	
 	// Process each variable that might need updating
+	printf("DEBUG: sizeof(ini_vars)=%zu, sizeof(ini_var_t)=%zu\n", sizeof(ini_vars), sizeof(ini_var_t));
+	printf("DEBUG: Processing %d ini_vars entries\n", nvars);
+	int processed = 0, skipped_array = 0, skipped_sync = 0;
+	
 	for (int i = 0; i < nvars; i++)
 	{
 		const ini_var_t *var = &ini_vars[i];
@@ -1125,6 +2266,35 @@ int cfg_save(uint8_t alt)
 		// Skip array types for now
 		if (var->type == INI_UINT32ARR || var->type == INI_HEX32ARR || var->type == INI_STRINGARR)
 			continue;
+		
+		// Special case for SYNC_MODE: sync to individual settings and skip direct saving
+		if (!strcasecmp(var->name, "SYNC_MODE"))
+		{
+			cfg_sync_mode_to_individual();
+			continue; // Don't save SYNC_MODE directly to INI
+		}
+		
+		// Debug: Show memory value for key settings
+		if (strstr(var->name, "HDMI_GAME_MODE") || strstr(var->name, "BOOTSCREEN"))
+		{
+			printf("DEBUG: Processing %s (type=%d)\n", var->name, var->type);
+			printf("DEBUG: Memory value: ");
+			switch (var->type)
+			{
+				case INI_UINT8:
+					printf("%u", *(uint8_t*)var->var);
+					break;
+				case INI_UINT16:
+					printf("%u", *(uint16_t*)var->var);
+					break;
+				case INI_INT16:
+					printf("%d", *(int16_t*)var->var);
+					break;
+				default:
+					printf("(unknown type)");
+			}
+			printf("\n");
+		}
 		
 		char current_value[512];
 		
@@ -1163,10 +2333,14 @@ int cfg_save(uint8_t alt)
 		
 		// Check if this value exists in the file and differs
 		FILE *fp = fopen(filepath, "r");
-		if (!fp) continue;
+		if (!fp) {
+			printf("DEBUG: Could not open %s for reading\n", filepath);
+			continue;
+		}
 		
 		char line[1024];
 		char *file_value = NULL;
+		char file_value_buffer[512];  // Buffer to store the extracted value
 		int in_mister_section = 0;
 		int is_commented = 0;
 		
@@ -1179,6 +2353,8 @@ int cfg_save(uint8_t alt)
 			if (*trimmed == '[')
 			{
 				in_mister_section = (strncasecmp(trimmed, "[MiSTer]", 8) == 0);
+				if (!in_mister_section && strlen(trimmed) > 2)
+					break; // We've passed the [MiSTer] section
 				continue;
 			}
 			
@@ -1188,12 +2364,24 @@ int cfg_save(uint8_t alt)
 				char *extracted = extract_ini_file_value(trimmed, lowercase_name, &is_commented);
 				if (extracted)
 				{
-					file_value = extracted;
+					// Copy the value to our buffer since extract_ini_file_value uses a static buffer
+					strncpy(file_value_buffer, extracted, sizeof(file_value_buffer) - 1);
+					file_value_buffer[sizeof(file_value_buffer) - 1] = '\0';
+					file_value = file_value_buffer;
 					break;
 				}
 			}
 		}
 		fclose(fp);
+		
+		// Debug check for specific problematic settings
+		if (!strcasecmp(var->name, "HDMI_GAME_MODE") || !strcasecmp(var->name, "BOOTSCREEN") || !strcasecmp(var->name, "DEBUG"))
+		{
+			printf("DEBUG: %s - file_value='%s', current='%s', is_commented=%d\n", 
+				var->name, file_value ? file_value : "NULL", current_value, is_commented);
+			printf("DEBUG: %s - value_needs_update=%d\n", 
+				var->name, value_needs_update(var, file_value));
+		}
 		
 		// Check if update is needed
 		if (!value_needs_update(var, file_value) && !is_commented)
@@ -1209,6 +2397,8 @@ int cfg_save(uint8_t alt)
 			printf("DEBUG: %s - file_value='%s', current='%s'%s\n", 
 				var->name, file_value ? file_value : "NULL", current_value, is_commented ? " (commented)" : "");
 		}
+		
+		processed++;
 		
 		// Escape special characters in current_value for sed
 		char escaped_value[1024];
@@ -1228,7 +2418,10 @@ int cfg_save(uint8_t alt)
 		{
 			// Only add missing settings if current value differs from default
 			if (!value_differs_from_default(var))
+			{
+				// Skip settings that match their defaults
 				continue;
+			}
 		}
 		
 		// Special handling for MOUSE_THROTTLE=0 (comment out instead)
@@ -1245,7 +2438,7 @@ int cfg_save(uint8_t alt)
 			{
 				// Add commented line
 				snprintf(cmd, sizeof(cmd),
-					"sed -i '/^\\[MiSTer\\]/a\\;%s=1' \"%s\"",
+					"sed -i '/^\\[MiSTer\\]/a ;%s=1' \"%s\"",
 					lowercase_name, filepath);
 			}
 		}
@@ -1273,13 +2466,23 @@ int cfg_save(uint8_t alt)
 			{
 				// Add new value after [MiSTer] line (missing setting that differs from default)
 				snprintf(cmd, sizeof(cmd),
-					"sed -i.sed '/^\\[MiSTer\\]/a\\%s=%s' \"%s\"",
+					"sed -i '/^\\[MiSTer\\]/a %s=%s' \"%s\"",
 					lowercase_name, escaped_value, filepath);
+				if (!strcasecmp(var->name, "BOOTSCREEN"))
+				{
+					printf("DEBUG: BOOTSCREEN sed command: %s\n", cmd);
+				}
 			}
 		}
 		
 		
-		if (system(cmd) != 0)
+		int sed_result = system(cmd);
+		if (!strcasecmp(var->name, "BOOTSCREEN"))
+		{
+			printf("DEBUG: BOOTSCREEN sed result: %d\n", sed_result);
+		}
+		
+		if (sed_result != 0)
 		{
 			printf("Error: sed command failed for %s\n", var->name);
 			printf("Restoring backup...\n");
@@ -1293,6 +2496,8 @@ int cfg_save(uint8_t alt)
 	snprintf(cmd, sizeof(cmd), "rm -f \"%s.sed\"", filepath);
 	system(cmd);
 	
+	printf("DEBUG: Total entries in ini_vars: %d\n", nvars);
+	printf("DEBUG: Entries actually processed: %d\n", processed);
 	printf("Configuration saved to: %s\n", filepath);
 	return 1;
 }
@@ -1408,10 +2613,12 @@ int cfg_save_core_specific(uint8_t alt)
 	// Determine which settings can be saved to core sections based on categories
 	// Include settings from categories that are accessible through the core settings menu
 	const osd_category_t allowed_categories[] = {
-		CAT_VIDEO_DISPLAY,     // Basic Video and Advanced Video settings
-		CAT_AUDIO,             // Audio settings (96kHz, etc.)
-		CAT_INPUT_CONTROLLERS, // Input & Controls settings
-		CAT_SYSTEM_BOOT,       // System & Storage settings
+		CAT_AV_DIGITAL,        // HDMI Video settings
+		CAT_AV_ANALOG,      // Analog Video settings
+		CAT_INPUT_CONTROLLER,  // Controller settings
+		CAT_INPUT_ARCADE,      // Arcade Input settings
+		CAT_INPUT_KB_MOUSE,    // Keyboard & Mouse settings
+		CAT_UI,                // UI settings
 		(osd_category_t)-1     // End marker
 	};
 	
@@ -1446,6 +2653,13 @@ int cfg_save_core_specific(uint8_t alt)
 		{
 			printf("DEBUG: Skipping variable from non-allowed category: %s (category %d)\n", var->name, var->category);
 			continue;
+		}
+		
+		// Special case for SYNC_MODE: sync to individual settings and skip direct saving
+		if (!strcasecmp(var->name, "SYNC_MODE"))
+		{
+			cfg_sync_mode_to_individual();
+			continue; // Don't save SYNC_MODE directly to INI
 		}
 		
 		// Check if this variable is blacklisted
@@ -1744,4 +2958,1406 @@ int cfg_save_core_specific(uint8_t alt)
 	}
 	
 	return 1;
+}
+
+// Print category organization for debugging
+void cfg_print_category_organization(void)
+{
+	printf("\n=== Settings by Category ===\n");
+	
+	for (int cat = 0; cat < CAT_COUNT; cat++)
+	{
+		const osd_category_info_t* cat_info = cfg_get_category_info((osd_category_t)cat);
+		const ini_var_t** settings = NULL;
+		int count = 0;
+		
+		cfg_get_settings_for_category((osd_category_t)cat, &settings, &count, MENU_BOTH);
+		
+		printf("\n%s (%d settings)\n", cat_info->name, count);
+		printf("  %s\n", cat_info->description);
+		printf("  Settings:\n");
+		
+		for (int i = 0; i < count; i++)
+		{
+			const ini_var_t* var = settings[i];
+			printf("    - %-25s: %s\n", var->name, var->display_name);
+		}
+	}
+	
+	printf("\n");
+}
+
+// Generate a dynamic menu for a category
+int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible)
+{
+	const ini_var_t** settings = NULL;
+	int count = 0;
+	int m = menu_offset;
+	char s[256];
+	
+	// Get sorted settings for this category
+	cfg_get_settings_for_category(category, &settings, &count, menu_type);
+	
+	// Set category title if provided
+	if (title) {
+		OsdSetTitle(title, 0);
+	}
+	
+	// Add blank line
+	OsdWrite(m++);
+	
+	// Calculate scrolling parameters
+	int total_settings = count;
+	int visible_lines = OsdGetSize() - 3; // Reserve space for title, blank line
+	bool has_accept_button = (category == CAT_AV_DIGITAL || category == CAT_AV_ANALOG);
+	// Don't reserve space for Accept button - allow it to use the very bottom row
+	
+	// Initialize first_visible if needed
+	if (!first_visible || *first_visible < 0) {
+		static int first_visible_fallback = 0;
+		first_visible = &first_visible_fallback;
+		*first_visible = 0;
+	}
+	
+	// First, build a list of all displayable items (enabled + stippled)
+	struct menu_item {
+		const ini_var_t* var;
+		bool is_stippled;
+		bool is_selectable;
+	};
+	
+	struct menu_item display_items[count];
+	int display_count = 0;
+	int total_selectable_settings = 0;
+	
+	for (int i = 0; i < count; i++) {
+		const ini_var_t* var = settings[i];
+		
+		// Skip hidden settings
+		if (var->menu_position < 0) continue;
+		
+		bool is_enabled = cfg_is_setting_enabled(var->name);
+		bool is_stippled = is_setting_stippled(var->name);
+		
+		// Special handling: if a setting should be stippled, always show it regardless of enabled state
+		if (is_stippled) {
+			is_enabled = true; // Force show stippled settings
+		}
+		
+		// Skip disabled settings that aren't stippled
+		if (!is_enabled && !is_stippled) continue;
+		
+		display_items[display_count].var = var;
+		display_items[display_count].is_stippled = is_stippled;
+		display_items[display_count].is_selectable = !is_stippled;
+		display_count++;
+		
+		if (!is_stippled) total_selectable_settings++;
+	}
+	
+	// Adjust scroll position based on current selection
+	int scroll_margin = 3;
+	if (visible_lines < scroll_margin * 2) scroll_margin = 1;
+	
+	// Convert menusub (selectable index) to display index for scrolling calculations
+	int current_display_index = -1;
+	if (menusub) {
+		int selectable_count = 0;
+		for (int i = 0; i < display_count; i++) {
+			if (display_items[i].is_selectable) {
+				if (selectable_count == *menusub) {
+					current_display_index = i;
+					break;
+				}
+				selectable_count++;
+			}
+		}
+	}
+	
+	// Adjust scroll position based on display index
+	if (current_display_index >= 0) {
+		if (current_display_index < *first_visible + scroll_margin) {
+			*first_visible = current_display_index - scroll_margin;
+			if (*first_visible < 0) *first_visible = 0;
+		}
+		if (current_display_index >= *first_visible + visible_lines - scroll_margin) {
+			*first_visible = current_display_index - visible_lines + scroll_margin + 1;
+		}
+	}
+	
+	// Ensure scroll bounds
+	if (*first_visible < 0) *first_visible = 0;
+	if (*first_visible > display_count - visible_lines && display_count > visible_lines) {
+		*first_visible = display_count - visible_lines;
+	}
+	
+	// Generate menu items for visible range
+	int selectable_index = 0; // Index in selectable items (matches menusub)
+	
+	for (int i = 0; i < display_count; i++) {
+		// Skip items before visible range
+		if (i < *first_visible) {
+			if (display_items[i].is_selectable) selectable_index++;
+			continue;
+		}
+		
+		// Stop if we've filled visible lines
+		if (i >= *first_visible + visible_lines) break;
+		
+		const ini_var_t* var = display_items[i].var;
+		bool is_stippled = display_items[i].is_stippled;
+		
+		// Render the setting value
+		cfg_render_setting_value(s, sizeof(s), var->name, var->display_name);
+		
+		// Write to OSD - only selectable items can be selected
+		bool selected = !is_stippled && (menusub && *menusub == selectable_index);
+		unsigned char stipple_flag = is_stippled ? 1 : 0;
+		OsdWrite(m++, s, selected, stipple_flag);
+		
+		if (!is_stippled) selectable_index++;
+	}
+	
+	// Add Accept button for Digital and Analog AV categories
+	if (category == CAT_AV_DIGITAL || category == CAT_AV_ANALOG)
+	{
+		// Add blank line
+		OsdWrite(m++);
+		
+		// Add Accept button
+		bool accept_selected = (menusub && *menusub == total_selectable_settings);
+		OsdWrite(m++, " >>>>>>>>> ACCEPT <<<<<<<<<", accept_selected);
+		total_selectable_settings++; // Include Accept button in total count
+	}
+	
+	// Fill remaining lines
+	while (m < OsdGetSize()) OsdWrite(m++);
+	
+	return total_selectable_settings; // Return count of selectable items including Accept button
+}
+
+// Handle setting value change (increment/decrement)
+void cfg_handle_setting_change(const ini_var_t* setting, int direction)
+{
+	if (!setting) {
+		printf("DEBUG: setting is NULL\n");
+		return;
+	}
+	
+	if (!cfg_is_setting_enabled(setting->name)) {
+		printf("DEBUG: setting %s is disabled\n", setting->name);
+		return; // Don't change disabled or invalid settings
+	}
+	
+	printf("DEBUG: Changing setting %s (type=%d, direction=%d)\n", setting->name, setting->type, direction);
+	
+	// Handle different setting types
+	switch (setting->type)
+	{
+		case INI_UINT8:
+		{
+			uint8_t* value = (uint8_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			
+			// Handle special cases that need sync
+			if (strcmp(setting->name, "COMPOSITE_SYNC") == 0 || strcmp(setting->name, "VGA_SOG") == 0) {
+				cfg_sync_individual_to_mode();
+			}
+			break;
+		}
+		
+		case INI_UINT16:
+		{
+			uint16_t* value = (uint16_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		case INI_UINT32:
+		{
+			uint32_t* value = (uint32_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		case INI_INT8:
+		{
+			int8_t* value = (int8_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		case INI_INT16:
+		{
+			int16_t* value = (int16_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		case INI_INT32:
+		{
+			int32_t* value = (int32_t*)setting->var;
+			int new_value = *value + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		case INI_FLOAT:
+		{
+			float* value = (float*)setting->var;
+			float new_value = *value + (direction * 0.1f); // Small increment for floats
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			*value = new_value;
+			break;
+		}
+		
+		// For string types, we'd need file picker or special handling
+		case INI_STRING:
+		{
+			// Special handling for VGA_MODE cycling
+			if (strcmp(setting->name, "VGA_MODE") == 0)
+			{
+				const char* vga_modes[] = {"rgb", "ypbpr", "svideo", "cvbs"};
+				int num_modes = sizeof(vga_modes) / sizeof(vga_modes[0]);
+				
+				char* current_mode = (char*)setting->var;
+				int current_index = 0;
+				
+				// Find current mode index
+				for (int i = 0; i < num_modes; i++) {
+					if (strcasecmp(current_mode, vga_modes[i]) == 0) {
+						current_index = i;
+						break;
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_modes - 1;
+				if (new_index >= num_modes) new_index = 0;
+				
+				// Set new mode
+				strncpy(current_mode, vga_modes[new_index], setting->max - 1);
+				current_mode[setting->max - 1] = '\0';
+				
+				// Update vga_mode_int to match the string
+				if (!strcasecmp(vga_modes[new_index], "rgb")) cfg.vga_mode_int = 0;
+				else if (!strcasecmp(vga_modes[new_index], "ypbpr")) cfg.vga_mode_int = 1;
+				else if (!strcasecmp(vga_modes[new_index], "svideo")) cfg.vga_mode_int = 2;
+				else if (!strcasecmp(vga_modes[new_index], "cvbs")) cfg.vga_mode_int = 3;
+				
+				// Auto-configure related settings based on VGA mode
+				cfg_auto_configure_vga_settings(cfg.vga_mode_int);
+				
+				printf("DEBUG: VGA_MODE changed from '%s' to '%s', vga_mode_int=%d\n", 
+					   vga_modes[current_index], vga_modes[new_index], cfg.vga_mode_int);
+			}
+			// Special handling for VIDEO_MODE cycling
+			else if (strcmp(setting->name, "VIDEO_MODE") == 0)
+			{
+				const char* video_modes[] = {"auto", "1920x1080", "1280x720", "720x480", "720x576"};
+				int num_modes = sizeof(video_modes) / sizeof(video_modes[0]);
+				
+				char* current_mode = (char*)setting->var;
+				int current_index = 0;
+				
+				// Find current mode index (handle empty string as "auto")
+				if (strlen(current_mode) == 0) {
+					current_index = 0; // auto
+				} else {
+					for (int i = 0; i < num_modes; i++) {
+						if (strcasecmp(current_mode, video_modes[i]) == 0) {
+							current_index = i;
+							break;
+						}
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_modes - 1;
+				if (new_index >= num_modes) new_index = 0;
+				
+				// Set new mode (auto is represented as empty string)
+				if (new_index == 0) {
+					current_mode[0] = '\0'; // auto = empty string
+				} else {
+					strncpy(current_mode, video_modes[new_index], setting->max - 1);
+					current_mode[setting->max - 1] = '\0';
+				}
+				
+				printf("DEBUG: VIDEO_MODE changed from '%s' to '%s'\n", 
+					   video_modes[current_index], new_index == 0 ? "auto" : video_modes[new_index]);
+			}
+			// Special handling for file picker settings - open file browser
+			else if (strstr(setting->name, "DEFAULT") || strstr(setting->name, "FILTER") || 
+			         strstr(setting->name, "FONT") || strstr(setting->name, "PRESET"))
+			{
+				// For file picker settings, we need to open a file browser
+				printf("DEBUG: File picker requested for %s - implementing file browser\n", setting->name);
+				printf("DEBUG: Current file picker state before setting: %p\n", (void*)cfg_file_picker_current_setting);
+				
+				// Store the current setting for file picker callback
+				cfg_set_file_picker_setting(setting);
+				printf("DEBUG: File picker state after setting: %p\n", (void*)cfg_file_picker_current_setting);
+				
+				// Determine directory and file extension based on setting type
+				const char* file_ext = "";
+				const char* subdir = "";
+				
+				if (strstr(setting->name, "AFILTER")) {
+					subdir = "filters_audio";
+					file_ext = "TXT";
+				} else if (strstr(setting->name, "VFILTER")) {
+					subdir = "filters";
+					file_ext = "TXT";
+				} else if (strstr(setting->name, "SHMASK")) {
+					subdir = "shadow_masks";
+					file_ext = "TXT";
+				} else if (strstr(setting->name, "FONT")) {
+					subdir = "font";
+					file_ext = "PF";
+				} else if (strstr(setting->name, "PRESET")) {
+					subdir = "presets";
+					file_ext = "INI";
+				}
+				
+				// Set initial path - use current setting value if it exists, otherwise default directory
+				char* current_path = (char*)setting->var;
+				if (strlen(current_path) > 0) {
+					// If setting has a value, use its directory or the full path
+					// Check if current_path already includes the subdirectory
+					if (strstr(current_path, subdir) == current_path) {
+						// Path already includes subdirectory, use as-is
+						snprintf(cfg_file_picker_initial_path, sizeof(cfg_file_picker_initial_path), 
+								 "%s", current_path);
+					} else {
+						// Path doesn't include subdirectory, prepend it
+						snprintf(cfg_file_picker_initial_path, sizeof(cfg_file_picker_initial_path), 
+								 "%s/%s", subdir, current_path);
+					}
+				} else {
+					// Default to the appropriate subdirectory
+					snprintf(cfg_file_picker_initial_path, sizeof(cfg_file_picker_initial_path), 
+							 "%s", subdir);
+				}
+				
+				// Open file browser - this will trigger menu transition
+				cfg_open_file_picker(cfg_file_picker_initial_path, file_ext);
+				
+				printf("DEBUG: File picker opened for %s with dir=%s, ext=%s\n", 
+					   setting->name, cfg_file_picker_initial_path, file_ext);
+			}
+			break;
+		}
+		default:
+			// Unhandled string setting type
+			printf("DEBUG: Unhandled string setting: %s\n", setting->name);
+			break;
+	}
+	
+	// Handle virtual sync_mode setting
+	if (strcmp(setting->name, "SYNC_MODE") == 0) {
+		cfg_sync_mode_to_individual();
+	}
+}
+
+// Check if a setting requires confirmation screen (audio/video settings)
+bool cfg_requires_confirmation(const ini_var_t* setting)
+{
+	if (!setting) return false;
+	
+	// AV categories (CAT_AV_DIGITAL, CAT_AV_ANALOG) use temp settings, not confirmation
+	if (setting->category == CAT_AV_DIGITAL || setting->category == CAT_AV_ANALOG) {
+		return false; // These use temp settings system instead
+	}
+	
+	// Only critical display settings that could break the display should require confirmation
+	if (strcmp(setting->name, "MENU_PAL") == 0) return true;
+	
+	// The following settings should NOT require confirmation per user request:
+	// VIDEO_INFO, FB_TERMINAL, OSD_TIMEOUT - these are UI settings that don't break display
+	
+	// The following should cycle normally without confirmation:
+	// video_mode, vsync_adjust, hdmi_color_range, video_brightness/contrast/saturation/hue,
+	// video_gain_offset, hdr settings, vrr settings
+	
+	return false;
+}
+
+// Storage for setting backup during confirmation
+static struct {
+	char setting_name[64];
+	char old_value_str[128];
+	char new_value_str[128];
+	uint8_t old_uint8;
+	uint16_t old_uint16;
+	uint32_t old_uint32;
+	int8_t old_int8;
+	int16_t old_int16; 
+	int32_t old_int32;
+	float old_float;
+	char old_string[256];
+	const ini_var_t* setting_ptr;
+} setting_backup = {0};
+
+// Temporary settings system for AV menus
+#define MAX_TEMP_SETTINGS 64
+typedef struct {
+	const ini_var_t* setting;
+	union {
+		uint8_t uint8_val;
+		uint16_t uint16_val; 
+		uint32_t uint32_val;
+		int8_t int8_val;
+		int16_t int16_val;
+		int32_t int32_val;
+		float float_val;
+		char string_val[256];
+	} value;
+} temp_setting_t;
+
+static struct {
+	bool active;
+	osd_category_t category;
+	temp_setting_t initial_values[MAX_TEMP_SETTINGS];
+	temp_setting_t changed_values[MAX_TEMP_SETTINGS];
+	int initial_count;
+	int changed_count;
+} temp_settings = {0};
+
+// Helper function to get temp value for custom renderers
+static bool get_temp_uint8_value(const char* setting_name, uint8_t* value)
+{
+	if (!temp_settings.active || !value)
+		return false;
+		
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		if (strcmp(temp_settings.changed_values[i].setting->name, setting_name) == 0)
+		{
+			*value = temp_settings.changed_values[i].value.uint8_val;
+			return true;
+		}
+	}
+	return false;
+}
+
+// Helper function to get temp string value
+static bool get_temp_string_value(const char* setting_name, char* buffer, size_t buffer_size)
+{
+	if (!temp_settings.active || !buffer)
+		return false;
+		
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		if (strcmp(temp_settings.changed_values[i].setting->name, setting_name) == 0)
+		{
+			strncpy(buffer, temp_settings.changed_values[i].value.string_val, buffer_size - 1);
+			buffer[buffer_size - 1] = '\0';
+			return true;
+		}
+	}
+	return false;
+}
+
+// Helper function to store current value of a setting
+static void store_setting_value(temp_setting_t* temp_setting, const ini_var_t* setting)
+{
+	temp_setting->setting = setting;
+	
+	switch (setting->type)
+	{
+		case INI_UINT8:
+		case INI_HEX8:
+			temp_setting->value.uint8_val = *(uint8_t*)setting->var;
+			break;
+		case INI_INT8:
+			temp_setting->value.int8_val = *(int8_t*)setting->var;
+			break;
+		case INI_UINT16:
+		case INI_HEX16:
+			temp_setting->value.uint16_val = *(uint16_t*)setting->var;
+			break;
+		case INI_INT16:
+			temp_setting->value.int16_val = *(int16_t*)setting->var;
+			break;
+		case INI_UINT32:
+		case INI_HEX32:
+			temp_setting->value.uint32_val = *(uint32_t*)setting->var;
+			break;
+		case INI_INT32:
+			temp_setting->value.int32_val = *(int32_t*)setting->var;
+			break;
+		case INI_FLOAT:
+			temp_setting->value.float_val = *(float*)setting->var;
+			break;
+		case INI_STRING:
+			strncpy(temp_setting->value.string_val, (char*)setting->var, sizeof(temp_setting->value.string_val) - 1);
+			temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+			break;
+		default:
+			printf("ERROR: Unsupported setting type for temp storage: %d\n", setting->type);
+			break;
+	}
+}
+
+// Helper function to restore value to a setting
+static void restore_setting_value(const temp_setting_t* temp_setting)
+{
+	const ini_var_t* setting = temp_setting->setting;
+	
+	switch (setting->type)
+	{
+		case INI_UINT8:
+		case INI_HEX8:
+			*(uint8_t*)setting->var = temp_setting->value.uint8_val;
+			break;
+		case INI_INT8:
+			*(int8_t*)setting->var = temp_setting->value.int8_val;
+			break;
+		case INI_UINT16:
+		case INI_HEX16:
+			*(uint16_t*)setting->var = temp_setting->value.uint16_val;
+			break;
+		case INI_INT16:
+			*(int16_t*)setting->var = temp_setting->value.int16_val;
+			break;
+		case INI_UINT32:
+		case INI_HEX32:
+			*(uint32_t*)setting->var = temp_setting->value.uint32_val;
+			break;
+		case INI_INT32:
+			*(int32_t*)setting->var = temp_setting->value.int32_val;
+			break;
+		case INI_FLOAT:
+			*(float*)setting->var = temp_setting->value.float_val;
+			break;
+		case INI_STRING:
+			strncpy((char*)setting->var, temp_setting->value.string_val, setting->max);
+			break;
+		default:
+			printf("ERROR: Unsupported setting type for restore: %d\n", setting->type);
+			break;
+	}
+}
+
+// Initialize temporary settings system for a category
+void cfg_temp_settings_start(osd_category_t category)
+{
+	printf("DEBUG: Starting temp settings for category %d\n", category);
+	
+	// Clear any existing temp settings
+	cfg_temp_settings_clear();
+	
+	temp_settings.active = true;
+	temp_settings.category = category;
+	temp_settings.initial_count = 0;
+	temp_settings.changed_count = 0;
+	
+	// Store initial values for all settings in this category
+	const ini_var_t** settings;
+	int count;
+	if (cfg_get_settings_for_category(category, &settings, &count, MENU_BOTH) > 0)
+	{
+		for (int i = 0; i < count && temp_settings.initial_count < MAX_TEMP_SETTINGS; i++)
+		{
+			const ini_var_t* setting = settings[i];
+			if (setting && setting->type != INI_UINT32ARR && setting->type != INI_HEX32ARR && setting->type != INI_STRINGARR)
+			{
+				store_setting_value(&temp_settings.initial_values[temp_settings.initial_count], setting);
+				temp_settings.initial_count++;
+			}
+		}
+	}
+	
+	printf("DEBUG: Stored %d initial setting values\n", temp_settings.initial_count);
+}
+
+// Helper function to apply direction change to a temp setting value
+static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int direction)
+{
+	const ini_var_t* setting = temp_setting->setting;
+	
+	switch (setting->type)
+	{
+		case INI_UINT8:
+		case INI_HEX8:
+		{
+			// Special handling for SYNC_MODE in YPbPr mode
+			if (strcmp(setting->name, "SYNC_MODE") == 0)
+			{
+				uint8_t vga_mode = get_current_vga_mode();
+				if (vga_mode == 1) // YPbPr mode - skip separate sync (0)
+				{
+					uint8_t current_value = temp_setting->value.uint8_val;
+					uint8_t new_value;
+					
+					if (direction > 0) // Moving forward
+					{
+						if (current_value == 1) new_value = 2; // Composite -> Sync-on-Green
+						else new_value = 1; // Sync-on-Green -> Composite
+					}
+					else // Moving backward
+					{
+						if (current_value == 2) new_value = 1; // Sync-on-Green -> Composite
+						else new_value = 2; // Composite -> Sync-on-Green
+					}
+					temp_setting->value.uint8_val = new_value;
+					printf("DEBUG: YPbPr SYNC_MODE cycling: %d -> %d (skipping separate)\n", current_value, new_value);
+				}
+				else
+				{
+					// Normal cycling for RGB mode
+					int new_value = temp_setting->value.uint8_val + direction;
+					if (new_value < setting->min) new_value = setting->max;
+					if (new_value > setting->max) new_value = setting->min;
+					temp_setting->value.uint8_val = new_value;
+				}
+			}
+			else
+			{
+				// Normal uint8 handling for other settings
+				int new_value = temp_setting->value.uint8_val + direction;
+				if (new_value < setting->min) new_value = setting->max;
+				if (new_value > setting->max) new_value = setting->min;
+				temp_setting->value.uint8_val = new_value;
+			}
+			break;
+		}
+		case INI_INT8:
+		{
+			int new_value = temp_setting->value.int8_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.int8_val = new_value;
+			break;
+		}
+		case INI_UINT16:
+		case INI_HEX16:
+		{
+			int new_value = temp_setting->value.uint16_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.uint16_val = new_value;
+			break;
+		}
+		case INI_INT16:
+		{
+			int new_value = temp_setting->value.int16_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.int16_val = new_value;
+			break;
+		}
+		case INI_UINT32:
+		case INI_HEX32:
+		{
+			int new_value = temp_setting->value.uint32_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.uint32_val = new_value;
+			break;
+		}
+		case INI_INT32:
+		{
+			int new_value = temp_setting->value.int32_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.int32_val = new_value;
+			break;
+		}
+		case INI_FLOAT:
+		{
+			float new_value = temp_setting->value.float_val + direction;
+			if (new_value < setting->min) new_value = setting->max;
+			if (new_value > setting->max) new_value = setting->min;
+			temp_setting->value.float_val = new_value;
+			break;
+		}
+		case INI_STRING:
+		{
+			// Special handling for VGA_MODE cycling
+			if (strcmp(setting->name, "VGA_MODE") == 0)
+			{
+				const char* vga_modes[] = {"rgb", "ypbpr", "svideo", "cvbs"};
+				int num_modes = sizeof(vga_modes) / sizeof(vga_modes[0]);
+				
+				char* current_mode = temp_setting->value.string_val;
+				int current_index = 0;
+				
+				// Find current mode index
+				for (int i = 0; i < num_modes; i++) {
+					if (strcasecmp(current_mode, vga_modes[i]) == 0) {
+						current_index = i;
+						break;
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_modes - 1;
+				if (new_index >= num_modes) new_index = 0;
+				
+				// Set new mode
+				strncpy(temp_setting->value.string_val, vga_modes[new_index], sizeof(temp_setting->value.string_val) - 1);
+				temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+				
+				// Update vga_mode_int to match the string (for dependency checking)
+				if (!strcasecmp(vga_modes[new_index], "rgb")) cfg.vga_mode_int = 0;
+				else if (!strcasecmp(vga_modes[new_index], "ypbpr")) cfg.vga_mode_int = 1;
+				else if (!strcasecmp(vga_modes[new_index], "svideo")) cfg.vga_mode_int = 2;
+				else if (!strcasecmp(vga_modes[new_index], "cvbs")) cfg.vga_mode_int = 3;
+				
+				// Auto-configure related settings in temp mode
+				cfg_auto_configure_vga_settings_temp(cfg.vga_mode_int);
+				
+				printf("DEBUG: VGA_MODE temp changed from '%s' to '%s', vga_mode_int=%d\n", 
+					   vga_modes[current_index], vga_modes[new_index], cfg.vga_mode_int);
+			}
+			// Special handling for VIDEO_MODE cycling
+			else if (strcmp(setting->name, "VIDEO_MODE") == 0)
+			{
+				const char* video_modes[] = {"auto", "1920x1080", "1280x720", "720x480", "720x576"};
+				int num_modes = sizeof(video_modes) / sizeof(video_modes[0]);
+				
+				char* current_mode = temp_setting->value.string_val;
+				int current_index = 0;
+				
+				// Find current mode index (handle empty string as "auto")
+				if (strlen(current_mode) == 0) {
+					current_index = 0; // auto
+				} else {
+					for (int i = 0; i < num_modes; i++) {
+						if (strcasecmp(current_mode, video_modes[i]) == 0) {
+							current_index = i;
+							break;
+						}
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_modes - 1;
+				if (new_index >= num_modes) new_index = 0;
+				
+				// Set new mode (auto is represented as empty string)
+				if (new_index == 0) {
+					temp_setting->value.string_val[0] = '\0'; // auto = empty string
+				} else {
+					strncpy(temp_setting->value.string_val, video_modes[new_index], sizeof(temp_setting->value.string_val) - 1);
+					temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+				}
+				
+				printf("DEBUG: VIDEO_MODE temp changed from '%s' to '%s'\n", 
+					   video_modes[current_index], new_index == 0 ? "auto" : video_modes[new_index]);
+			}
+			// Special handling for VIDEO_MODE_PAL and VIDEO_MODE_NTSC cycling
+			else if (strcmp(setting->name, "VIDEO_MODE_PAL") == 0 || strcmp(setting->name, "VIDEO_MODE_NTSC") == 0)
+			{
+				const char* video_modes[] = {"auto", "1920x1080", "1280x720", "720x480", "720x576"};
+				int num_modes = sizeof(video_modes) / sizeof(video_modes[0]);
+				
+				char* current_mode = temp_setting->value.string_val;
+				int current_index = 0;
+				
+				// Find current mode index (handle empty string as "auto")
+				if (strlen(current_mode) == 0) {
+					current_index = 0; // auto
+				} else {
+					for (int i = 0; i < num_modes; i++) {
+						if (strcasecmp(current_mode, video_modes[i]) == 0) {
+							current_index = i;
+							break;
+						}
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_modes - 1;
+				if (new_index >= num_modes) new_index = 0;
+				
+				// Set new mode (auto is represented as empty string)
+				if (new_index == 0) {
+					temp_setting->value.string_val[0] = '\0'; // auto = empty string
+				} else {
+					strncpy(temp_setting->value.string_val, video_modes[new_index], sizeof(temp_setting->value.string_val) - 1);
+					temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+				}
+				
+				printf("DEBUG: %s temp changed from '%s' to '%s'\n", 
+					   setting->name, video_modes[current_index], new_index == 0 ? "auto" : video_modes[new_index]);
+			}
+			// Special handling for CUSTOM_ASPECT_RATIO cycling
+			else if (strcmp(setting->name, "CUSTOM_ASPECT_RATIO_1") == 0 || strcmp(setting->name, "CUSTOM_ASPECT_RATIO_2") == 0)
+			{
+				const char* aspect_ratios[] = {"", "4:3", "16:9", "16:10", "21:9", "1:1"};
+				int num_ratios = sizeof(aspect_ratios) / sizeof(aspect_ratios[0]);
+				
+				char* current_ratio = temp_setting->value.string_val;
+				int current_index = 0;
+				
+				// Find current ratio index
+				for (int i = 0; i < num_ratios; i++) {
+					if (strcasecmp(current_ratio, aspect_ratios[i]) == 0) {
+						current_index = i;
+						break;
+					}
+				}
+				
+				// Calculate next index with wrapping
+				int new_index = current_index + direction;
+				if (new_index < 0) new_index = num_ratios - 1;
+				if (new_index >= num_ratios) new_index = 0;
+				
+				// Set new ratio
+				strncpy(temp_setting->value.string_val, aspect_ratios[new_index], sizeof(temp_setting->value.string_val) - 1);
+				temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+				
+				printf("DEBUG: %s temp changed from '%s' to '%s'\n", 
+					   setting->name, aspect_ratios[current_index], aspect_ratios[new_index]);
+			}
+			// Special handling for file picker settings - open file browser
+			else if (strstr(setting->name, "DEFAULT") || strstr(setting->name, "FILTER") || 
+			         strstr(setting->name, "FONT") || strstr(setting->name, "PRESET"))
+			{
+				// For file picker settings, we need to open a file browser
+				// For now, just clear the path (TODO: implement full file browser)
+				printf("DEBUG: File picker requested for %s - TODO: implement file browser\n", setting->name);
+				
+				// Temporary: toggle between empty and a sample path for testing
+				if (strlen(temp_setting->value.string_val) == 0) {
+					// Convert absolute path to relative path from /media/fat
+					const char* sample_path = "filters/example.txt";
+					strncpy(temp_setting->value.string_val, sample_path, sizeof(temp_setting->value.string_val) - 1);
+					temp_setting->value.string_val[sizeof(temp_setting->value.string_val) - 1] = '\0';
+					printf("DEBUG: %s temp set to sample path '%s'\n", setting->name, sample_path);
+				} else {
+					// Clear path
+					temp_setting->value.string_val[0] = '\0';
+					printf("DEBUG: %s temp cleared\n", setting->name);
+				}
+			}
+			break;
+		}
+		default:
+			printf("ERROR: Unsupported setting type for temp change: %d\n", setting->type);
+			break;
+	}
+}
+
+// Handle setting change in temp mode
+void cfg_temp_settings_change(const ini_var_t* setting, int direction)
+{
+	printf("DEBUG: cfg_temp_settings_change called for %s, direction=%d, active=%d\n", 
+		setting->name, direction, temp_settings.active);
+		
+	if (!temp_settings.active)
+	{
+		printf("ERROR: Temp settings not active\n");
+		return;
+	}
+	
+	// Check if sync mode is locked and prevent changes
+	if (strcmp(setting->name, "SYNC_MODE") == 0 && is_sync_mode_locked())
+	{
+		printf("DEBUG: SYNC_MODE is locked in S-Video/CVBS mode, ignoring change\n");
+		return;
+	}
+	
+	// Check if setting is stippled (disabled) and prevent changes
+	if (is_setting_stippled(setting->name))
+	{
+		printf("DEBUG: %s is stippled in current VGA mode, ignoring change\n", setting->name);
+		return;
+	}
+	
+	// Find or add to changed values array
+	int found_index = -1;
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		if (temp_settings.changed_values[i].setting == setting)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index == -1)
+	{
+		// Add new changed setting - start with current memory value
+		if (temp_settings.changed_count < MAX_TEMP_SETTINGS)
+		{
+			found_index = temp_settings.changed_count;
+			store_setting_value(&temp_settings.changed_values[found_index], setting);
+			temp_settings.changed_count++;
+		}
+		else
+		{
+			printf("ERROR: Too many temp setting changes\n");
+			return;
+		}
+	}
+	
+	// Apply the direction change to the temp value (not memory)
+	apply_direction_to_temp_value(&temp_settings.changed_values[found_index], direction);
+	
+	printf("DEBUG: Temp changed %s, total changes: %d\n", setting->name, temp_settings.changed_count);
+}
+
+// Apply all temporary changes to memory
+bool cfg_temp_settings_apply(void)
+{
+	if (!temp_settings.active)
+		return false;
+	
+	printf("DEBUG: Applying %d temp setting changes to memory\n", temp_settings.changed_count);
+	
+	// Apply all changed values to memory
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		restore_setting_value(&temp_settings.changed_values[i]);
+		printf("DEBUG: Applied %s to memory\n", temp_settings.changed_values[i].setting->name);
+	}
+	
+	// Send to hardware
+	user_io_send_buttons(1);
+	
+	// Clear temp settings
+	cfg_temp_settings_clear();
+	return true;
+}
+
+// Apply temp settings but keep temp data for potential revert (used for confirmation screen)
+bool cfg_temp_settings_apply_pending(void)
+{
+	if (!temp_settings.active)
+		return false;
+	
+	printf("DEBUG: Applying %d temp setting changes to memory (pending confirmation)\n", temp_settings.changed_count);
+	
+	// Apply all changed values to memory
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		restore_setting_value(&temp_settings.changed_values[i]);
+		printf("DEBUG: Applied %s to memory (pending)\n", temp_settings.changed_values[i].setting->name);
+	}
+	
+	// Send to hardware
+	user_io_send_buttons(1);
+	
+	// Don't clear temp settings - keep them for potential revert
+	return true;
+}
+
+// Revert all changes to initial values
+void cfg_temp_settings_revert(void)
+{
+	if (!temp_settings.active)
+		return;
+	
+	printf("DEBUG: Reverting %d temp setting changes\n", temp_settings.changed_count);
+	
+	// Restore all initial values
+	for (int i = 0; i < temp_settings.initial_count; i++)
+	{
+		restore_setting_value(&temp_settings.initial_values[i]);
+	}
+	
+	// Send to hardware
+	user_io_send_buttons(1);
+	
+	// Clear temp settings
+	cfg_temp_settings_clear();
+}
+
+// Reject temporary settings (restore initial values but preserve changed settings for further editing)
+void cfg_temp_settings_reject(void)
+{
+	if (!temp_settings.active)
+		return;
+	
+	printf("DEBUG: Rejecting temp settings, preserving %d changes for further editing\n", temp_settings.changed_count);
+	
+	// Restore all initial values to memory (revert the preview)
+	for (int i = 0; i < temp_settings.initial_count; i++)
+	{
+		restore_setting_value(&temp_settings.initial_values[i]);
+	}
+	
+	// Send to hardware
+	user_io_send_buttons(1);
+	
+	// Note: We do NOT clear temp_settings here - this preserves the changed values
+	// so the user can continue editing from where they left off
+}
+
+// Clear temporary settings
+void cfg_temp_settings_clear(void)
+{
+	printf("DEBUG: Clearing temp settings\n");
+	memset(&temp_settings, 0, sizeof(temp_settings));
+}
+
+// Check if there are pending changes
+bool cfg_temp_settings_has_changes(void)
+{
+	return temp_settings.active && temp_settings.changed_count > 0;
+}
+
+// Get temporary value for display (used by UI to show pending changes)
+void cfg_get_temp_var_value_as_string(const ini_var_t* var, char* buffer, size_t buffer_size)
+{
+	if (!temp_settings.active)
+	{
+		// No temp settings active, use normal function
+		cfg_get_var_value_as_string(var, buffer, buffer_size);
+		return;
+	}
+	
+	printf("DEBUG: Getting temp value for %s (active=%d, changed_count=%d)\n", 
+		var->name, temp_settings.active, temp_settings.changed_count);
+	
+	// Look for this setting in changed values
+	for (int i = 0; i < temp_settings.changed_count; i++)
+	{
+		printf("DEBUG: Checking temp setting %d: %s vs %s\n", i, 
+			temp_settings.changed_values[i].setting->name, var->name);
+			
+		if (temp_settings.changed_values[i].setting == var)
+		{
+			printf("DEBUG: Found temp value for %s in slot %d\n", var->name, i);
+			// Found a temporary value, format it
+			const temp_setting_t* temp_setting = &temp_settings.changed_values[i];
+			
+			switch (var->type)
+			{
+				case INI_UINT8:
+				case INI_INT8:
+					snprintf(buffer, buffer_size, "%d", temp_setting->value.uint8_val);
+					printf("DEBUG: Returning temp UINT8 value '%s' for %s\n", buffer, var->name);
+					return;
+				case INI_UINT16:
+				case INI_INT16:
+					snprintf(buffer, buffer_size, "%d", temp_setting->value.uint16_val);
+					return;
+				case INI_UINT32:
+				case INI_INT32:
+					snprintf(buffer, buffer_size, "%u", temp_setting->value.uint32_val);
+					return;
+				case INI_HEX8:
+					snprintf(buffer, buffer_size, "0x%02X", temp_setting->value.uint8_val);
+					return;
+				case INI_HEX16:
+					snprintf(buffer, buffer_size, "0x%04X", temp_setting->value.uint16_val);
+					return;
+				case INI_HEX32:
+					snprintf(buffer, buffer_size, "0x%08X", temp_setting->value.uint32_val);
+					return;
+				case INI_FLOAT:
+					snprintf(buffer, buffer_size, "%.2f", temp_setting->value.float_val);
+					return;
+				case INI_STRING:
+					snprintf(buffer, buffer_size, "%s", temp_setting->value.string_val);
+					printf("DEBUG: Returning temp STRING value '%s' for %s\n", buffer, var->name);
+					return;
+				default:
+					break;
+			}
+		}
+	}
+	
+	// Setting not found in temp changes, use memory value
+	cfg_get_var_value_as_string(var, buffer, buffer_size);
+}
+
+// Generic apply function for confirmed setting changes
+int generic_setting_apply(void)
+{
+	// Check if we have temporary settings to apply
+	if (cfg_temp_settings_has_changes())
+	{
+		printf("DEBUG: Applying temp settings changes\n");
+		cfg_temp_settings_apply();
+		return 1;
+	}
+	
+	// Fallback to old single-setting confirmation
+	user_io_send_buttons(1);
+	printf("DEBUG: Applied setting %s\n", setting_backup.setting_name);
+	return 1;
+}
+
+// Generic revert function for setting changes
+int generic_setting_revert(void)
+{
+	// Check if we have temporary settings to revert
+	if (temp_settings.active)
+	{
+		printf("DEBUG: Reverting temp settings changes\n");
+		cfg_temp_settings_revert();
+		return 1;
+	}
+	
+	// Fallback to old single-setting confirmation
+	if (!setting_backup.setting_ptr) {
+		printf("DEBUG: No setting to revert\n");
+		return 1;
+	}
+	
+	const ini_var_t* setting = setting_backup.setting_ptr;
+	printf("DEBUG: Reverting setting %s\n", setting->name);
+	
+	// Restore the old value based on type
+	switch (setting->type)
+	{
+		case INI_UINT8:
+			*((uint8_t*)setting->var) = setting_backup.old_uint8;
+			break;
+		case INI_UINT16:
+			*((uint16_t*)setting->var) = setting_backup.old_uint16;
+			break;
+		case INI_UINT32:
+			*((uint32_t*)setting->var) = setting_backup.old_uint32;
+			break;
+		case INI_INT8:
+			*((int8_t*)setting->var) = setting_backup.old_int8;
+			break;
+		case INI_INT16:
+			*((int16_t*)setting->var) = setting_backup.old_int16;
+			break;
+		case INI_INT32:
+			*((int32_t*)setting->var) = setting_backup.old_int32;
+			break;
+		case INI_FLOAT:
+			*((float*)setting->var) = setting_backup.old_float;
+			break;
+		case INI_STRING:
+			strncpy((char*)setting->var, setting_backup.old_string, setting->max);
+			break;
+		default:
+			printf("DEBUG: Unknown setting type for revert\n");
+			break;
+	}
+	
+	// Handle special sync cases
+	if (strcmp(setting->name, "SYNC_MODE") == 0) {
+		cfg_sync_mode_to_individual();
+	} else if (strcmp(setting->name, "COMPOSITE_SYNC") == 0 || strcmp(setting->name, "VGA_SOG") == 0) {
+		cfg_sync_individual_to_mode();
+	}
+	
+	user_io_send_buttons(1);
+	return 1;
+}
+
+// Setup confirmation screen for a setting change
+void cfg_setup_setting_confirmation(const ini_var_t* setting, const char* old_value, const char* new_value)
+{
+	if (!setting) return;
+	
+	// Store backup information
+	strncpy(setting_backup.setting_name, setting->name, sizeof(setting_backup.setting_name) - 1);
+	strncpy(setting_backup.old_value_str, old_value, sizeof(setting_backup.old_value_str) - 1);
+	strncpy(setting_backup.new_value_str, new_value, sizeof(setting_backup.new_value_str) - 1);
+	setting_backup.setting_ptr = setting;
+	
+	// Store the old value based on type
+	switch (setting->type)
+	{
+		case INI_UINT8:
+			setting_backup.old_uint8 = *((uint8_t*)setting->var);
+			break;
+		case INI_UINT16:
+			setting_backup.old_uint16 = *((uint16_t*)setting->var);
+			break;
+		case INI_UINT32:
+			setting_backup.old_uint32 = *((uint32_t*)setting->var);
+			break;
+		case INI_INT8:
+			setting_backup.old_int8 = *((int8_t*)setting->var);
+			break;
+		case INI_INT16:
+			setting_backup.old_int16 = *((int16_t*)setting->var);
+			break;
+		case INI_INT32:
+			setting_backup.old_int32 = *((int32_t*)setting->var);
+			break;
+		case INI_FLOAT:
+			setting_backup.old_float = *((float*)setting->var);
+			break;
+		case INI_STRING:
+			strncpy(setting_backup.old_string, (char*)setting->var, sizeof(setting_backup.old_string) - 1);
+			break;
+	}
+}
+
+// Generate dynamic category selection menu
+int cfg_generate_category_selection_menu(int menu_offset, int* menusub, const char* title, menu_flags_t menu_type)
+{
+	int m = menu_offset;
+	
+	// Set title
+	if (title) {
+		OsdSetTitle(title, 0);
+	}
+	
+	OsdWrite(m++, "");
+	OsdWrite(m++, " Select Category:");
+	OsdWrite(m++, "");
+	
+	// Generate category menu items
+	for (int i = 0; i < CAT_COUNT; i++)
+	{
+		char category_line[32];
+		// Format as exactly 28 characters: space + name + padding + \x16
+		snprintf(category_line, sizeof(category_line), " %s", category_info[i].name);
+		
+		// Pad with spaces to position 27, then add \x16 at position 27
+		int len = strlen(category_line);
+		while (len < 27) category_line[len++] = ' ';
+		category_line[27] = '\x16';
+		category_line[28] = '\0';
+		
+		bool selected = (menusub && *menusub == i);
+		OsdWrite(m++, category_line, selected);
+	}
+	
+	return CAT_COUNT; // Return number of categories
+}
+
+// Get setting at menu position within a category (skipping disabled settings)
+const ini_var_t* cfg_get_category_setting_at_index(osd_category_t category, int index, menu_flags_t menu_type)
+{
+	const ini_var_t** settings = NULL;
+	int count = 0;
+	
+	cfg_get_settings_for_category(category, &settings, &count, menu_type);
+	
+	int enabled_index = 0;
+	for (int i = 0; i < count; i++)
+	{
+		// Skip hidden settings (negative menu_position)
+		if (settings[i]->menu_position < 0) {
+			continue;
+		}
+		
+		// Skip stippled settings (disabled but visible)
+		if (is_setting_stippled(settings[i]->name)) {
+			continue;
+		}
+		
+		if (!cfg_is_setting_enabled(settings[i]->name)) {
+			continue; // Skip disabled settings
+		}
+		
+		if (enabled_index == index) {
+			return settings[i];
+		}
+		enabled_index++;
+	}
+	
+	return NULL; // Index out of range
+}
+
+// Count enabled settings in a category
+int cfg_count_enabled_settings_in_category(osd_category_t category, menu_flags_t menu_type)
+{
+	const ini_var_t** settings = NULL;
+	int count = 0;
+	
+	cfg_get_settings_for_category(category, &settings, &count, menu_type);
+	
+	int enabled_count = 0;
+	for (int i = 0; i < count; i++)
+	{
+		// Skip hidden settings (negative menu_position)
+		if (settings[i]->menu_position < 0) {
+			continue;
+		}
+		
+		// Skip stippled settings (disabled but visible)
+		if (is_setting_stippled(settings[i]->name)) {
+			continue;
+		}
+		
+		if (cfg_is_setting_enabled(settings[i]->name)) {
+			enabled_count++;
+		}
+	}
+	
+	return enabled_count;
+}
+
+// File picker support functions
+void cfg_set_file_picker_setting(const ini_var_t* setting)
+{
+	cfg_file_picker_current_setting = setting;
+}
+
+void cfg_open_file_picker(const char* initial_dir, const char* file_ext)
+{
+	// This function signals the menu system to open file picker
+	// The actual SelectFile call will be made from the menu handler
+	printf("DEBUG: cfg_open_file_picker called with dir='%s', ext='%s'\n", initial_dir, file_ext);
+	
+	// Store the file picker request details
+	strncpy(cfg_file_picker_initial_path, initial_dir, sizeof(cfg_file_picker_initial_path) - 1);
+	cfg_file_picker_initial_path[sizeof(cfg_file_picker_initial_path) - 1] = '\0';
+	
+	// Set a flag that the menu system can check to trigger SelectFile
+	// This will be handled by checking cfg_file_picker_current_setting != NULL
+}
+
+void cfg_file_picker_callback(const char* selected_path)
+{
+	if (!cfg_file_picker_current_setting || !selected_path) {
+		printf("ERROR: Invalid file picker callback parameters\n");
+		return;
+	}
+	
+	printf("DEBUG: File picker callback with path: '%s'\n", selected_path);
+	
+	// Convert absolute path to relative path (remove /media/fat prefix)
+	const char* relative_path = selected_path;
+	if (strncmp(selected_path, "/media/fat/", 11) == 0) {
+		relative_path = selected_path + 11; // Skip "/media/fat/"
+	} else if (strncmp(selected_path, "/media/fat", 10) == 0) {
+		relative_path = selected_path + 10; // Skip "/media/fat"
+		if (*relative_path == '/') relative_path++; // Skip leading slash
+	}
+	
+	// Update the setting value
+	char* setting_value = (char*)cfg_file_picker_current_setting->var;
+	strncpy(setting_value, relative_path, cfg_file_picker_current_setting->max - 1);
+	setting_value[cfg_file_picker_current_setting->max - 1] = '\0';
+	
+	printf("DEBUG: Updated setting '%s' to '%s'\n", 
+		   cfg_file_picker_current_setting->name, relative_path);
+	
+	// Do NOT save to INI file immediately - only save to memory
+	// The user will save when they choose "Save All Settings"
+	printf("DEBUG: File saved to memory only, not to INI file\n");
+	
+	// Clear file picker state
+	cfg_file_picker_current_setting = NULL;
 }

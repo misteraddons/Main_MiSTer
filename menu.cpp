@@ -219,6 +219,12 @@ enum MENU
 	// Core-specific settings menus
 	MENU_CORE_SETTINGS1,
 	MENU_CORE_SETTINGS2,
+	MENU_CORE_CATEGORY1,  // Dynamic category-specific settings menu
+	MENU_CORE_CATEGORY2,
+	
+	// Main settings dynamic category menus
+	MENU_MAIN_CATEGORY1,  // Dynamic category-specific settings menu
+	MENU_MAIN_CATEGORY2,
 
 	MENU_SELECT_INI1,
 	MENU_SELECT_INI2,
@@ -290,6 +296,9 @@ enum MENU
 	MENU_PRESET_FILE_SELECTED,
 
 	MENU_AFILTER_FILE_SELECTED,
+	
+	// Configuration file picker
+	MENU_CONFIG_FILE_SELECTED,
 
 	// Generic
 	MENU_GENERIC_MAIN1,
@@ -377,7 +386,7 @@ static void apply_video_settings(void)
 }
 
 // Confirmation screen helper functions
-static void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void), uint32_t return_menustate, uint32_t return_menusub)
+void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void), uint32_t return_menustate, uint32_t return_menusub)
 {
 	strncpy(confirm_state.setting_name, setting_name, sizeof(confirm_state.setting_name) - 1);
 	strncpy(confirm_state.old_value, old_value, sizeof(confirm_state.old_value) - 1);
@@ -414,6 +423,8 @@ static int vrr_new_value;
 
 // Core settings mode - when 1, settings save to [CoreName] section instead of [MiSTer]
 static int core_settings_mode = 0;
+static osd_category_t core_settings_category = CAT_AV_DIGITAL;
+static osd_category_t main_settings_category = CAT_AV_DIGITAL;
 
 // Apply button system - backup original values when entering settings menu
 typedef struct {
@@ -742,6 +753,28 @@ static int rgb_range_revert_change(void)
 	return 1;
 }
 
+// Temp settings confirmation functions
+static int temp_settings_confirm_apply(void)
+{
+	// Clear temp settings to confirm the changes are kept
+	cfg_temp_settings_clear();
+	return 1;
+}
+
+static int temp_settings_confirm_revert(void)
+{
+	// Revert to original values and clear temp settings
+	cfg_temp_settings_revert();
+	return 1;
+}
+
+static int temp_settings_confirm_reject(void)
+{
+	// Reject temp settings but preserve changes for further editing
+	cfg_temp_settings_reject();
+	return 1;
+}
+
 // Save Settings helper functions
 static int save_settings_apply(void)
 {
@@ -765,6 +798,10 @@ static int save_settings_revert(void)
 
 static uint32_t menustate = MENU_NONE1;
 static uint32_t parentstate;
+
+// Scroll positions for dynamic menus
+static int core_menu_first_visible = 0;
+static int main_menu_first_visible = 0;
 static uint32_t menusub = 0;
 static uint32_t menusub_last = 0; //for when we allocate it dynamically and need to know last row
 static uint64_t menumask = 0; // Used to determine which rows are selectable...
@@ -4142,6 +4179,16 @@ void HandleUI(void)
 		}
 		break;
 
+	case MENU_CONFIG_FILE_SELECTED:
+		{
+			printf("DEBUG: Config file selected: '%s'\n", selPath);
+			// Call the cfg file picker callback to process the selected file
+			cfg_file_picker_callback(selPath);
+			// Return to the appropriate category menu
+			menustate = cfg_file_picker_return_state;
+		}
+		break;
+
 	case MENU_COEFF_FILE_SELECTED:
 		{
 			char *p = strcasestr(selPath, COEFF_DIR"/");
@@ -4353,24 +4400,16 @@ void HandleUI(void)
 			OsdSetSize(16);
 			helptext_idx = 0;
 			parentstate = MENU_SYSTEM1;  // Set parent to system menu, not self
-			menumask = 0x1F; // 4 categories + save
+			menumask = (1 << (CAT_COUNT + 1)) - 1; // Dynamic: all categories + save option
 
-			int m = 0;
-			OsdSetTitle("MiSTer Settings", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
-
-			OsdWrite(m++);
-			OsdWrite(m++, " Select Category:");
-			OsdWrite(m++);
+			// Generate dynamic category selection menu
+			int menusub_int = (int)menusub;
+			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, "System Settings", MENU_MAIN);
 			
-			// Categories
-			OsdWrite(m++, " Basic Video               \x16", menusub == 0);
-			OsdWrite(m++, " Advanced Video            \x16", menusub == 1, cfg.direct_video);
-			OsdWrite(m++, " Input & Controls          \x16", menusub == 2);
-			OsdWrite(m++, " System & Storage          \x16", menusub == 3);
-			
-			OsdWrite(m++);
-			OsdWrite(m++, " Save All Settings", menusub == 4);
-			
+			// Add save option
+			int m = 3 + category_count; // Skip title + spacing + categories
+			OsdWrite(m++, "");
+			OsdWrite(m++, " Save All Settings", menusub == category_count);
 			
 			while (m < OsdGetSize()) OsdWrite(m++);
 			
@@ -4396,9 +4435,9 @@ void HandleUI(void)
 				// Check if core-specific save option is available
 				const char *core_name = user_io_get_core_name(0);
 				if (core_name && core_name[0] && strcasecmp(core_name, "MENU"))
-					menusub = 5; // wrap to core save option
+					menusub = CAT_COUNT + 1; // wrap to core save option (after Save All Settings)
 				else
-					menusub = 4; // wrap to Save All Settings
+					menusub = CAT_COUNT; // wrap to Save All Settings
 			}
 			menustate = MENU_SETTINGS1; // refresh display
 		}
@@ -4406,7 +4445,7 @@ void HandleUI(void)
 		{
 			// Check if core-specific save option is available
 			const char *core_name = user_io_get_core_name(0);
-			int max_menusub = (core_name && core_name[0] && strcasecmp(core_name, "MENU")) ? 5 : 4;
+			int max_menusub = (core_name && core_name[0] && strcasecmp(core_name, "MENU")) ? CAT_COUNT + 1 : CAT_COUNT;
 			
 			if (menusub < max_menusub) 
 				menusub++;
@@ -4419,50 +4458,32 @@ void HandleUI(void)
 			// Save current state and show submenu
 			parentstate = MENU_SETTINGS1;
 			
-			switch (menusub)
+			if (menusub < CAT_COUNT)
 			{
-			case 0:
-				// Analog Video settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_ANALOG1;
-				menusub = 0;
-				break;
+				// Dynamic category selection - use new main category menu state
+				core_settings_mode = 0; // Main settings mode
+				main_settings_category = (osd_category_t)menusub; // Store selected category
 				
-			case 1:
-				// Advanced Video settings - only available when not in HDMI DAC mode
-				if (!cfg.direct_video)
+				// Initialize temporary settings for AV categories
+				if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
 				{
-					menustate = MENU_SETTINGS_HDMI1;
-					menusub = 0;
+					cfg_temp_settings_start(main_settings_category);
 				}
-				break;
 				
-			case 2:
-				// Input & Controls settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_INPUT1;
+				menustate = MENU_MAIN_CATEGORY1;
 				menusub = 0;
-				break;
-				
-			case 3:
-				// System & Storage settings - go to dedicated submenu
-				menustate = MENU_SETTINGS_SYSTEM1;
-				menusub = 0;
-				break;
-				
-			case 4:
+			}
+			else if (menusub == CAT_COUNT)
+			{
 				// Save All Settings - show confirmation screen with warning
-				{
-					const char *ini_filename = cfg_get_name(altcfg(-1));
-					char warning_message[128];
-					snprintf(warning_message, sizeof(warning_message), "Current %s\nwill be overwritten!", ini_filename);
-					setup_save_confirmation_screen("Save All Settings", warning_message, "Continue?", save_settings_apply, save_settings_revert, MENU_SETTINGS1, 4);
-				}
+				const char *ini_filename = cfg_get_name(altcfg(-1));
+				char warning_message[128];
+				snprintf(warning_message, sizeof(warning_message), "Current %s\nwill be overwritten!", ini_filename);
+				setup_save_confirmation_screen("Save All Settings", warning_message, "Continue?", save_settings_apply, save_settings_revert, MENU_SETTINGS1, CAT_COUNT);
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
-				break;
-				
 			}
-			
-			// Stay in MENU_SETTINGS2 but now we're in submenu mode
+			// TODO: Handle core-specific save option (menusub == CAT_COUNT + 1)
 		}
 		break;
 
@@ -4477,28 +4498,22 @@ void HandleUI(void)
 			OsdSetSize(16);
 			helptext_idx = 0;
 			parentstate = MENU_COMMON1;  // Return to F12 menu
-			menumask = 0x1F; // 4 categories + save
+			menumask = (1 << (CAT_COUNT + 1)) - 1; // Dynamic: all categories + save option
 
-			int m = 0;
 			char title[64];
 			const char *core_name = user_io_get_core_name(0);
 			snprintf(title, sizeof(title), "%s Override Settings", core_name ? core_name : "Core");
-			OsdSetTitle(title, OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
-
-			OsdWrite(m++, "");
-			OsdWrite(m++, " Select Category:");
-			OsdWrite(m++, "");
 			
-			// Categories - same as main settings
-			OsdWrite(m++, " Basic Video               \x16", menusub == 0);
-			OsdWrite(m++, " Advanced Video            \x16", menusub == 1, cfg.direct_video);
-			OsdWrite(m++, " Input & Controls          \x16", menusub == 2);
-			OsdWrite(m++, " System & Storage          \x16", menusub == 3);
+			// Generate dynamic category selection menu
+			int menusub_int = (int)menusub;
+			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, title, MENU_CORE);
 			
+			// Add save option
+			int m = 3 + category_count; // Skip title + spacing + categories
 			OsdWrite(m++, "");
 			char save_text[64];
 			snprintf(save_text, sizeof(save_text), " Save %s Settings", core_name ? core_name : "Core");
-			OsdWrite(m++, save_text, menusub == 4);
+			OsdWrite(m++, save_text, menusub == category_count);
 			
 			while (m < OsdGetSize()) OsdWrite(m++);
 			
@@ -4521,12 +4536,12 @@ void HandleUI(void)
 			if (menusub > 0)
 				menusub--;
 			else 
-				menusub = 4; // wrap to save option
+				menusub = CAT_COUNT; // wrap to save option (after all categories)
 			menustate = MENU_CORE_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < 4)
+			if (menusub < CAT_COUNT)
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -4535,54 +4550,429 @@ void HandleUI(void)
 
 		if (select)
 		{
-			switch (menusub)
+			if (menusub < CAT_COUNT)
 			{
-			case 0:
-				// Basic Video - reuse existing menu but set core mode
+				// Dynamic category selection - use new core category menu state
 				core_settings_mode = 1;
-				menustate = MENU_SETTINGS_ANALOG1;
-				menusub = 0;
-				break;
-
-			case 1:
-				// Advanced Video - reuse existing menu but set core mode
-				core_settings_mode = 1;
-				menustate = MENU_SETTINGS_HDMI1;
-				menusub = 0;
-				break;
-
-			case 2:
-				// Input & Controls - reuse existing menu but set core mode
-				core_settings_mode = 1;
-				menustate = MENU_SETTINGS_INPUT1;
-				menusub = 0;
-				break;
-
-			case 3:
-				// System & Storage - reuse existing menu but set core mode
-				core_settings_mode = 1;
-				menustate = MENU_SETTINGS_SYSTEM1;
-				menusub = 0;
-				break;
+				core_settings_category = (osd_category_t)menusub; // Store selected category
 				
-			case 4:
-				// Save Core Settings - show confirmation screen with warning
+				// Initialize temporary settings for AV categories
+				if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
 				{
-					const char *core_name = user_io_get_core_name(0);
-					const char *ini_filename = cfg_get_name(altcfg(-1));
-					char title_message[128];
-					char warning_message[128];
-					snprintf(title_message, sizeof(title_message), "Save %s Settings", core_name ? core_name : "Core");
-					snprintf(warning_message, sizeof(warning_message), "[%s] section in %s\nwill be updated!", core_name ? core_name : "Core", ini_filename);
-					setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, 4);
+					cfg_temp_settings_start(core_settings_category);
 				}
+				
+				menustate = MENU_CORE_CATEGORY1;
+				menusub = 0;
+			}
+			else if (menusub == CAT_COUNT)
+			{
+				// Save Core Settings - show confirmation screen with warning
+				const char *core_name = user_io_get_core_name(0);
+				const char *ini_filename = cfg_get_name(altcfg(-1));
+				char title_message[128];
+				char warning_message[128];
+				snprintf(title_message, sizeof(title_message), "Save %s Settings", core_name ? core_name : "Core");
+				snprintf(warning_message, sizeof(warning_message), "[%s] section in %s\nwill be updated!", core_name ? core_name : "Core", ini_filename);
+				setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, CAT_COUNT);
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
+			}
+		}
+		break;
+
+	case MENU_CORE_CATEGORY1:
+		{
+			if (video_fb_state())
+			{
+				menustate = MENU_NONE1;
 				break;
-				
+			}
+
+			OsdSetSize(16);
+			helptext_idx = 0;
+			parentstate = MENU_CORE_SETTINGS1; // Return to category selection
+
+			// Generate dynamic category menu using the stored category
+			const osd_category_info_t* cat_info = cfg_get_category_info(core_settings_category);
+			char title[64];
+			const char *core_name = user_io_get_core_name(0);
+			snprintf(title, sizeof(title), "%s - %s", core_name ? core_name : "Core", cat_info ? cat_info->name : "Settings");
+
+			int menusub_int = (int)menusub;
+			int setting_count = cfg_generate_category_menu(core_settings_category, 0, &menusub_int, title, MENU_CORE, &core_menu_first_visible);
+			
+			// Set menumask for the number of settings in this category
+			menumask = setting_count > 0 ? (1 << setting_count) - 1 : 0;
+
+			menustate = MENU_CORE_CATEGORY2;
+			break;
+		}
+
+	case MENU_CORE_CATEGORY2:
+		menumask = 0; // Handle navigation ourselves
+		
+		// Check for pending file picker request
+		if (cfg_file_picker_current_setting != NULL)
+		{
+			// Determine file extension based on setting type
+			const char* file_ext = "";
+			if (strstr(cfg_file_picker_current_setting->name, "AFILTER")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "VFILTER")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "SHMASK")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "FONT")) file_ext = "PF";
+			else if (strstr(cfg_file_picker_current_setting->name, "PRESET")) file_ext = "INI";
+			
+			// Store return state for callback
+			cfg_file_picker_return_state = MENU_CORE_CATEGORY1;
+			
+			
+			SelectFile(cfg_file_picker_initial_path, file_ext, SCANO_DIR | SCANO_TXT, 
+					   MENU_CONFIG_FILE_SELECTED, MENU_CORE_CATEGORY1);
+			break;
+		}
+		
+		if (menu)
+		{
+			// Clear temporary settings if user exits without accepting
+			if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
+			{
+				cfg_temp_settings_revert();
 			}
 			
-			// Stay in MENU_CORE_SETTINGS2 but now we're in submenu mode
+			// Return to category selection
+			menustate = MENU_CORE_SETTINGS1;
+			menusub = core_settings_category; // Restore category selection
+			break;
+		}
+		else if (up)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(core_settings_category, MENU_CORE);
+			int max_index = (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
+			
+			if (menusub > 0)
+			{
+				menusub--;
+			}
+			else
+			{
+				// Wrap to bottom: go to Accept button (for AV) or last setting (for others)
+				menusub = max_index;
+			}
+			menustate = MENU_CORE_CATEGORY1; // refresh display
+		}
+		else if (down)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(core_settings_category, MENU_CORE);
+			// For AV categories, allow navigation to Accept button at setting_count
+			int max_index = (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
+			
+			if (menusub < max_index)
+			{
+				menusub++;
+			}
+			else
+			{
+				// Wrap to top
+				menusub = 0;
+			}
+			menustate = MENU_CORE_CATEGORY1; // refresh display
+		}
+
+		if (select)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(core_settings_category, MENU_CORE);
+			
+			// Check if this is the Accept button for AV categories  
+			if ((core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) // Accept button is after all settings
+			{
+				// Check if there are any changes to apply
+				if (cfg_temp_settings_has_changes())
+				{
+					// Apply settings immediately, then show confirmation screen
+					printf("DEBUG: Accept pressed - applying temp settings immediately\n");
+					cfg_temp_settings_apply_pending();
+					
+					// Show confirmation screen with 15-second countdown
+					setup_confirmation_screen("Apply AV Settings", "Settings applied", "Keep changes?", 
+											 temp_settings_confirm_apply, temp_settings_confirm_reject, MENU_CORE_CATEGORY1, core_settings_category);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
+				}
+				else
+				{
+					// No changes to apply, exit back to category selection
+					menustate = MENU_CORE_SETTINGS1;
+					menusub = core_settings_category;
+				}
+			}
+			else
+			{
+				// Get the setting at the current menu position
+				const ini_var_t* setting = cfg_get_category_setting_at_index(core_settings_category, menusub, MENU_CORE);
+				if (setting)
+				{
+					// Use temporary settings for AV categories, direct change for others
+					if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
+					{
+						cfg_temp_settings_change(setting, 1); // 1 = increment
+					}
+					else
+					{
+						cfg_handle_setting_change(setting, 1); // 1 = increment
+					}
+					menustate = MENU_CORE_CATEGORY1; // Refresh display
+				}
+			}
+		}
+		else if (left)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(core_settings_category, MENU_CORE);
+			
+			// Skip Accept button for AV categories
+			if ((core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) 
+			{
+				// Don't allow left/right on Accept button
+				return;
+			}
+			
+			// Get the setting at the current menu position
+			const ini_var_t* setting = cfg_get_category_setting_at_index(core_settings_category, menusub, MENU_CORE);
+			if (setting)
+			{
+				// Use temporary settings for AV categories
+				if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
+				{
+					cfg_temp_settings_change(setting, -1); // -1 = decrement
+					menustate = MENU_CORE_CATEGORY1; // Refresh display
+				}
+				else
+				{
+					// Handle setting value change based on type
+					cfg_handle_setting_change(setting, -1); // -1 = decrement
+					menustate = MENU_CORE_CATEGORY1; // Refresh display
+				}
+			}
+		}
+		else if (right)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(core_settings_category, MENU_CORE);
+			
+			// Skip Accept button for AV categories
+			if ((core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) 
+			{
+				// Don't allow left/right on Accept button
+				return;
+			}
+			
+			// Get the setting at the current menu position
+			const ini_var_t* setting = cfg_get_category_setting_at_index(core_settings_category, menusub, MENU_CORE);
+			if (setting)
+			{
+				// Use temporary settings for AV categories
+				if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
+				{
+					cfg_temp_settings_change(setting, 1); // 1 = increment
+					menustate = MENU_CORE_CATEGORY1; // Refresh display
+				}
+				else
+				{
+					// Handle setting value change based on type
+					cfg_handle_setting_change(setting, 1); // 1 = increment
+					menustate = MENU_CORE_CATEGORY1; // Refresh display
+				}
+			}
+		}
+		break;
+
+	case MENU_MAIN_CATEGORY1:
+		{
+			if (video_fb_state())
+			{
+				menustate = MENU_NONE1;
+				break;
+			}
+
+			OsdSetSize(16);
+			helptext_idx = 0;
+			parentstate = MENU_SETTINGS1; // Return to category selection
+
+			// Generate dynamic category menu using the stored category
+			const osd_category_info_t* cat_info = cfg_get_category_info(main_settings_category);
+			char title[64];
+			snprintf(title, sizeof(title), "%s", cat_info ? cat_info->name : "Settings");
+
+			int menusub_int = (int)menusub;
+			int setting_count = cfg_generate_category_menu(main_settings_category, 0, &menusub_int, title, MENU_MAIN, &main_menu_first_visible);
+			
+			// Set menumask for the number of settings in this category
+			menumask = setting_count > 0 ? (1 << setting_count) - 1 : 0;
+
+			menustate = MENU_MAIN_CATEGORY2;
+			break;
+		}
+
+	case MENU_MAIN_CATEGORY2:
+		menumask = 0; // Handle navigation ourselves
+		
+		// Check for pending file picker request
+		if (cfg_file_picker_current_setting != NULL)
+		{
+			// Determine file extension based on setting type
+			const char* file_ext = "";
+			if (strstr(cfg_file_picker_current_setting->name, "AFILTER")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "VFILTER")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "SHMASK")) file_ext = "TXT";
+			else if (strstr(cfg_file_picker_current_setting->name, "FONT")) file_ext = "PF";
+			else if (strstr(cfg_file_picker_current_setting->name, "PRESET")) file_ext = "INI";
+			
+			// Store return state for callback
+			cfg_file_picker_return_state = MENU_MAIN_CATEGORY1;
+			
+			
+			SelectFile(cfg_file_picker_initial_path, file_ext, SCANO_DIR | SCANO_TXT, 
+					   MENU_CONFIG_FILE_SELECTED, MENU_MAIN_CATEGORY1);
+			break;
+		}
+		
+		if (menu)
+		{
+			// Clear temporary settings if user exits without accepting
+			if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
+			{
+				cfg_temp_settings_revert();
+			}
+			
+			// Return to category selection
+			menustate = MENU_SETTINGS1;
+			menusub = main_settings_category; // Restore category selection
+			break;
+		}
+		else if (up)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(main_settings_category, MENU_MAIN);
+			int max_index = (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
+			
+			if (menusub > 0)
+			{
+				menusub--;
+			}
+			else
+			{
+				// Wrap to bottom: go to Accept button (for AV) or last setting (for others)
+				menusub = max_index;
+			}
+			menustate = MENU_MAIN_CATEGORY1; // refresh display
+		}
+		else if (down)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(main_settings_category, MENU_MAIN);
+			// For AV categories, allow navigation to Accept button at setting_count
+			int max_index = (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
+			
+			if (menusub < max_index)
+			{
+				menusub++;
+			}
+			else
+			{
+				// Wrap to top
+				menusub = 0;
+			}
+			menustate = MENU_MAIN_CATEGORY1; // refresh display
+		}
+
+		if (select)
+		{
+			int setting_count = cfg_count_enabled_settings_in_category(main_settings_category, MENU_MAIN);
+			
+			// Check if this is the Accept button for AV categories  
+			if ((main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) // Accept button is after all settings
+			{
+				// Check if there are any changes to apply
+				if (cfg_temp_settings_has_changes())
+				{
+					// Apply settings immediately, then show confirmation screen
+					printf("DEBUG: Accept pressed - applying temp settings immediately\n");
+					cfg_temp_settings_apply_pending();
+					
+					// Show confirmation screen with 15-second countdown
+					setup_confirmation_screen("Apply AV Settings", "Settings applied", "Keep changes?", 
+											 temp_settings_confirm_apply, temp_settings_confirm_reject, MENU_MAIN_CATEGORY1, main_settings_category);
+					menustate = MENU_CONFIRM_CHANGE1;
+					menusub = 1; // Default to "Reject"
+				}
+				else
+				{
+					// No changes to apply, exit back to category selection
+					menustate = MENU_SETTINGS1;
+					menusub = main_settings_category;
+				}
+			}
+			else
+			{
+				// Get the setting at the current menu position
+				const ini_var_t* setting = cfg_get_category_setting_at_index(main_settings_category, menusub, MENU_MAIN);
+				if (setting)
+				{
+					// Use temporary settings for AV categories
+					if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
+					{
+						cfg_temp_settings_change(setting, 1); // 1 = increment
+						menustate = MENU_MAIN_CATEGORY1; // Refresh display
+					}
+					else
+					{
+						// Handle setting value change based on type
+						cfg_handle_setting_change(setting, 1); // 1 = increment
+						menustate = MENU_MAIN_CATEGORY1; // Refresh display
+					}
+				}
+			}
+		}
+		else if (left)
+		{
+			// Get the setting at the current menu position
+			const ini_var_t* setting = cfg_get_category_setting_at_index(main_settings_category, menusub, MENU_MAIN);
+			if (setting)
+			{
+				// Use temporary settings for AV categories
+				if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
+				{
+					cfg_temp_settings_change(setting, -1); // -1 = decrement
+					menustate = MENU_MAIN_CATEGORY1; // Refresh display
+				}
+				else
+				{
+					// Handle setting value change based on type
+					cfg_handle_setting_change(setting, -1); // -1 = decrement
+					menustate = MENU_MAIN_CATEGORY1; // Refresh display
+				}
+			}
+		}
+		else if (right)
+		{
+			// Get the setting at the current menu position
+			const ini_var_t* setting = cfg_get_category_setting_at_index(main_settings_category, menusub, MENU_MAIN);
+			if (setting)
+			{
+				// Use temporary settings for AV categories
+				if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
+				{
+					cfg_temp_settings_change(setting, 1); // 1 = increment
+					menustate = MENU_MAIN_CATEGORY1; // Refresh display
+				}
+				else
+				{
+					// Handle setting value change based on type
+					cfg_handle_setting_change(setting, 1); // 1 = increment
+					menustate = MENU_MAIN_CATEGORY1; // Refresh display
+				}
+			}
 		}
 		break;
 
@@ -4621,7 +5011,7 @@ void HandleUI(void)
 		bool direct_video_on = cfg.direct_video;
 		
 		// 1. HDMI Mode (menusub 0)
-		sprintf(s, " HDMI Mode:   %s", cfg.direct_video ? "HDMI DAC" : "HDMI");
+		cfg_render_setting_value(s, sizeof(s), "DIRECT_VIDEO", "HDMI Mode");
 		OsdWrite(m++, s, menusub == 0);
 		
 		// 2. HDMI Res. (menusub 1)
@@ -4646,9 +5036,7 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 3, direct_video_on ? 1 : 0);
 		
 		// 5. RGB Range (menusub 4)
-		const char *rgb_range_str = cfg.hdmi_limited == 0 ? "Full (0-255)" : 
-		                           cfg.hdmi_limited == 1 ? "Lim. (16-235)" : "Lim. (16-255)";
-		sprintf(s, " HDMI RGB:    %s", rgb_range_str);
+		cfg_render_setting_value(s, sizeof(s), "HDMI_LIMITED", "HDMI RGB");
 		OsdWrite(m++, s, menusub == 4);
 		
 		// 6. Divider (menusub 5) - not selectable
@@ -4698,7 +5086,7 @@ void HandleUI(void)
 		OsdWrite(m++, " ---------------------------", 0, 1);
 		
 		// 12. 96kHz Audio (menusub 11)
-		sprintf(s, " 96kHz Audio: %s", cfg.hdmi_audio_96k ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "HDMI_AUDIO_96K", "96kHz Audio");
 		OsdWrite(m++, s, menusub == 11);
 		
 		// 13. Apply button (menusub 12)
@@ -5215,14 +5603,14 @@ void HandleUI(void)
 		OsdSetTitle("Advanced Video", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, " Game Mode:   %s", cfg.hdmi_game_mode ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "HDMI_GAME_MODE", "Game Mode");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, " VRR Mode:    %s", cfg.vrr_mode ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "VRR_MODE", "VRR Mode");
 		OsdWrite(m++, s, menusub == 1);
 		
 		
-		sprintf(s, " DVI Mode:    %s", cfg.dvi_mode ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "DVI_MODE", "DVI Mode");
 		OsdWrite(m++, s, menusub == 2);
 		
 		
@@ -5482,27 +5870,24 @@ void HandleUI(void)
 		OsdSetTitle("Input & Controls", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		sprintf(s, " Mouse Emulation:    %s", cfg.kbd_nomouse ? "Off" : "On");
+		cfg_render_setting_value(s, sizeof(s), "KBD_NOMOUSE", "Mouse Emulation");
 		OsdWrite(m++, s, menusub == 0);
 		
 		// Ensure mouse_throttle is in valid range (1-100)
 		if (cfg.mouse_throttle < 1) cfg.mouse_throttle = 10; // default to 10
-		sprintf(s, " Mouse Throttle:     %d", cfg.mouse_throttle);
+		cfg_render_setting_value(s, sizeof(s), "MOUSE_THROTTLE", "Mouse Throttle");
 		OsdWrite(m++, s, menusub == 1);
 		
-		sprintf(s, " Rumble:             %s", cfg.rumble ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "RUMBLE", "Rumble");
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, " Gamepad Defaults:   %s", cfg.gamepad_defaults ? "Pos." : "Name");
+		cfg_render_setting_value(s, sizeof(s), "GAMEPAD_DEFAULTS", "Gamepad Defaults");
 		OsdWrite(m++, s, menusub == 3);
 		
-		if (cfg.controller_info == 0)
-			sprintf(s, " Controller Info:    Off");
-		else
-			sprintf(s, " Controller Info:    %ds", cfg.controller_info);
+		cfg_render_setting_value(s, sizeof(s), "CONTROLLER_INFO", "Controller Info");
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, " Autofire:           %s", cfg.disable_autofire ? "Off" : "On");
+		cfg_render_setting_value(s, sizeof(s), "DISABLE_AUTOFIRE", "Autofire");
 		OsdWrite(m++, s, menusub == 5);
 		
 		if (cfg.bt_auto_disconnect == 0)
@@ -5511,16 +5896,16 @@ void HandleUI(void)
 			sprintf(s, " BT Auto Disconnect: %dm", cfg.bt_auto_disconnect);
 		OsdWrite(m++, s, menusub == 6);
 		
-		sprintf(s, " BT Pairing Reset:   %s", cfg.bt_reset_before_pair ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "BT_RESET_BEFORE_PAIR", "BT Pairing Reset");
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, " Wheel Force:        %d%%", cfg.wheel_force);
+		cfg_render_setting_value(s, sizeof(s), "WHEEL_FORCE", "Wheel Force");
 		OsdWrite(m++, s, menusub == 8);
 		
 		sprintf(s, " Wheel Range:        %d°", cfg.wheel_range);
 		OsdWrite(m++, s, menusub == 9);
 		
-		sprintf(s, " Sniper Mode:        %s", cfg.sniper_mode ? "Swap" : "Norm");
+		cfg_render_setting_value(s, sizeof(s), "SNIPER_MODE", "Sniper Mode");
 		OsdWrite(m++, s, menusub == 10);
 		
 		// Input setting keys for help text lookup
@@ -5727,13 +6112,10 @@ void HandleUI(void)
 		OsdSetTitle("System & Storage", OSD_ARROW_LEFT | OSD_ARROW_RIGHT);
 
 		OsdWrite(m++);
-		if (cfg.video_info == 0)
-			sprintf(s, " Video Info:    0s");
-		else
-			sprintf(s, " Video Info:    %ds", cfg.video_info);
+		cfg_render_setting_value(s, sizeof(s), "VIDEO_INFO", "Video Info");
 		OsdWrite(m++, s, menusub == 0);
 		
-		sprintf(s, " Boot Screen:   %s", cfg.bootscreen ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "BOOTSCREEN", "Boot Screen");
 		OsdWrite(m++, s, menusub == 1);
 		
 		// Ensure bootcore_timeout is in valid range (0=disabled, 10-30)
@@ -5744,13 +6126,13 @@ void HandleUI(void)
 			sprintf(s, " Boot Timeout:  %ds", cfg.bootcore_timeout);
 		OsdWrite(m++, s, menusub == 2);
 		
-		sprintf(s, " Recent Files:  %s", cfg.recents ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "RECENTS", "Recent Files");
 		OsdWrite(m++, s, menusub == 3);
 		
 		sprintf(s, " FB Size:       %d", cfg.fb_size);
 		OsdWrite(m++, s, menusub == 4);
 		
-		sprintf(s, " FB Terminal:   %s", cfg.fb_terminal ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "FB_TERMINAL", "FB Terminal");
 		OsdWrite(m++, s, menusub == 5);
 		
 		if (cfg.osd_timeout == 0)
@@ -5767,13 +6149,13 @@ void HandleUI(void)
 		}
 		OsdWrite(m++, s, menusub == 7);
 		
-		sprintf(s, " Browse Expand: %s", cfg.browse_expand ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "BROWSE_EXPAND", "Browse Expand");
 		OsdWrite(m++, s, menusub == 8);
 		
-		sprintf(s, " Logo:          %s", cfg.logo ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "LOGO", "Logo");
 		OsdWrite(m++, s, menusub == 9);
 		
-		sprintf(s, " Debug:         %s", cfg.debug ? "On" : "Off");
+		cfg_render_setting_value(s, sizeof(s), "DEBUG", "Debug");
 		OsdWrite(m++, s, menusub == 10);
 		
 		// System setting keys for help text lookup
@@ -7451,6 +7833,14 @@ void HandleUI(void)
 			}
 
 			if (!strcasecmp(fs_pFileExt, "RBF")) selPath[0] = 0;
+			
+			// Clear config file picker state if cancelling from config file picker
+			if (cfg_file_picker_current_setting != NULL)
+			{
+				printf("DEBUG: Clearing config file picker state on cancel\n");
+				cfg_file_picker_current_setting = NULL;
+			}
+			
 			menustate = fs_MenuCancel;
 			helptext_idx = 0;
 		}
@@ -8797,7 +9187,7 @@ void HandleUI(void)
 			}
 		}
 		OsdWrite(m++, "");
-		OsdWrite(m++, " MiSTer Settings           \x16", menusub == 1);
+		OsdWrite(m++, " System Settings           \x16", menusub == 1);
 		OsdWrite(m++, " Remap keyboard            \x16", menusub == 2);
 		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 3);
 		OsdWrite(m++, " Scripts                   \x16", menusub == 4);

@@ -153,15 +153,8 @@ static void DrawCategoriesMenu()
     {
         const osd_category_info_t* cat_info = cfg_get_category_info((osd_category_t)i);
         
-        // Format with icon if available
-        if (cat_info->icon && strlen(cat_info->icon) > 0)
-        {
-            snprintf(s, sizeof(s), "  %s %s", cat_info->icon, cat_info->name);
-        }
-        else
-        {
-            snprintf(s, sizeof(s), "    %s", cat_info->name);
-        }
+        // Format category name
+        snprintf(s, sizeof(s), "  %s", cat_info->name);
         
         OsdWrite(line++, s, i == selected_category, 0);
     }

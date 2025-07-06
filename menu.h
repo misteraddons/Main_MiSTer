@@ -18,6 +18,9 @@ void Info(const char *message, int timeout = 2000, int width = 0, int height = 0
 void MenuHide();
 void SelectINI();
 
+// Confirmation screen function
+void setup_confirmation_screen(const char* setting_name, const char* old_value, const char* new_value, int (*apply_func)(void), int (*revert_func)(void), uint32_t return_menustate, uint32_t return_menusub);
+
 void open_joystick_setup();
 int menu_lightgun_cb(int idx, uint16_t type, uint16_t code, int value);
 
