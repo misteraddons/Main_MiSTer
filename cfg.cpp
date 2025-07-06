@@ -41,104 +41,104 @@ static const osd_category_info_t category_info[CAT_COUNT] = {
 
 const ini_var_t ini_vars[] =
 {
-	{ "YPBPR", (void*)(&(cfg.vga_mode_int)), INI_UINT8, 0, 1, "YPbPr Output", "Enable component video output (legacy)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_BOTH },
-	{ "COMPOSITE_SYNC", (void*)(&(cfg.csync)), INI_UINT8, 0, 1, "Composite Sync", "Enable composite sync on HSync or separate sync on Hsync and Vsync. Composite sync is best for most everything except PC CRTs.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN },
-	{ "FORCED_SCANDOUBLER", (void*)(&(cfg.forced_scandoubler)), INI_UINT8, 0, 1, "Force Scandoubler", "Scandouble 15kHz cores to 31kHz. Some cores don't have the scandoubler module (PSX, N64, etc.)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 1, MENU_MAIN },
-	{ "VGA_SCALER", (void*)(&(cfg.vga_scaler)), INI_UINT8, 0, 1, "VGA Scaler", "Use scaler for VGA/DVI output", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 2, MENU_MAIN },
-	{ "VGA_SOG", (void*)(&(cfg.vga_sog)), INI_UINT8, 0, 1, "VGA Sync-on-Green", "Enable sync-on-green for VGA and YPbPr", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN },
-	{ "SYNC_MODE", (void*)(&(cfg.sync_mode)), INI_UINT8, 0, 2, "Sync Mode", "Analog sync mode: Separate=HSync+VSync, Composite=HSync only, Sync-on-Green=embedded in green signal", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 3, MENU_MAIN },
-	{ "KEYRAH_MODE", (void*)(&(cfg.keyrah_mode)), INI_HEX32, 0, 0xFFFFFFFF, "Keyrah Mode", "Keyrah interface mode", CAT_INPUT_KB_MOUSE, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
-	{ "RESET_COMBO", (void*)(&(cfg.reset_combo)), INI_UINT8, 0, 3, "Reset Key Combo", "Keyboard combination for reset", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "KEY_MENU_AS_RGUI", (void*)(&(cfg.key_menu_as_rgui)), INI_UINT8, 0, 1, "Menu Key as Right GUI", "Use Menu key as Right GUI", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Auto mode uses HDMI EDID to set optimal resolution. All other settings override the EDID value.", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 1, MENU_BOTH },
-	{ "VIDEO_MODE_PAL", (void*)(cfg.video_conf_pal), INI_STRING, 0, sizeof(cfg.video_conf_pal) - 1, "Video Mode (PAL)", "Video mode for PAL cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 25, MENU_BOTH },
-	{ "VIDEO_MODE_NTSC", (void*)(cfg.video_conf_ntsc), INI_STRING, 0, sizeof(cfg.video_conf_ntsc) - 1, "Video Mode (NTSC)", "Video mode for NTSC cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 26, MENU_BOTH },
-	{ "VIDEO_INFO", (void*)(&(cfg.video_info)), INI_UINT8, 0, 10, "Video Info Display", "Show video information on screen", CAT_UI, "s", false, NULL, 0, 0, 2, MENU_BOTH },
-	{ "VSYNC_ADJUST", (void*)(&(cfg.vsync_adjust)), INI_UINT8, 0, 2, "VSync Adjustment", "Automatic refresh rate adjustment. `3 buffer 60Hz` = robust sync with the most latency. `3 buffer match` = robust sync, matching the core's sync. `1 buffer match` = lowest latency but may not work with all cores on all displays.", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 4, MENU_BOTH },
-	{ "HDMI_AUDIO_96K", (void*)(&(cfg.hdmi_audio_96k)), INI_UINT8, 0, 1, "HDMI 96kHz Audio", "Enable 96kHz audio output. May cause compatibility issues with AV equipment and DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
-	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), INI_UINT8, 0, 1, "DVI Mode", "Disable HDMI features for DVI displays", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 4, MENU_MAIN },
-	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), INI_UINT8, 0, 2, "HDMI Color Range", "HDMI color range. Set full for most devices. Limited (16-235) for older displays. Limited (16-255) for some HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 7, MENU_MAIN },
-	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), INI_UINT8, 0, 1, "Disable Mouse", "Disable mouse emulation via keyboard", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), INI_UINT8, 1, 100, "Mouse Throttle", "Mouse movement speed", CAT_INPUT_KB_MOUSE, "%", false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), INI_UINT8, 0, 1, "Boot Screen", "Show boot screen on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VSCALE_MODE", (void*)(&(cfg.vscale_mode)), INI_UINT8, 0, 5, "Vertical Scale Mode", "Vertical scaling algorithm", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 3, MENU_BOTH },
-	{ "VSCALE_BORDER", (void*)(&(cfg.vscale_border)), INI_UINT16, 0, 399, "Vertical Scale Border", "Border size for scaled image", CAT_AV_DIGITAL, "px", false, "DIRECT_VIDEO", 0, 0, 22, MENU_BOTH },
-	{ "RBF_HIDE_DATECODE", (void*)(&(cfg.rbf_hide_datecode)), INI_UINT8, 0, 1, "Hide Core Dates", "Hide date codes in core names", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "MENU_PAL", (void*)(&(cfg.menu_pal)), INI_UINT8, 0, 1, "Menu PAL Mode", "Use PAL mode for menu core", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 98, MENU_MAIN },
-	{ "BOOTCORE", (void*)(&(cfg.bootcore)), INI_STRING, 0, sizeof(cfg.bootcore) - 1, "Boot Core", "Core to load on startup", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "BOOTCORE_TIMEOUT", (void*)(&(cfg.bootcore_timeout)), INI_INT16, 2, 30, "Boot Core Timeout", "Timeout before loading boot core", CAT_SYSTEM, "sec", false, "BOOTCORE", 1, 1, 99, MENU_MAIN },
-	{ "FONT", (void*)(&(cfg.font)), INI_STRING, 0, sizeof(cfg.font) - 1, "Custom Font", "Custom font file path", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH },
-	{ "FB_SIZE", (void*)(&(cfg.fb_size)), INI_UINT8, 0, 4, "Framebuffer Size", "Linux framebuffer size", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH },
-	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), INI_UINT8, 0, 1, "Framebuffer Terminal", "Enable Linux terminal on HDMI and scaled analog video.", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_MAIN },
-	{ "OSD_TIMEOUT", (void*)(&(cfg.osd_timeout)), INI_INT16, 0, 3600, "OSD Timeout", "Hide OSD after inactivity.", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays and HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 0, MENU_MAIN },
-	{ "OSD_ROTATE", (void*)(&(cfg.osd_rotate)), INI_UINT8, 0, 2, "OSD Rotation", "Off (Yoko), 1=90° Clockwise (Tate), 2=90° Counter-Clockwise (Tate)", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "DEADZONE", (void*)(&(cfg.controller_deadzone)), INI_STRINGARR, sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone), sizeof(*cfg.controller_deadzone), "Controller Deadzone", "Analog stick deadzone configuration", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "'Name' means Xbox 'A' button is mapped to SNES 'A' button. 'Positional' means Xbox 'A' button is mapped to SNES 'B' button.", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "RECENTS", (void*)(&(cfg.recents)), INI_UINT8, 0, 1, "Recent Files", "Track recently used files", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "CONTROLLER_INFO", (void*)(&(cfg.controller_info)), INI_UINT8, 0, 60, "Controller Info", "Display controller information when a new core is loaded.", CAT_INPUT_CONTROLLER, "s", false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "REFRESH_MIN", (void*)(&(cfg.refresh_min)), INI_FLOAT, 0, 150, "Minimum Refresh Rate", "Minimum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 23, MENU_BOTH },
-	{ "REFRESH_MAX", (void*)(&(cfg.refresh_max)), INI_FLOAT, 0, 150, "Maximum Refresh Rate", "Maximum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 24, MENU_BOTH },
-	{ "JAMMA_VID", (void*)(&(cfg.jamma_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA VID", "JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "JAMMA_PID", (void*)(&(cfg.jamma_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA PID", "JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "JAMMA2_VID", (void*)(&(cfg.jamma2_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 VID", "Second JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "JAMMA2_PID", (void*)(&(cfg.jamma2_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 PID", "Second JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SNIPER_MODE", (void*)(&(cfg.sniper_mode)), INI_UINT8, 0, 1, "Sniper Mode", "Enable precision aiming mode", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force", "Force feedback strength for steering wheels", CAT_INPUT_CONTROLLER, "%", false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "BROWSE_EXPAND", (void*)(&(cfg.browse_expand)), INI_UINT8, 0, 1, "Browse Expand", "Expand file browser by default", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "LOGO", (void*)(&(cfg.logo)), INI_UINT8, 0, 1, "Show Logo", "Display MiSTer logo on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SHARED_FOLDER", (void*)(&(cfg.shared_folder)), INI_STRING, 0, sizeof(cfg.shared_folder) - 1, "Shared Folder", "Network shared folder path", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "NO_MERGE_VID", (void*)(&(cfg.no_merge_vid)), INI_HEX16, 0, 0xFFFF, "No Merge VID", "USB device vendor ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH },
-	{ "NO_MERGE_PID", (void*)(&(cfg.no_merge_pid)), INI_HEX16, 0, 0xFFFF, "No Merge PID", "USB device product ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH },
-	{ "NO_MERGE_VIDPID", (void*)(cfg.no_merge_vidpid), INI_HEX32ARR, 0, 0xFFFFFFFF, "No Merge VID:PID", "USB VID:PID pairs to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "CUSTOM_ASPECT_RATIO_1", (void*)(&(cfg.custom_aspect_ratio[0])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[0]) - 1, "Custom Aspect Ratio 1", "First custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 20, MENU_BOTH },
-	{ "CUSTOM_ASPECT_RATIO_2", (void*)(&(cfg.custom_aspect_ratio[1])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[1]) - 1, "Custom Aspect Ratio 2", "Second custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 21, MENU_BOTH },
-	{ "SPINNER_VID", (void*)(&(cfg.spinner_vid)), INI_HEX16, 0, 0xFFFF, "Spinner VID", "Spinner device vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SPINNER_PID", (void*)(&(cfg.spinner_pid)), INI_HEX16, 0, 0xFFFF, "Spinner PID", "Spinner device product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SPINNER_AXIS", (void*)(&(cfg.spinner_axis)), INI_UINT8, 0, 2, "Spinner Axis", "Spinner axis configuration", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "SPINNER_THROTTLE", (void*)(&(cfg.spinner_throttle)), INI_INT32, -10000, 10000, "Spinner Throttle", "Spinner sensitivity adjustment", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "AFILTER_DEFAULT", (void*)(&(cfg.afilter_default)), INI_STRING, 0, sizeof(cfg.afilter_default) - 1, "Default Audio Filter", "Default audio filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VFILTER_DEFAULT", (void*)(&(cfg.vfilter_default)), INI_STRING, 0, sizeof(cfg.vfilter_default) - 1, "Default Video Filter", "Default video filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VFILTER_VERTICAL_DEFAULT", (void*)(&(cfg.vfilter_vertical_default)), INI_STRING, 0, sizeof(cfg.vfilter_vertical_default) - 1, "Default Vertical Filter", "Default vertical filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VFILTER_SCANLINES_DEFAULT", (void*)(&(cfg.vfilter_scanlines_default)), INI_STRING, 0, sizeof(cfg.vfilter_scanlines_default) - 1, "Default Scanlines Filter", "Default scanlines filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SHMASK_DEFAULT", (void*)(&(cfg.shmask_default)), INI_STRING, 0, sizeof(cfg.shmask_default) - 1, "Default Shadow Mask", "Default shadow mask file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "SHMASK_MODE_DEFAULT", (void*)(&(cfg.shmask_mode_default)), INI_UINT8, 0, 255, "Default Shadow Mask Mode", "Default shadow mask mode", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PRESET_DEFAULT", (void*)(&(cfg.preset_default)), INI_STRING, 0, sizeof(cfg.preset_default) - 1, "Default Preset", "Default video preset file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "LOG_FILE_ENTRY", (void*)(&(cfg.log_file_entry)), INI_UINT8, 0, 1, "Log File Entry", "Enable file access logging", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "BT_AUTO_DISCONNECT", (void*)(&(cfg.bt_auto_disconnect)), INI_UINT32, 0, 180, "BT Auto Disconnect", "Bluetooth auto-disconnect timeout", CAT_INPUT_CONTROLLER, "min", false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "BT_RESET_BEFORE_PAIR", (void*)(&(cfg.bt_reset_before_pair)), INI_UINT8, 0, 1, "BT Reset Before Pair", "Reset Bluetooth before pairing", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "WAITMOUNT", (void*)(&(cfg.waitmount)), INI_STRING, 0, sizeof(cfg.waitmount) - 1, "Wait for Mount", "Devices to wait for before continuing", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "RUMBLE", (void *)(&(cfg.rumble)), INI_UINT8, 0, 1, "Controller Rumble", "Enable force feedback/rumble", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLER, "°", false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "HDMI_GAME_MODE", (void *)(&(cfg.hdmi_game_mode)), INI_UINT8, 0, 1, "HDMI Game Mode", "Enable low-latency game mode", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 5, MENU_BOTH },
-	{ "VRR_MODE", (void *)(&(cfg.vrr_mode)), INI_UINT8, 0, 3, "Variable Refresh Rate", "VRR mode selection", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 15, MENU_BOTH },
-	{ "VRR_MIN_FRAMERATE", (void *)(&(cfg.vrr_min_framerate)), INI_UINT8, 0, 240, "VRR Min Framerate", "Minimum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 17, MENU_BOTH },
-	{ "VRR_MAX_FRAMERATE", (void *)(&(cfg.vrr_max_framerate)), INI_UINT8, 0, 240, "VRR Max Framerate", "Maximum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 16, MENU_BOTH },
-	{ "VRR_VESA_FRAMERATE", (void *)(&(cfg.vrr_vesa_framerate)), INI_UINT8, 0, 240, "VRR VESA Framerate", "VESA VRR base framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 19, MENU_BOTH },
-	{ "VIDEO_OFF", (void*)(&(cfg.video_off)), INI_INT16, 0, 3600, "Video Off Timeout", "Turn off video after inactivity", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_1_CONTROLLER", (void*)(&(cfg.player_controller[0])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 1 Controller", "Controller mapping for player 1", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_2_CONTROLLER", (void*)(&(cfg.player_controller[1])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 2 Controller", "Controller mapping for player 2", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_3_CONTROLLER", (void*)(&(cfg.player_controller[2])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 3 Controller", "Controller mapping for player 3", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_4_CONTROLLER", (void*)(&(cfg.player_controller[3])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 4 Controller", "Controller mapping for player 4", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_5_CONTROLLER", (void*)(&(cfg.player_controller[4])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 5 Controller", "Controller mapping for player 5", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 6 Controller", "Controller mapping for player 6", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), INI_UINT8, 0, 1, "Disable Autofire", "Disable autofire functionality", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), INI_UINT8, 0, 100, "Video Brightness", "Adjust video brightness", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 8, MENU_BOTH },
-	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), INI_UINT8, 0, 100, "Video Contrast", "Adjust video contrast", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 9, MENU_BOTH },
-	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), INI_UINT8, 0, 100, "Video Saturation", "Adjust video saturation", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 10, MENU_BOTH },
-	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Video Hue", "Adjust video hue", CAT_AV_DIGITAL, "°", false, NULL, 0, 0, 10, MENU_BOTH },
-	{ "VIDEO_GAIN_OFFSET", (void *)(&(cfg.video_gain_offset)), INI_STRING, 0, sizeof(cfg.video_gain_offset), "Video Gain/Offset", "RGB gain and offset adjustments", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 12, MENU_BOTH },
-	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 13, MENU_BOTH },
-	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Brightness", "Maximum HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 14, MENU_BOTH },
-	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Average Brightness", "Average HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 15, MENU_BOTH },
-	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 0, MENU_MAIN },
-	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "NTSC Mode", "NTSC color encoding mode", CAT_AV_ANALOG, NULL, false, "YPBPR", 2, 3, 99, MENU_MAIN },
-	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Controller Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_BOTH },
-	{ "MAIN", (void*)(&(cfg.main)), INI_STRING, 0, sizeof(cfg.main) - 1, "Main Directory", "Main MiSTer directory name", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
-	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN },
+	{ "YPBPR", (void*)(&(cfg.vga_mode_int)), INI_UINT8, 0, 1, "YPbPr Output", "Enable component video output (legacy)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_BOTH, 0 },
+	{ "COMPOSITE_SYNC", (void*)(&(cfg.csync)), INI_UINT8, 0, 1, "Composite Sync", "Enable composite sync on HSync or separate sync on Hsync and Vsync. Composite sync is best for most everything except PC CRTs.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN, 0 },
+	{ "FORCED_SCANDOUBLER", (void*)(&(cfg.forced_scandoubler)), INI_UINT8, 0, 1, "Force Scandoubler", "Scandouble 15kHz cores to 31kHz. Some cores don't have the scandoubler module (PSX, N64, etc.)", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 1, MENU_MAIN, 0 },
+	{ "VGA_SCALER", (void*)(&(cfg.vga_scaler)), INI_UINT8, 0, 1, "VGA Scaler", "Use scaler for VGA/DVI output", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 2, MENU_MAIN, 0 },
+	{ "VGA_SOG", (void*)(&(cfg.vga_sog)), INI_UINT8, 0, 1, "VGA Sync-on-Green", "Enable sync-on-green for VGA and YPbPr", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, -1, MENU_MAIN, 0 },
+	{ "SYNC_MODE", (void*)(&(cfg.sync_mode)), INI_UINT8, 0, 2, "Sync Mode", "Analog sync mode: Separate=HSync+VSync, Composite=HSync only, Sync-on-Green=embedded in green signal", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 3, MENU_MAIN, 0 },
+	{ "KEYRAH_MODE", (void*)(&(cfg.keyrah_mode)), INI_HEX32, 0, 0xFFFFFFFF, "Keyrah Mode", "Keyrah interface mode", CAT_INPUT_KB_MOUSE, NULL, true, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "RESET_COMBO", (void*)(&(cfg.reset_combo)), INI_UINT8, 0, 3, "Reset Key Combo", "Keyboard combination for reset", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "KEY_MENU_AS_RGUI", (void*)(&(cfg.key_menu_as_rgui)), INI_UINT8, 0, 1, "Menu Key as Right GUI", "Use Menu key as Right GUI", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VIDEO_MODE", (void*)(cfg.video_conf), INI_STRING, 0, sizeof(cfg.video_conf) - 1, "Video Mode", "Auto mode uses HDMI EDID to set optimal resolution. All other settings override the EDID value.", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 1, MENU_BOTH, 0 },
+	{ "VIDEO_MODE_PAL", (void*)(cfg.video_conf_pal), INI_STRING, 0, sizeof(cfg.video_conf_pal) - 1, "Video Mode (PAL)", "Video mode for PAL cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 25, MENU_BOTH, 0 },
+	{ "VIDEO_MODE_NTSC", (void*)(cfg.video_conf_ntsc), INI_STRING, 0, sizeof(cfg.video_conf_ntsc) - 1, "Video Mode (NTSC)", "Video mode for NTSC cores", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 26, MENU_BOTH, 0 },
+	{ "VIDEO_INFO", (void*)(&(cfg.video_info)), INI_UINT8, 0, 10, "Video Info Display", "Show video information on screen", CAT_UI, "s", false, NULL, 0, 0, 2, MENU_BOTH, 0 },
+	{ "VSYNC_ADJUST", (void*)(&(cfg.vsync_adjust)), INI_UINT8, 0, 2, "VSync Adjustment", "Automatic refresh rate adjustment. `3 buffer 60Hz` = robust sync with the most latency. `3 buffer match` = robust sync, matching the core's sync. `1 buffer match` = lowest latency but may not work with all cores on all displays.", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 4, MENU_BOTH, 0 },
+	{ "HDMI_AUDIO_96K", (void*)(&(cfg.hdmi_audio_96k)), INI_UINT8, 0, 1, "HDMI 96kHz Audio", "Enable 96kHz audio output. May cause compatibility issues with AV equipment and DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), INI_UINT8, 0, 1, "DVI Mode", "Disable HDMI features for DVI displays", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 4, MENU_MAIN, 0 },
+	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), INI_UINT8, 0, 2, "HDMI Color Range", "HDMI color range. Set full for most devices. Limited (16-235) for older displays. Limited (16-255) for some HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 7, MENU_MAIN, 0 },
+	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), INI_UINT8, 0, 1, "Disable Mouse", "Disable mouse emulation via keyboard", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), INI_UINT8, 1, 100, "Mouse Throttle", "Mouse movement speed", CAT_INPUT_KB_MOUSE, "%", false, NULL, 0, 0, 99, MENU_BOTH, 5 },
+	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), INI_UINT8, 0, 1, "Boot Screen", "Show boot screen on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VSCALE_MODE", (void*)(&(cfg.vscale_mode)), INI_UINT8, 0, 5, "Vertical Scale Mode", "Vertical scaling algorithm", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 3, MENU_BOTH, 0 },
+	{ "VSCALE_BORDER", (void*)(&(cfg.vscale_border)), INI_UINT16, 0, 399, "Vertical Scale Border", "Border size for scaled image", CAT_AV_DIGITAL, "px", false, "DIRECT_VIDEO", 0, 0, 22, MENU_BOTH, 10 },
+	{ "RBF_HIDE_DATECODE", (void*)(&(cfg.rbf_hide_datecode)), INI_UINT8, 0, 1, "Hide Core Dates", "Hide date codes in core names", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "MENU_PAL", (void*)(&(cfg.menu_pal)), INI_UINT8, 0, 1, "Menu PAL Mode", "Use PAL mode for menu core", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 98, MENU_MAIN, 0 },
+	{ "BOOTCORE", (void*)(&(cfg.bootcore)), INI_STRING, 0, sizeof(cfg.bootcore) - 1, "Boot Core", "Core to load on startup", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "BOOTCORE_TIMEOUT", (void*)(&(cfg.bootcore_timeout)), INI_INT16, 2, 30, "Boot Core Timeout", "Timeout before loading boot core", CAT_SYSTEM, "sec", false, "BOOTCORE", 1, 1, 99, MENU_MAIN, 1 },
+	{ "FONT", (void*)(&(cfg.font)), INI_STRING, 0, sizeof(cfg.font) - 1, "Custom Font", "Custom font file path", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "FB_SIZE", (void*)(&(cfg.fb_size)), INI_UINT8, 0, 4, "Framebuffer Size", "Linux framebuffer size", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), INI_UINT8, 0, 1, "Framebuffer Terminal", "Enable Linux terminal on HDMI and scaled analog video.", CAT_UI, NULL, true, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "OSD_TIMEOUT", (void*)(&(cfg.osd_timeout)), INI_INT16, 0, 3600, "OSD Timeout", "Hide OSD after inactivity.", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN, 30 },
+	{ "DIRECT_VIDEO", (void*)(&(cfg.direct_video)), INI_UINT8, 0, 1, "Direct Video", "Bypass scaler for compatible displays and HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 0, MENU_MAIN, 0 },
+	{ "OSD_ROTATE", (void*)(&(cfg.osd_rotate)), INI_UINT8, 0, 2, "OSD Rotation", "Off (Yoko), 1=90° Clockwise (Tate), 2=90° Counter-Clockwise (Tate)", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "DEADZONE", (void*)(&(cfg.controller_deadzone)), INI_STRINGARR, sizeof(cfg.controller_deadzone) / sizeof(*cfg.controller_deadzone), sizeof(*cfg.controller_deadzone), "Controller Deadzone", "Analog stick deadzone configuration", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "GAMEPAD_DEFAULTS", (void*)(&(cfg.gamepad_defaults)), INI_UINT8, 0, 1, "Gamepad Defaults", "'Name' means Xbox 'A' button is mapped to SNES 'A' button. 'Positional' means Xbox 'A' button is mapped to SNES 'B' button.", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "RECENTS", (void*)(&(cfg.recents)), INI_UINT8, 0, 1, "Recent Files", "Track recently used files", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "CONTROLLER_INFO", (void*)(&(cfg.controller_info)), INI_UINT8, 0, 60, "Controller Info", "Display controller information when a new core is loaded.", CAT_INPUT_CONTROLLER, "s", false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "REFRESH_MIN", (void*)(&(cfg.refresh_min)), INI_FLOAT, 0, 150, "Minimum Refresh Rate", "Minimum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 23, MENU_BOTH, 1 },
+	{ "REFRESH_MAX", (void*)(&(cfg.refresh_max)), INI_FLOAT, 0, 150, "Maximum Refresh Rate", "Maximum allowed refresh rate", CAT_AV_DIGITAL, "Hz", false, NULL, 0, 0, 24, MENU_BOTH, 1 },
+	{ "JAMMA_VID", (void*)(&(cfg.jamma_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA VID", "JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "JAMMA_PID", (void*)(&(cfg.jamma_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA PID", "JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "JAMMA2_VID", (void*)(&(cfg.jamma2_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 VID", "Second JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "JAMMA2_PID", (void*)(&(cfg.jamma2_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 PID", "Second JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SNIPER_MODE", (void*)(&(cfg.sniper_mode)), INI_UINT8, 0, 1, "Sniper Mode", "Enable precision aiming mode", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force", "Force feedback strength for steering wheels", CAT_INPUT_CONTROLLER, "%", false, NULL, 0, 0, 99, MENU_BOTH, 5 },
+	{ "BROWSE_EXPAND", (void*)(&(cfg.browse_expand)), INI_UINT8, 0, 1, "Browse Expand", "Expand file browser by default", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "LOGO", (void*)(&(cfg.logo)), INI_UINT8, 0, 1, "Show Logo", "Display MiSTer logo on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SHARED_FOLDER", (void*)(&(cfg.shared_folder)), INI_STRING, 0, sizeof(cfg.shared_folder) - 1, "Shared Folder", "Network shared folder path", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "NO_MERGE_VID", (void*)(&(cfg.no_merge_vid)), INI_HEX16, 0, 0xFFFF, "No Merge VID", "USB device vendor ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH, 0 },
+	{ "NO_MERGE_PID", (void*)(&(cfg.no_merge_pid)), INI_HEX16, 0, 0xFFFF, "No Merge PID", "USB device product ID to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, -1, MENU_BOTH, 0 },
+	{ "NO_MERGE_VIDPID", (void*)(cfg.no_merge_vidpid), INI_HEX32ARR, 0, 0xFFFFFFFF, "No Merge VID:PID", "USB VID:PID pairs to prevent merging", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "CUSTOM_ASPECT_RATIO_1", (void*)(&(cfg.custom_aspect_ratio[0])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[0]) - 1, "Custom Aspect Ratio 1", "First custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 20, MENU_BOTH, 0 },
+	{ "CUSTOM_ASPECT_RATIO_2", (void*)(&(cfg.custom_aspect_ratio[1])), INI_STRING, 0, sizeof(cfg.custom_aspect_ratio[1]) - 1, "Custom Aspect Ratio 2", "Second custom aspect ratio", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 21, MENU_BOTH, 0 },
+	{ "SPINNER_VID", (void*)(&(cfg.spinner_vid)), INI_HEX16, 0, 0xFFFF, "Spinner VID", "Spinner device vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SPINNER_PID", (void*)(&(cfg.spinner_pid)), INI_HEX16, 0, 0xFFFF, "Spinner PID", "Spinner device product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SPINNER_AXIS", (void*)(&(cfg.spinner_axis)), INI_UINT8, 0, 2, "Spinner Axis", "Spinner axis configuration", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "SPINNER_THROTTLE", (void*)(&(cfg.spinner_throttle)), INI_INT32, -10000, 10000, "Spinner Throttle", "Spinner sensitivity adjustment", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "AFILTER_DEFAULT", (void*)(&(cfg.afilter_default)), INI_STRING, 0, sizeof(cfg.afilter_default) - 1, "Default Audio Filter", "Default audio filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VFILTER_DEFAULT", (void*)(&(cfg.vfilter_default)), INI_STRING, 0, sizeof(cfg.vfilter_default) - 1, "Default Video Filter", "Default video filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VFILTER_VERTICAL_DEFAULT", (void*)(&(cfg.vfilter_vertical_default)), INI_STRING, 0, sizeof(cfg.vfilter_vertical_default) - 1, "Default Vertical Filter", "Default vertical filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VFILTER_SCANLINES_DEFAULT", (void*)(&(cfg.vfilter_scanlines_default)), INI_STRING, 0, sizeof(cfg.vfilter_scanlines_default) - 1, "Default Scanlines Filter", "Default scanlines filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SHMASK_DEFAULT", (void*)(&(cfg.shmask_default)), INI_STRING, 0, sizeof(cfg.shmask_default) - 1, "Default Shadow Mask", "Default shadow mask file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "SHMASK_MODE_DEFAULT", (void*)(&(cfg.shmask_mode_default)), INI_UINT8, 0, 255, "Default Shadow Mask Mode", "Default shadow mask mode", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PRESET_DEFAULT", (void*)(&(cfg.preset_default)), INI_STRING, 0, sizeof(cfg.preset_default) - 1, "Default Preset", "Default video preset file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "LOG_FILE_ENTRY", (void*)(&(cfg.log_file_entry)), INI_UINT8, 0, 1, "Log File Entry", "Enable file access logging", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "BT_AUTO_DISCONNECT", (void*)(&(cfg.bt_auto_disconnect)), INI_UINT32, 0, 180, "BT Auto Disconnect", "Bluetooth auto-disconnect timeout", CAT_INPUT_CONTROLLER, "min", false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "BT_RESET_BEFORE_PAIR", (void*)(&(cfg.bt_reset_before_pair)), INI_UINT8, 0, 1, "BT Reset Before Pair", "Reset Bluetooth before pairing", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "WAITMOUNT", (void*)(&(cfg.waitmount)), INI_STRING, 0, sizeof(cfg.waitmount) - 1, "Wait for Mount", "Devices to wait for before continuing", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "RUMBLE", (void *)(&(cfg.rumble)), INI_UINT8, 0, 1, "Controller Rumble", "Enable force feedback/rumble", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLER, "°", false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "HDMI_GAME_MODE", (void *)(&(cfg.hdmi_game_mode)), INI_UINT8, 0, 1, "HDMI Game Mode", "Enable low-latency game mode", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 5, MENU_BOTH, 0 },
+	{ "VRR_MODE", (void *)(&(cfg.vrr_mode)), INI_UINT8, 0, 3, "Variable Refresh Rate", "VRR mode selection", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 15, MENU_BOTH, 0 },
+	{ "VRR_MIN_FRAMERATE", (void *)(&(cfg.vrr_min_framerate)), INI_UINT8, 0, 240, "VRR Min Framerate", "Minimum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 17, MENU_BOTH, 0 },
+	{ "VRR_MAX_FRAMERATE", (void *)(&(cfg.vrr_max_framerate)), INI_UINT8, 0, 240, "VRR Max Framerate", "Maximum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 16, MENU_BOTH, 0 },
+	{ "VRR_VESA_FRAMERATE", (void *)(&(cfg.vrr_vesa_framerate)), INI_UINT8, 0, 240, "VRR VESA Framerate", "VESA VRR base framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 19, MENU_BOTH, 0 },
+	{ "VIDEO_OFF", (void*)(&(cfg.video_off)), INI_INT16, 0, 3600, "Video Off Timeout", "Turn off video after inactivity", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN, 15 },
+	{ "PLAYER_1_CONTROLLER", (void*)(&(cfg.player_controller[0])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 1 Controller", "Controller mapping for player 1", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PLAYER_2_CONTROLLER", (void*)(&(cfg.player_controller[1])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 2 Controller", "Controller mapping for player 2", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PLAYER_3_CONTROLLER", (void*)(&(cfg.player_controller[2])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 3 Controller", "Controller mapping for player 3", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PLAYER_4_CONTROLLER", (void*)(&(cfg.player_controller[3])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 4 Controller", "Controller mapping for player 4", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PLAYER_5_CONTROLLER", (void*)(&(cfg.player_controller[4])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 5 Controller", "Controller mapping for player 5", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), INI_STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]), "Player 6 Controller", "Controller mapping for player 6", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), INI_UINT8, 0, 1, "Disable Autofire", "Disable autofire functionality", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), INI_UINT8, 0, 100, "Video Brightness", "Adjust video brightness", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 8, MENU_BOTH, 5 },
+	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), INI_UINT8, 0, 100, "Video Contrast", "Adjust video contrast", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 9, MENU_BOTH, 5 },
+	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), INI_UINT8, 0, 100, "Video Saturation", "Adjust video saturation", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 10, MENU_BOTH, 5 },
+	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Video Hue", "Adjust video hue", CAT_AV_DIGITAL, "°", false, NULL, 0, 0, 10, MENU_BOTH, 0 },
+	{ "VIDEO_GAIN_OFFSET", (void *)(&(cfg.video_gain_offset)), INI_STRING, 0, sizeof(cfg.video_gain_offset), "Video Gain/Offset", "RGB gain and offset adjustments", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 12, MENU_BOTH, 0 },
+	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 13, MENU_BOTH, 0 },
+	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Brightness", "Maximum HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 14, MENU_BOTH, 0 },
+	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Average Brightness", "Average HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 15, MENU_BOTH, 0 },
+	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "VGA Mode", "Analog video output mode.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 0, MENU_MAIN, 0 },
+	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "NTSC Mode", "NTSC color encoding mode", CAT_AV_ANALOG, NULL, false, "YPBPR", 2, 3, 99, MENU_MAIN, 0 },
+	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Controller Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "MAIN", (void*)(&(cfg.main)), INI_STRING, 0, sizeof(cfg.main) - 1, "Main Directory", "Main MiSTer directory name", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), INI_STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1, "Default Interlace Filter", "Default interlace filter file", CAT_FILTERS, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 };
 
 const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -408,6 +408,10 @@ bool cfg_is_setting_enabled(const char* setting_name)
 uint8_t cfg_auto_detect_step_size(const ini_var_t* var)
 {
 	if (!var) return 1;
+	
+	// Use step_size from ini_var if specified (non-zero)
+	if (var->step_size > 0)
+		return var->step_size;
 	
 	// Check for custom step size first
 	uint8_t custom_step = cfg_get_custom_step_size(var->name);
@@ -3151,13 +3155,16 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 	
 	printf("DEBUG: Changing setting %s (type=%d, direction=%d)\n", setting->name, setting->type, direction);
 	
+	// Get the step size for this setting
+	uint8_t step_size = cfg_auto_detect_step_size(setting);
+	
 	// Handle different setting types
 	switch (setting->type)
 	{
 		case INI_UINT8:
 		{
 			uint8_t* value = (uint8_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3172,7 +3179,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_UINT16:
 		{
 			uint16_t* value = (uint16_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3182,7 +3189,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_UINT32:
 		{
 			uint32_t* value = (uint32_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3192,7 +3199,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_INT8:
 		{
 			int8_t* value = (int8_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3202,7 +3209,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_INT16:
 		{
 			int16_t* value = (int16_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3212,7 +3219,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_INT32:
 		{
 			int32_t* value = (int32_t*)setting->var;
-			int new_value = *value + direction;
+			int new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3222,7 +3229,7 @@ void cfg_handle_setting_change(const ini_var_t* setting, int direction)
 		case INI_FLOAT:
 		{
 			float* value = (float*)setting->var;
-			float new_value = *value + (direction * 0.1f); // Small increment for floats
+			float new_value = *value + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			*value = new_value;
@@ -3597,6 +3604,9 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 {
 	const ini_var_t* setting = temp_setting->setting;
 	
+	// Get the step size for this setting
+	uint8_t step_size = cfg_auto_detect_step_size(setting);
+	
 	switch (setting->type)
 	{
 		case INI_UINT8:
@@ -3636,7 +3646,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 			else
 			{
 				// Normal uint8 handling for other settings
-				int new_value = temp_setting->value.uint8_val + direction;
+				int new_value = temp_setting->value.uint8_val + (direction * step_size);
 				if (new_value < setting->min) new_value = setting->max;
 				if (new_value > setting->max) new_value = setting->min;
 				temp_setting->value.uint8_val = new_value;
@@ -3645,7 +3655,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		}
 		case INI_INT8:
 		{
-			int new_value = temp_setting->value.int8_val + direction;
+			int new_value = temp_setting->value.int8_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.int8_val = new_value;
@@ -3654,7 +3664,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		case INI_UINT16:
 		case INI_HEX16:
 		{
-			int new_value = temp_setting->value.uint16_val + direction;
+			int new_value = temp_setting->value.uint16_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.uint16_val = new_value;
@@ -3662,7 +3672,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		}
 		case INI_INT16:
 		{
-			int new_value = temp_setting->value.int16_val + direction;
+			int new_value = temp_setting->value.int16_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.int16_val = new_value;
@@ -3671,7 +3681,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		case INI_UINT32:
 		case INI_HEX32:
 		{
-			int new_value = temp_setting->value.uint32_val + direction;
+			int new_value = temp_setting->value.uint32_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.uint32_val = new_value;
@@ -3679,7 +3689,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		}
 		case INI_INT32:
 		{
-			int new_value = temp_setting->value.int32_val + direction;
+			int new_value = temp_setting->value.int32_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.int32_val = new_value;
@@ -3687,7 +3697,7 @@ static void apply_direction_to_temp_value(temp_setting_t* temp_setting, int dire
 		}
 		case INI_FLOAT:
 		{
-			float new_value = temp_setting->value.float_val + direction;
+			float new_value = temp_setting->value.float_val + (direction * step_size);
 			if (new_value < setting->min) new_value = setting->max;
 			if (new_value > setting->max) new_value = setting->min;
 			temp_setting->value.float_val = new_value;

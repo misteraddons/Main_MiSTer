@@ -182,8 +182,8 @@ typedef struct
 	// UI generation fields
 	int8_t menu_position;           // Order within category (0=first, 99=auto-sort, 127=last, -1=hidden)
 	menu_flags_t menu_flags;        // Which menus this appears in
+	uint8_t step_size;              // For sliders: increment amount (0 = auto)
 	// TODO: Add remaining UI fields to ini_vars entries as needed
-	// uint8_t step_size;            // For sliders: increment amount (0 = auto)
 	// ui_type_t ui_type;            // UI control type
 	// const char** dropdown_options; // For dropdowns: NULL-terminated array
 	// const char* file_filter;      // For file picker: extension or pattern
