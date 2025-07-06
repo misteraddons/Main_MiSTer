@@ -128,8 +128,8 @@ typedef enum {
 	CAT_INPUT_ARCADE,
 	CAT_INPUT_KB_MOUSE,
 	CAT_UI,
-	CAT_SYSTEM,
 	CAT_FILTERS,
+	CAT_SYSTEM,
 	CAT_COUNT
 } osd_category_t;
 

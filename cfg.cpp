@@ -36,8 +36,8 @@ static const osd_category_info_t category_info[CAT_COUNT] = {
 	{ "Arcade Input", "Arcade stick and spinner settings" },
 	{ "Keyboard & Mouse", "Keyboard and mouse settings" },
 	{ "User Interface", "Menu and OSD settings" },
-	{ "System", "System boot and core settings" },
-	{ "Filters", "Video and audio filter defaults" }
+	{ "Filters", "Video and audio filter defaults" },
+	{ "System", "System boot and core settings" }
 };
 
 const ini_var_t ini_vars[] =
