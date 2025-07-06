@@ -4426,7 +4426,7 @@ void HandleUI(void)
 
 			// Generate dynamic category selection menu
 			int menusub_int = (int)menusub;
-			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, "System Settings", MENU_MAIN);
+			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, "MiSTer Settings", MENU_MAIN);
 			
 			// Add save and reset options
 			int m = 3 + category_count; // Skip title + spacing + categories
@@ -9231,7 +9231,7 @@ void HandleUI(void)
 			}
 		}
 		OsdWrite(m++, "");
-		OsdWrite(m++, " System Settings           \x16", menusub == 1);
+		OsdWrite(m++, " MiSTer Settings           \x16", menusub == 1);
 		OsdWrite(m++, " Remap keyboard            \x16", menusub == 2);
 		OsdWrite(m++, " Define joystick buttons   \x16", menusub == 3);
 		OsdWrite(m++, " Scripts                   \x16", menusub == 4);
