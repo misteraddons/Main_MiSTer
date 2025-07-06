@@ -114,6 +114,8 @@ const char* cfg_get_label(uint8_t alt);
 bool cfg_has_video_sections();
 int cfg_save(uint8_t alt);
 int cfg_save_core_specific(uint8_t alt);
+void cfg_reset_all();
+void cfg_reset_core_specific();
 
 void cfg_error(const char *fmt, ...);
 bool cfg_check_errors(char *msg, size_t max_len);

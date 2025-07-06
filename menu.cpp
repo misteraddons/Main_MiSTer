@@ -796,6 +796,27 @@ static int save_settings_revert(void)
 	return 1;
 }
 
+// Reset Settings helper functions
+static int reset_settings_apply(void)
+{
+	// Reset all settings to factory defaults
+	cfg_reset_all();
+	return 2; // Special return code to indicate success message should be shown
+}
+
+static int reset_core_settings_apply(void)
+{
+	// Reset core-specific settings to factory defaults
+	cfg_reset_core_specific();
+	return 2; // Special return code to indicate success message should be shown
+}
+
+static int reset_settings_revert(void)
+{
+	// No action needed for revert - just cancel the reset
+	return 1;
+}
+
 static uint32_t menustate = MENU_NONE1;
 static uint32_t parentstate;
 
@@ -4406,10 +4427,11 @@ void HandleUI(void)
 			int menusub_int = (int)menusub;
 			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, "System Settings", MENU_MAIN);
 			
-			// Add save option
+			// Add save and reset options
 			int m = 3 + category_count; // Skip title + spacing + categories
 			OsdWrite(m++, "");
 			OsdWrite(m++, " Save All Settings", menusub == category_count);
+			OsdWrite(m++, " Reset All Settings", menusub == category_count + 1);
 			
 			while (m < OsdGetSize()) OsdWrite(m++);
 			
@@ -4435,9 +4457,9 @@ void HandleUI(void)
 				// Check if core-specific save option is available
 				const char *core_name = user_io_get_core_name(0);
 				if (core_name && core_name[0] && strcasecmp(core_name, "MENU"))
-					menusub = CAT_COUNT + 1; // wrap to core save option (after Save All Settings)
+					menusub = CAT_COUNT + 2; // wrap to core save option (after Reset All Settings)
 				else
-					menusub = CAT_COUNT; // wrap to Save All Settings
+					menusub = CAT_COUNT + 1; // wrap to Reset All Settings
 			}
 			menustate = MENU_SETTINGS1; // refresh display
 		}
@@ -4445,7 +4467,7 @@ void HandleUI(void)
 		{
 			// Check if core-specific save option is available
 			const char *core_name = user_io_get_core_name(0);
-			int max_menusub = (core_name && core_name[0] && strcasecmp(core_name, "MENU")) ? CAT_COUNT + 1 : CAT_COUNT;
+			int max_menusub = (core_name && core_name[0] && strcasecmp(core_name, "MENU")) ? CAT_COUNT + 2 : CAT_COUNT + 1;
 			
 			if (menusub < max_menusub) 
 				menusub++;
@@ -4483,7 +4505,14 @@ void HandleUI(void)
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 			}
-			// TODO: Handle core-specific save option (menusub == CAT_COUNT + 1)
+			else if (menusub == CAT_COUNT + 1)
+			{
+				// Reset All Settings - show confirmation screen with warning
+				setup_save_confirmation_screen("Reset All Settings", "All settings will be reset\nto factory defaults!", "Continue?", reset_settings_apply, reset_settings_revert, MENU_SETTINGS1, CAT_COUNT + 1);
+				menustate = MENU_CONFIRM_CHANGE1;
+				menusub = 1; // Default to "Reject"
+			}
+			// TODO: Handle core-specific save option (menusub == CAT_COUNT + 2)
 		}
 		break;
 
@@ -4508,12 +4537,15 @@ void HandleUI(void)
 			int menusub_int = (int)menusub;
 			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, title, MENU_CORE);
 			
-			// Add save option
+			// Add save and reset options
 			int m = 3 + category_count; // Skip title + spacing + categories
 			OsdWrite(m++, "");
 			char save_text[64];
 			snprintf(save_text, sizeof(save_text), " Save %s Settings", core_name ? core_name : "Core");
 			OsdWrite(m++, save_text, menusub == category_count);
+			char reset_text[64];
+			snprintf(reset_text, sizeof(reset_text), " Reset %s Settings", core_name ? core_name : "Core");
+			OsdWrite(m++, reset_text, menusub == category_count + 1);
 			
 			while (m < OsdGetSize()) OsdWrite(m++);
 			
@@ -4536,12 +4568,12 @@ void HandleUI(void)
 			if (menusub > 0)
 				menusub--;
 			else 
-				menusub = CAT_COUNT; // wrap to save option (after all categories)
+				menusub = CAT_COUNT + 1; // wrap to reset option (after save option)
 			menustate = MENU_CORE_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < CAT_COUNT)
+			if (menusub < CAT_COUNT + 1)
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -4575,6 +4607,16 @@ void HandleUI(void)
 				snprintf(title_message, sizeof(title_message), "Save %s Settings", core_name ? core_name : "Core");
 				snprintf(warning_message, sizeof(warning_message), "[%s] section in %s\nwill be updated!", core_name ? core_name : "Core", ini_filename);
 				setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, CAT_COUNT);
+				menustate = MENU_CONFIRM_CHANGE1;
+				menusub = 1; // Default to "Reject"
+			}
+			else if (menusub == CAT_COUNT + 1)
+			{
+				// Reset Core Settings - show confirmation screen with warning
+				const char *core_name = user_io_get_core_name(0);
+				char title_message[128];
+				snprintf(title_message, sizeof(title_message), "Reset %s Settings", core_name ? core_name : "Core");
+				setup_save_confirmation_screen(title_message, "Core settings will be reset\nto factory defaults!", "Continue?", reset_core_settings_apply, reset_settings_revert, MENU_CORE_SETTINGS1, CAT_COUNT + 1);
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 			}
