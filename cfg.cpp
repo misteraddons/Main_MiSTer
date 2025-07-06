@@ -4422,9 +4422,24 @@ int cfg_generate_category_selection_menu(int menu_offset, int* menusub, const ch
 	OsdWrite(m++, " Select Category:");
 	OsdWrite(m++, "");
 	
-	// Generate category menu items
+	// Create mapping of display index to actual category index
+	static int category_mapping[CAT_COUNT];
+	int display_categories = 0;
+	
+	// Generate category menu items, skipping empty categories
 	for (int i = 0; i < CAT_COUNT; i++)
 	{
+		// Count enabled settings in this category
+		int enabled_count = cfg_count_enabled_settings_in_category((osd_category_t)i, menu_type);
+		
+		// Skip empty categories
+		if (enabled_count == 0) {
+			continue;
+		}
+		
+		// Store the mapping from display index to actual category
+		category_mapping[display_categories] = i;
+		
 		char category_line[32];
 		// Format as exactly 28 characters: space + name + padding + \x16
 		snprintf(category_line, sizeof(category_line), " %s", category_info[i].name);
@@ -4435,11 +4450,39 @@ int cfg_generate_category_selection_menu(int menu_offset, int* menusub, const ch
 		category_line[27] = '\x16';
 		category_line[28] = '\0';
 		
-		bool selected = (menusub && *menusub == i);
+		bool selected = (menusub && *menusub == display_categories);
 		OsdWrite(m++, category_line, selected);
+		display_categories++;
 	}
 	
-	return CAT_COUNT; // Return number of categories
+	// Update menusub to point to the display index instead of category index
+	// This requires the caller to map it back using cfg_get_category_from_display_index
+	
+	return display_categories; // Return number of non-empty categories
+}
+
+// Get the actual category index from display index (accounting for hidden empty categories)
+osd_category_t cfg_get_category_from_display_index(int display_index, menu_flags_t menu_type)
+{
+	int display_categories = 0;
+	
+	for (int i = 0; i < CAT_COUNT; i++)
+	{
+		// Count enabled settings in this category
+		int enabled_count = cfg_count_enabled_settings_in_category((osd_category_t)i, menu_type);
+		
+		// Skip empty categories
+		if (enabled_count == 0) {
+			continue;
+		}
+		
+		if (display_categories == display_index) {
+			return (osd_category_t)i;
+		}
+		display_categories++;
+	}
+	
+	return (osd_category_t)0; // Fallback to first category
 }
 
 // Get setting at menu position within a category (skipping disabled settings)

@@ -204,6 +204,7 @@ uint8_t cfg_auto_detect_step_size(const ini_var_t* var);
 
 // Setting dependency functions
 bool cfg_is_setting_enabled(const char* setting_name);
+osd_category_t cfg_get_category_from_display_index(int display_index, menu_flags_t menu_type);
 
 // Dynamic menu generation
 int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible);

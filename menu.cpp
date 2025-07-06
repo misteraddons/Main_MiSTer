@@ -425,6 +425,7 @@ static int vrr_new_value;
 static int core_settings_mode = 0;
 static osd_category_t core_settings_category = CAT_AV_DIGITAL;
 static osd_category_t main_settings_category = CAT_AV_DIGITAL;
+static int core_category_count = 0;
 
 // Apply button system - backup original values when entering settings menu
 typedef struct {
@@ -4484,7 +4485,7 @@ void HandleUI(void)
 			{
 				// Dynamic category selection - use new main category menu state
 				core_settings_mode = 0; // Main settings mode
-				main_settings_category = (osd_category_t)menusub; // Store selected category
+				main_settings_category = cfg_get_category_from_display_index(menusub, MENU_MAIN); // Map display index to actual category
 				
 				// Initialize temporary settings for AV categories
 				if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
@@ -4527,7 +4528,7 @@ void HandleUI(void)
 			OsdSetSize(16);
 			helptext_idx = 0;
 			parentstate = MENU_COMMON1;  // Return to F12 menu
-			menumask = (1 << (CAT_COUNT + 1)) - 1; // Dynamic: all categories + save option
+			menumask = (1 << (core_category_count + 2)) - 1; // Dynamic: visible categories + save + reset option
 
 			char title[64];
 			const char *core_name = user_io_get_core_name(0);
@@ -4535,7 +4536,8 @@ void HandleUI(void)
 			
 			// Generate dynamic category selection menu
 			int menusub_int = (int)menusub;
-			int category_count = cfg_generate_category_selection_menu(0, &menusub_int, title, MENU_CORE);
+			core_category_count = cfg_generate_category_selection_menu(0, &menusub_int, title, MENU_CORE);
+			int category_count = core_category_count;
 			
 			// Add save and reset options
 			int m = 3 + category_count; // Skip title + spacing + categories
@@ -4568,12 +4570,12 @@ void HandleUI(void)
 			if (menusub > 0)
 				menusub--;
 			else 
-				menusub = CAT_COUNT + 1; // wrap to reset option (after save option)
+				menusub = core_category_count + 1; // wrap to reset option (after save option)
 			menustate = MENU_CORE_SETTINGS1; // refresh display
 		}
 		else if (down)
 		{
-			if (menusub < CAT_COUNT + 1)
+			if (menusub < core_category_count + 1)
 				menusub++;
 			else 
 				menusub = 0; // wrap to first item
@@ -4582,11 +4584,11 @@ void HandleUI(void)
 
 		if (select)
 		{
-			if (menusub < CAT_COUNT)
+			if (menusub < core_category_count)
 			{
 				// Dynamic category selection - use new core category menu state
 				core_settings_mode = 1;
-				core_settings_category = (osd_category_t)menusub; // Store selected category
+				core_settings_category = cfg_get_category_from_display_index(menusub, MENU_CORE); // Store selected category
 				
 				// Initialize temporary settings for AV categories
 				if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
@@ -4597,7 +4599,7 @@ void HandleUI(void)
 				menustate = MENU_CORE_CATEGORY1;
 				menusub = 0;
 			}
-			else if (menusub == CAT_COUNT)
+			else if (menusub == core_category_count)
 			{
 				// Save Core Settings - show confirmation screen with warning
 				const char *core_name = user_io_get_core_name(0);
@@ -4606,17 +4608,17 @@ void HandleUI(void)
 				char warning_message[128];
 				snprintf(title_message, sizeof(title_message), "Save %s Settings", core_name ? core_name : "Core");
 				snprintf(warning_message, sizeof(warning_message), "[%s] section in %s\nwill be updated!", core_name ? core_name : "Core", ini_filename);
-				setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, CAT_COUNT);
+				setup_save_confirmation_screen(title_message, warning_message, "Continue?", save_core_settings_apply, save_settings_revert, MENU_CORE_SETTINGS1, core_category_count);
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 			}
-			else if (menusub == CAT_COUNT + 1)
+			else if (menusub == core_category_count + 1)
 			{
 				// Reset Core Settings - show confirmation screen with warning
 				const char *core_name = user_io_get_core_name(0);
 				char title_message[128];
 				snprintf(title_message, sizeof(title_message), "Reset %s Settings", core_name ? core_name : "Core");
-				setup_save_confirmation_screen(title_message, "Core settings will be reset\nto factory defaults!", "Continue?", reset_core_settings_apply, reset_settings_revert, MENU_CORE_SETTINGS1, CAT_COUNT + 1);
+				setup_save_confirmation_screen(title_message, "Core settings will be reset\nto factory defaults!", "Continue?", reset_core_settings_apply, reset_settings_revert, MENU_CORE_SETTINGS1, core_category_count + 1);
 				menustate = MENU_CONFIRM_CHANGE1;
 				menusub = 1; // Default to "Reject"
 			}
