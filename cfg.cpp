@@ -134,7 +134,7 @@ const ini_var_t ini_vars[] =
 	{ "HDR_AVG_NITS", (void*)(&(cfg.hdr_avg_nits)), INI_UINT16, 100, 10000, "HDR Avg Bright.", "Average HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 15, MENU_BOTH, 0 },
 	{ "VGA_MODE", (void*)(&(cfg.vga_mode)), INI_STRING, 0, sizeof(cfg.vga_mode) - 1, "Analog Mode", "Analog video output mode.", CAT_AV_ANALOG, NULL, true, NULL, 0, 0, 0, MENU_MAIN, 0 },
 	{ "NTSC_MODE", (void *)(&(cfg.ntsc_mode)), INI_UINT8, 0, 2, "Color Encoding", "NTSC color encoding mode", CAT_AV_ANALOG, NULL, false, "YPBPR", 2, 3, 99, MENU_MAIN, 0 },
-	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Input Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
+	{ "CONTROLLER_UNIQUE_MAPPING", (void *)(cfg.controller_unique_mapping), INI_UINT32ARR, 0, 0xFFFFFFFF, "Unique Mapping", "Controller-specific button mappings", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "OSD_LOCK", (void*)(&(cfg.osd_lock)), INI_STRING, 0, sizeof(cfg.osd_lock) - 1, "OSD Lock", "Lock OSD with password", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "OSD_LOCK_TIME", (void*)(&(cfg.osd_lock_time)), INI_UINT16, 0, 60, "OSD Lock Time", "Time before OSD locks", CAT_UI, "sec", false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "DEBUG", (void *)(&(cfg.debug)), INI_UINT8, 0, 1, "Debug Mode", "Enable debug output", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
