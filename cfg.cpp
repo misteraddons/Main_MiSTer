@@ -4485,6 +4485,29 @@ osd_category_t cfg_get_category_from_display_index(int display_index, menu_flags
 	return (osd_category_t)0; // Fallback to first category
 }
 
+// Get display index from actual category enum (reverse of cfg_get_category_from_display_index)
+int cfg_get_display_index_from_category(osd_category_t category, menu_flags_t menu_type)
+{
+	int display_index = 0;
+	for (int i = 0; i < CAT_COUNT; i++)
+	{
+		// Count enabled settings in this category
+		int enabled_count = cfg_count_enabled_settings_in_category((osd_category_t)i, menu_type);
+		
+		// Skip empty categories
+		if (enabled_count == 0) {
+			continue;
+		}
+		
+		if ((osd_category_t)i == category) {
+			return display_index;
+		}
+		display_index++;
+	}
+	
+	return 0; // Fallback to first display index
+}
+
 // Get setting at menu position within a category (skipping disabled settings)
 const ini_var_t* cfg_get_category_setting_at_index(osd_category_t category, int index, menu_flags_t menu_type)
 {

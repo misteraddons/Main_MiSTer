@@ -4686,7 +4686,7 @@ void HandleUI(void)
 			
 			// Return to category selection
 			menustate = MENU_CORE_SETTINGS1;
-			menusub = core_settings_category; // Restore category selection
+			menusub = cfg_get_display_index_from_category(core_settings_category, MENU_CORE); // Restore category selection
 			break;
 		}
 		else if (up)
@@ -4748,7 +4748,7 @@ void HandleUI(void)
 				{
 					// No changes to apply, exit back to category selection
 					menustate = MENU_CORE_SETTINGS1;
-					menusub = core_settings_category;
+					menusub = cfg_get_display_index_from_category(core_settings_category, MENU_CORE);
 				}
 			}
 			else
@@ -4892,7 +4892,7 @@ void HandleUI(void)
 			
 			// Return to category selection
 			menustate = MENU_SETTINGS1;
-			menusub = main_settings_category; // Restore category selection
+			menusub = cfg_get_display_index_from_category(main_settings_category, MENU_MAIN); // Restore category selection
 			break;
 		}
 		else if (up)
@@ -4954,7 +4954,7 @@ void HandleUI(void)
 				{
 					// No changes to apply, exit back to category selection
 					menustate = MENU_SETTINGS1;
-					menusub = main_settings_category;
+					menusub = cfg_get_display_index_from_category(main_settings_category, MENU_MAIN);
 				}
 			}
 			else
