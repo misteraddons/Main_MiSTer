@@ -191,6 +191,9 @@ typedef struct
 	// const char* file_filter;      // For file picker: extension or pattern
 } ini_var_t;
 
+// Menu position constants
+#define HIDE_SETTING -1  // Use this value for menu_position to hide settings that aren't fully working
+
 // Get category and setting information
 const osd_category_info_t* cfg_get_category_info(osd_category_t category);
 int cfg_get_settings_for_category(osd_category_t category, const ini_var_t*** settings, int* count, menu_flags_t menu_type);
@@ -208,7 +211,7 @@ osd_category_t cfg_get_category_from_display_index(int display_index, menu_flags
 int cfg_get_display_index_from_category(osd_category_t category, menu_flags_t menu_type);
 
 // Dynamic menu generation
-int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible);
+int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible, int* next_line_pos);
 int cfg_generate_category_selection_menu(int menu_offset, int* menusub, const char* title, menu_flags_t menu_type);
 const ini_var_t* cfg_get_category_setting_at_index(osd_category_t category, int index, menu_flags_t menu_type);
 int cfg_count_enabled_settings_in_category(osd_category_t category, menu_flags_t menu_type);

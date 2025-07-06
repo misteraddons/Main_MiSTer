@@ -4644,16 +4644,86 @@ void HandleUI(void)
 			snprintf(title, sizeof(title), "%s - %s", core_name ? core_name : "Core", cat_info ? cat_info->name : "Settings");
 
 			int menusub_int = (int)menusub;
-			int setting_count = cfg_generate_category_menu(core_settings_category, 0, &menusub_int, title, MENU_CORE, &core_menu_first_visible);
+			int help_text_line = 0;
+			int setting_count = cfg_generate_category_menu(core_settings_category, 0, &menusub_int, title, MENU_CORE, &core_menu_first_visible, &help_text_line);
 			
 			// Set menumask for the number of settings in this category
 			menumask = setting_count > 0 ? (1 << setting_count) - 1 : 0;
+
+			// Add scrolling help text after menu generation
+			static scroll_state_t core_category_scroll_state = {0, 0, -1, false};
+			
+			// Get help text for current setting or Accept button
+			const char* help_text = "";
+			if ((core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) {
+				// Accept button for AV categories
+				help_text = "Apply changes to preview them, then accept or reject";
+			} else {
+				// Get help text for current setting
+				const ini_var_t* setting = cfg_get_category_setting_at_index(core_settings_category, menusub, MENU_CORE);
+				if (setting) {
+					help_text = cfg_get_help_text(setting->name);
+				}
+			}
+			
+			// Render scrolling help text
+			char help_buffer[256];
+			int help_len = strlen(help_text);
+			
+			// Reset scroll position when menu item changes
+			if (menusub != core_category_scroll_state.last_menusub) {
+				core_category_scroll_state.scroll_pos = 0;
+				core_category_scroll_state.end_pause = false;
+				core_category_scroll_state.scroll_timer = GetTimer(1000); // Initial delay
+				core_category_scroll_state.last_menusub = menusub;
+			}
+			
+			// Only scroll if text is longer than 27 characters (leaving space for leading space)
+			if (help_len > 27) {
+				if (CheckTimer(core_category_scroll_state.scroll_timer)) {
+					if (core_category_scroll_state.end_pause) {
+						// End pause finished, restart from beginning
+						core_category_scroll_state.scroll_pos = 0;
+						core_category_scroll_state.end_pause = false;
+						core_category_scroll_state.scroll_timer = GetTimer(1000);
+					} else if (core_category_scroll_state.scroll_pos < help_len - 27) {
+						// Continue scrolling
+						core_category_scroll_state.scroll_pos++;
+						core_category_scroll_state.scroll_timer = GetTimer(100);
+					} else {
+						// Reached end, start pause
+						core_category_scroll_state.end_pause = true;
+						core_category_scroll_state.scroll_timer = GetTimer(1000);
+					}
+				}
+				// Add leading space and extract visible portion
+				help_buffer[0] = ' ';
+				strncpy(help_buffer + 1, help_text + core_category_scroll_state.scroll_pos, 27);
+				help_buffer[28] = '\0';
+			} else {
+				// Text fits, no scrolling needed - add leading space
+				help_buffer[0] = ' ';
+				strncpy(help_buffer + 1, help_text, sizeof(help_buffer) - 2);
+				help_buffer[sizeof(help_buffer) - 1] = '\0';
+			}
+			
+			// Add help text immediately after Apply button (no blank line)
+			OsdWrite(help_text_line, help_buffer); // Help text right after Apply button
 
 			menustate = MENU_CORE_CATEGORY2;
 			break;
 		}
 
 	case MENU_CORE_CATEGORY2:
+		// Force periodic menu refresh for scrolling text animation
+		static uint32_t core_category_scroll_refresh_timer = 0;
+		if (CheckTimer(core_category_scroll_refresh_timer)) {
+			core_category_scroll_refresh_timer = GetTimer(100); // Refresh every 100ms
+			menustate = MENU_CORE_CATEGORY1; // Refresh the display
+			break;
+		}
+		
 		menumask = 0; // Handle navigation ourselves
 		
 		// Check for pending file picker request
@@ -4850,16 +4920,86 @@ void HandleUI(void)
 			snprintf(title, sizeof(title), "%s", cat_info ? cat_info->name : "Settings");
 
 			int menusub_int = (int)menusub;
-			int setting_count = cfg_generate_category_menu(main_settings_category, 0, &menusub_int, title, MENU_MAIN, &main_menu_first_visible);
+			int help_text_line = 0;
+			int setting_count = cfg_generate_category_menu(main_settings_category, 0, &menusub_int, title, MENU_MAIN, &main_menu_first_visible, &help_text_line);
 			
 			// Set menumask for the number of settings in this category
 			menumask = setting_count > 0 ? (1 << setting_count) - 1 : 0;
+
+			// Add scrolling help text after menu generation
+			static scroll_state_t main_category_scroll_state = {0, 0, -1, false};
+			
+			// Get help text for current setting or Accept button
+			const char* help_text = "";
+			if ((main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) && 
+			    menusub == setting_count) {
+				// Accept button for AV categories
+				help_text = "Apply changes to preview them, then accept or reject";
+			} else {
+				// Get help text for current setting
+				const ini_var_t* setting = cfg_get_category_setting_at_index(main_settings_category, menusub, MENU_MAIN);
+				if (setting) {
+					help_text = cfg_get_help_text(setting->name);
+				}
+			}
+			
+			// Render scrolling help text
+			char help_buffer[256];
+			int help_len = strlen(help_text);
+			
+			// Reset scroll position when menu item changes
+			if (menusub != main_category_scroll_state.last_menusub) {
+				main_category_scroll_state.scroll_pos = 0;
+				main_category_scroll_state.end_pause = false;
+				main_category_scroll_state.scroll_timer = GetTimer(1000); // Initial delay
+				main_category_scroll_state.last_menusub = menusub;
+			}
+			
+			// Only scroll if text is longer than 27 characters (leaving space for leading space)
+			if (help_len > 27) {
+				if (CheckTimer(main_category_scroll_state.scroll_timer)) {
+					if (main_category_scroll_state.end_pause) {
+						// End pause finished, restart from beginning
+						main_category_scroll_state.scroll_pos = 0;
+						main_category_scroll_state.end_pause = false;
+						main_category_scroll_state.scroll_timer = GetTimer(1000);
+					} else if (main_category_scroll_state.scroll_pos < help_len - 27) {
+						// Continue scrolling
+						main_category_scroll_state.scroll_pos++;
+						main_category_scroll_state.scroll_timer = GetTimer(100);
+					} else {
+						// Reached end, start pause
+						main_category_scroll_state.end_pause = true;
+						main_category_scroll_state.scroll_timer = GetTimer(1000);
+					}
+				}
+				// Add leading space and extract visible portion
+				help_buffer[0] = ' ';
+				strncpy(help_buffer + 1, help_text + main_category_scroll_state.scroll_pos, 27);
+				help_buffer[28] = '\0';
+			} else {
+				// Text fits, no scrolling needed - add leading space
+				help_buffer[0] = ' ';
+				strncpy(help_buffer + 1, help_text, sizeof(help_buffer) - 2);
+				help_buffer[sizeof(help_buffer) - 1] = '\0';
+			}
+			
+			// Add help text immediately after Apply button (no blank line)
+			OsdWrite(help_text_line, help_buffer); // Help text right after Apply button
 
 			menustate = MENU_MAIN_CATEGORY2;
 			break;
 		}
 
 	case MENU_MAIN_CATEGORY2:
+		// Force periodic menu refresh for scrolling text animation
+		static uint32_t main_category_scroll_refresh_timer = 0;
+		if (CheckTimer(main_category_scroll_refresh_timer)) {
+			main_category_scroll_refresh_timer = GetTimer(100); // Refresh every 100ms
+			menustate = MENU_MAIN_CATEGORY1; // Refresh the display
+			break;
+		}
+		
 		menumask = 0; // Handle navigation ourselves
 		
 		// Check for pending file picker request

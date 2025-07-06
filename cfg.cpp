@@ -165,6 +165,11 @@ int cfg_get_settings_for_category(osd_category_t category, const ini_var_t*** se
 		    ini_vars[i].menu_position != -1 && // Skip hidden settings
 		    (ini_vars[i].menu_flags & menu_type)) // Check if setting appears in this menu type
 		{
+			// Skip UI_STRING_INPUT settings
+			if (cfg_auto_detect_ui_type(&ini_vars[i]) == UI_STRING_INPUT) {
+				continue;
+			}
+			
 			category_settings[setting_count++] = &ini_vars[i];
 			if (setting_count >= 256) break; // Prevent overflow
 		}
@@ -440,6 +445,7 @@ const char* cfg_ui_type_to_string(ui_type_t ui_type)
 		case UI_DROPDOWN: return "DROPDOWN";
 		case UI_FILE_PICKER: return "FILE_PICKER";
 		case UI_STRING_INPUT: return "STRING_INPUT";
+		//case UI_STRING_INPUT: return "HIDDEN";
 		case UI_HIDDEN: return "HIDDEN";
 		default: return "UNKNOWN";
 	}
@@ -3171,7 +3177,7 @@ void cfg_print_category_organization(void)
 }
 
 // Generate a dynamic menu for a category
-int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible)
+int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* menusub, const char* title, menu_flags_t menu_type, int* first_visible, int* next_line_pos)
 {
 	const ini_var_t** settings = NULL;
 	int count = 0;
@@ -3191,9 +3197,10 @@ int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* me
 	
 	// Calculate scrolling parameters
 	int total_settings = count;
-	int visible_lines = OsdGetSize() - 3; // Reserve space for title, blank line
-	bool has_accept_button = (category == CAT_AV_DIGITAL || category == CAT_AV_ANALOG);
-	// Don't reserve space for Accept button - allow it to use the very bottom row
+	// Reserve space for title, blank line, Apply button, and help text
+	// OsdGetSize() is typically 17, so: title(1) + blank(1) + settings(13) + Apply(1) + help(1) = 17
+	int visible_lines = 13; // Always show 13 settings lines as requested
+	bool has_apply_button = (category == CAT_AV_DIGITAL || category == CAT_AV_ANALOG);
 	
 	// Initialize first_visible if needed
 	if (!first_visible || *first_visible < 0) {
@@ -3274,18 +3281,16 @@ int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* me
 		*first_visible = display_count - visible_lines;
 	}
 	
-	// Generate menu items for visible range
+	// Generate menu items for visible range - always fill exactly 12 lines
 	int selectable_index = 0; // Index in selectable items (matches menusub)
+	int lines_filled = 0;
 	
-	for (int i = 0; i < display_count; i++) {
+	for (int i = 0; i < display_count && lines_filled < visible_lines; i++) {
 		// Skip items before visible range
 		if (i < *first_visible) {
 			if (display_items[i].is_selectable) selectable_index++;
 			continue;
 		}
-		
-		// Stop if we've filled visible lines
-		if (i >= *first_visible + visible_lines) break;
 		
 		const ini_var_t* var = display_items[i].var;
 		bool is_stippled = display_items[i].is_stippled;
@@ -3299,24 +3304,30 @@ int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* me
 		OsdWrite(m++, s, selected, stipple_flag);
 		
 		if (!is_stippled) selectable_index++;
+		lines_filled++;
 	}
 	
-	// Add Accept button for Digital and Analog AV categories
+	// Fill remaining lines with blanks to reach exactly 12 settings lines
+	while (lines_filled < visible_lines) {
+		OsdWrite(m++);
+		lines_filled++;
+	}
+	
+	// Add Apply button immediately after settings for AV menus (no blank lines)
 	if (category == CAT_AV_DIGITAL || category == CAT_AV_ANALOG)
 	{
-		// Add blank line
-		OsdWrite(m++);
-		
-		// Add Accept button
-		bool accept_selected = (menusub && *menusub == total_selectable_settings);
-		OsdWrite(m++, " >>>>>>>>> ACCEPT <<<<<<<<<", accept_selected);
-		total_selectable_settings++; // Include Accept button in total count
+		// Add Apply button immediately after the last setting (no gaps)
+		bool apply_selected = (menusub && *menusub == total_selectable_settings);
+		OsdWrite(m++, "          \x11 APPLY \x10", apply_selected);
+		total_selectable_settings++; // Include Apply button in total count
 	}
 	
-	// Fill remaining lines
-	while (m < OsdGetSize()) OsdWrite(m++);
-	
-	return total_selectable_settings; // Return count of selectable items including Accept button
+	// Set next line position for help text
+	if (next_line_pos) {
+		*next_line_pos = m; // m is the next available line after Apply button
+	}
+
+	return total_selectable_settings; // Return count of selectable items including Apply button
 }
 
 // Handle setting value change (increment/decrement)
@@ -4223,14 +4234,14 @@ void cfg_get_temp_var_value_as_string(const ini_var_t* var, char* buffer, size_t
 		return;
 	}
 	
-	printf("DEBUG: Getting temp value for %s (active=%d, changed_count=%d)\n", 
-		var->name, temp_settings.active, temp_settings.changed_count);
+	// printf("DEBUG: Getting temp value for %s (active=%d, changed_count=%d)\n", 
+	// 	var->name, temp_settings.active, temp_settings.changed_count);
 	
 	// Look for this setting in changed values
 	for (int i = 0; i < temp_settings.changed_count; i++)
 	{
-		printf("DEBUG: Checking temp setting %d: %s vs %s\n", i, 
-			temp_settings.changed_values[i].setting->name, var->name);
+		// printf("DEBUG: Checking temp setting %d: %s vs %s\n", i, 
+		// 	temp_settings.changed_values[i].setting->name, var->name);
 			
 		if (temp_settings.changed_values[i].setting == var)
 		{
