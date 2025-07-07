@@ -17,6 +17,7 @@
 #include "osd.h"
 #include "support/arcade/mra_loader.h"
 
+
 cfg_t cfg;
 static FILE *orig_stdout = NULL;
 static FILE *dev_null = NULL;
@@ -85,7 +86,7 @@ const ini_var_t ini_vars[] =
 	{ "JAMMA2_VID", (void*)(&(cfg.jamma2_vid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 VID", "Second JAMMA interface vendor ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "JAMMA2_PID", (void*)(&(cfg.jamma2_pid)), INI_HEX16, 0, 0xFFFF, "JAMMA2 PID", "Second JAMMA interface product ID", CAT_INPUT_ARCADE, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "SNIPER_MODE", (void*)(&(cfg.sniper_mode)), INI_UINT8, 0, 1, "Sniper Mode", "Enable precision aiming mode", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
-	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force", "Force feedback strength for steering wheels", CAT_INPUT_CONTROLLER, "%", false, NULL, 0, 0, 99, MENU_BOTH, 5 },
+	{ "WHEEL_FORCE", (void*)(&(cfg.wheel_force)), INI_UINT8, 0, 100, "Wheel Force", "Force feedback strength for steering wheels", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 5 },
 	{ "BROWSE_EXPAND", (void*)(&(cfg.browse_expand)), INI_UINT8, 0, 1, "Browse Expand", "Expand file browser by default", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
 	{ "LOGO", (void*)(&(cfg.logo)), INI_UINT8, 0, 1, "Show Logo", "Display MiSTer logo on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "SHARED_FOLDER", (void*)(&(cfg.shared_folder)), INI_STRING, 0, sizeof(cfg.shared_folder) - 1, "Shared Folder", "Network shared folder path", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
@@ -110,7 +111,7 @@ const ini_var_t ini_vars[] =
 	{ "BT_RESET_BEFORE_PAIR", (void*)(&(cfg.bt_reset_before_pair)), INI_UINT8, 0, 1, "BT Pair Reset", "Reset Bluetooth before pairing", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "WAITMOUNT", (void*)(&(cfg.waitmount)), INI_STRING, 0, sizeof(cfg.waitmount) - 1, "Wait for Mount", "Devices to wait for before continuing", CAT_SYSTEM, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "RUMBLE", (void *)(&(cfg.rumble)), INI_UINT8, 0, 1, "Controller Rumble", "Enable force feedback/rumble", CAT_INPUT_CONTROLLER, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
-	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLER, "°", false, NULL, 0, 0, 99, MENU_BOTH, 0 },
+	{ "WHEEL_RANGE", (void*)(&(cfg.wheel_range)), INI_UINT16, 0, 1000, "Wheel Range", "Steering wheel rotation range", CAT_INPUT_CONTROLLER, "\x9A", false, NULL, 0, 0, 99, MENU_BOTH, 0 },
 	{ "HDMI_GAME_MODE", (void *)(&(cfg.hdmi_game_mode)), INI_UINT8, 0, 1, "Game Mode", "Enable low-latency game mode", CAT_AV_DIGITAL, NULL, false, "DIRECT_VIDEO", 0, 0, 5, MENU_BOTH, 0 },
 	{ "VRR_MODE", (void *)(&(cfg.vrr_mode)), INI_UINT8, 0, 3, "VRR", "VRR mode selection", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 15, MENU_BOTH, 0 },
 	{ "VRR_MIN_FRAMERATE", (void *)(&(cfg.vrr_min_framerate)), INI_UINT8, 0, 240, "VRR Min Framerate", "Minimum VRR framerate", CAT_AV_DIGITAL, "Hz", false, "VRR_MODE", 1, 3, 17, MENU_BOTH, 0 },
@@ -127,7 +128,7 @@ const ini_var_t ini_vars[] =
 	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), INI_UINT8, 0, 100, "Brightness", "Adjust video brightness", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 8, MENU_BOTH, 5 },
 	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), INI_UINT8, 0, 100, "Contrast", "Adjust video contrast", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 9, MENU_BOTH, 5 },
 	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), INI_UINT8, 0, 100, "Saturation", "Adjust video saturation", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 10, MENU_BOTH, 5 },
-	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Hue", "Adjust video hue", CAT_AV_DIGITAL, "°", false, NULL, 0, 0, 10, MENU_BOTH, 0 },
+	{ "VIDEO_HUE", (void *)(&(cfg.video_hue)), INI_UINT16, 0, 360, "Hue", "Adjust video hue", CAT_AV_DIGITAL, "\x9A", false, NULL, 0, 0, 10, MENU_BOTH, 0 },
 	{ "VIDEO_GAIN_OFFSET", (void *)(&(cfg.video_gain_offset)), INI_STRING, 0, sizeof(cfg.video_gain_offset), "Gain/Offset", "RGB gain and offset adjustments", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 12, MENU_BOTH, 0 },
 	{ "HDR", (void*)(&cfg.hdr), INI_UINT8, 0, 2, "HDR Mode", "High Dynamic Range mode", CAT_AV_DIGITAL, NULL, false, NULL, 0, 0, 13, MENU_BOTH, 0 },
 	{ "HDR_MAX_NITS", (void*)(&(cfg.hdr_max_nits)), INI_UINT16, 100, 10000, "HDR Max Bright.", "Maximum HDR brightness", CAT_AV_DIGITAL, "nits", false, "HDR", 1, 2, 14, MENU_BOTH, 0 },
@@ -545,7 +546,14 @@ static const char* render_direct_video(const char* setting_name, const char* dis
 	
 	// Show as "HDMI Mode" with HDMI/HDMI DAC abstraction instead of raw Direct Video On/Off
 	const char* mode_text = direct_video_value ? "HDMI DAC" : "HDMI";
-	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	
+	// Right-justify the value to position 28
+	int name_len = strlen(display_name);
+	int value_len = strlen(mode_text);
+	int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
+	if (padding < 1) padding = 1; // Ensure at least one space
+	
+	snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", mode_text);
 	return buffer;
 }
 
@@ -568,7 +576,14 @@ static const char* render_vrr_mode(const char* setting_name, const char* display
 		case 2: vrr_text = "Freesync+"; break;
 		case 3: vrr_text = "HDMI VRR"; break;
 	}
-	snprintf(buffer, buffer_size, " %s: %s", display_name, vrr_text);
+	
+	// Right-justify the value to position 28
+	int name_len = strlen(display_name);
+	int value_len = strlen(vrr_text);
+	int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
+	if (padding < 1) padding = 1; // Ensure at least one space
+	
+	snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", vrr_text);
 	return buffer;
 }
 
@@ -585,8 +600,15 @@ static const char* render_sniper_mode(const char* setting_name, const char* disp
 		sniper_mode_value = temp_value;
 	}
 	
-	const char* mode_text = sniper_mode_value ? "Swap" : "Norm";
-	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	const char* mode_text = sniper_mode_value ? "Swap" : "Normal";
+	
+	// Right-justify the value to position 28
+	int name_len = strlen(display_name);
+	int value_len = strlen(mode_text);
+	int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
+	if (padding < 1) padding = 1; // Ensure at least one space
+	
+	snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", mode_text);
 	return buffer;
 }
 
@@ -603,8 +625,15 @@ static const char* render_gamepad_defaults(const char* setting_name, const char*
 		gamepad_defaults_value = temp_value;
 	}
 	
-	const char* mode_text = gamepad_defaults_value ? "Pos." : "Name";
-	snprintf(buffer, buffer_size, " %s: %s", display_name, mode_text);
+	const char* mode_text = gamepad_defaults_value ? "Position" : "Name";
+	
+	// Right-justify the value to position 28
+	int name_len = strlen(display_name);
+	int value_len = strlen(mode_text);
+	int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
+	if (padding < 1) padding = 1; // Ensure at least one space
+	
+	snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", mode_text);
 	return buffer;
 }
 
@@ -747,28 +776,37 @@ static const char* render_sync_mode(const char* setting_name, const char* displa
 	const char* sync_labels[] = {"Separate", "Composite", "Sync-on-Green"};
 	const char* label = (sync_mode_value <= 2) ? sync_labels[sync_mode_value] : "Unknown";
 	
-	// Check if sync mode is locked (stippled)
+	// Determine the final display text
+	const char* final_text;
 	if (is_sync_mode_locked())
 	{
 		// Show locked version - force to composite in S-Video/CVBS
-		snprintf(buffer, buffer_size, " %s: Composite", display_name);
+		final_text = "Composite";
 	}
 	else if (vga_mode == 1) // YPbPr mode
 	{
 		// YPbPr can't use separate sync - show available options only
 		if (sync_mode_value == 0) // If set to separate, force to composite
 		{
-			snprintf(buffer, buffer_size, " %s: Composite", display_name);
+			final_text = "Composite";
 		}
 		else
 		{
-			snprintf(buffer, buffer_size, " %s: %s", display_name, label);
+			final_text = label;
 		}
 	}
 	else
 	{
-		snprintf(buffer, buffer_size, " %s: %s", display_name, label);
+		final_text = label;
 	}
+	
+	// Right-justify the value to position 28
+	int name_len = strlen(display_name);
+	int value_len = strlen(final_text);
+	int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
+	if (padding < 1) padding = 1; // Ensure at least one space
+	
+	snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", final_text);
 	return buffer;
 }
 
@@ -1061,8 +1099,22 @@ void cfg_render_setting_value(char* buffer, size_t buffer_size, const char* sett
 			// Right-justify the value to position 28
 			int name_len = strlen(display_name);
 			int value_len = strlen(value_text);
+			
+			// Special handling removed - now using "o" instead of degree symbol
+			
 			int padding = 28 - 2 - name_len - value_len; // 2 for " " and ":"
 			if (padding < 1) padding = 1; // Ensure at least one space
+			
+			// Debug: if this is hue or wheel force, let's ensure they align to 28
+			if ((strcmp(var->name, "VIDEO_HUE") == 0) || (strcmp(var->name, "WHEEL_FORCE") == 0)) {
+				// Force these specific settings to align properly by adjusting padding
+				int target_pos = 28;
+				int current_pos = 1 + name_len + 1 + padding + value_len; // " " + name + ":" + padding + value
+				if (current_pos != target_pos) {
+					padding += (target_pos - current_pos);
+					if (padding < 1) padding = 1;
+				}
+			}
 			
 			snprintf(buffer, buffer_size, " %s:%*s%s", display_name, padding, "", value_text);
 			break;
@@ -3322,9 +3374,9 @@ int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* me
 		total_selectable_settings++; // Include Apply button in total count
 	}
 	
-	// Set next line position for help text
+	// Set next line position for help text - always use the last line
 	if (next_line_pos) {
-		*next_line_pos = m; // m is the next available line after Apply button
+		*next_line_pos = OsdGetSize() - 1; // Always position help text on the last line
 	}
 
 	return total_selectable_settings; // Return count of selectable items including Apply button
