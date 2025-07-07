@@ -7,6 +7,9 @@
 #include "fpga_io.h"
 #include "osd.h"
 #include "profiling.h"
+#include "hdmi_cec.h"
+#include "cfg.h"
+#include "video.h"
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
@@ -31,6 +34,13 @@ static void scheduler_co_poll(void)
 			SPIKE_SCOPE("co_poll", 1000);
 			user_io_poll();
 			input_poll(0);
+			
+			// Check for CEC config changes and poll if enabled
+			video_cec_config_update();
+			if (cfg.hdmi_cec && cec_is_enabled()) {
+				cec_poll();
+				cec_check_button_timeout();
+			}
 		}
 
 		scheduler_yield();

@@ -70,4 +70,6 @@ void video_core_description(char *str, size_t len);
 void video_scaler_description(char *str, size_t len);
 char* video_get_core_mode_name(int with_vrefresh = 1);
 
+void video_cec_config_update();
+
 #endif // VIDEO_H

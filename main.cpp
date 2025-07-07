@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <inttypes.h>
 #include <ctype.h>
 #include <string.h>
+#include <signal.h>
 #include "menu.h"
 #include "user_io.h"
 #include "input.h"
@@ -33,8 +34,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#include "hdmi_cec.h"
+#include "cfg.h"
+#include "video.h"
 
 const char *version = "$VER:" VDATE;
+
+static void cleanup_handler(int /*signal*/) {
+	if (cec_is_enabled()) {
+		printf("CEC: Sending standby on exit\n");
+		cec_send_standby();
+	}
+	exit(0);
+}
 
 int main(int argc, char *argv[])
 {
@@ -47,6 +59,10 @@ int main(int argc, char *argv[])
 	sched_setaffinity(0, sizeof(set), &set);
 
 	offload_start();
+
+	// Set up signal handlers for cleanup
+	signal(SIGINT, cleanup_handler);
+	signal(SIGTERM, cleanup_handler);
 
 	fpga_io_init();
 
@@ -86,6 +102,13 @@ int main(int argc, char *argv[])
 		input_poll(0);
 		HandleUI();
 		OsdUpdate();
+		
+		// Check for CEC config changes and poll if enabled
+		video_cec_config_update();
+		if (cfg.hdmi_cec && cec_is_enabled()) {
+			cec_poll();
+			cec_check_button_timeout();
+		}
 	}
 #endif
 	return 0;

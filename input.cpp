@@ -1766,6 +1766,15 @@ static void uinp_check_key()
 	}
 }
 
+// CEC input integration
+void input_cec_send_key(uint16_t key, bool pressed)
+{
+	if (!input_uinp_setup()) return;
+	
+	printf("CEC Input: Sending key %d (0x%02X) %s\n", key, key, pressed ? "down" : "up");
+	uinp_send_key(key, pressed ? 1 : 0);
+}
+
 static void mouse_cb(int16_t x = 0, int16_t y = 0, int16_t w = 0)
 {
 	if (grabbed)

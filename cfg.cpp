@@ -59,6 +59,7 @@ const ini_var_t ini_vars[] =
 	{ "HDMI_AUDIO_96K", (void*)(&(cfg.hdmi_audio_96k)), INI_UINT8, 0, 1, "HDMI 96kHz Audio", "Enable 96kHz audio output. May cause compatibility issues with AV equipment and DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), INI_UINT8, 0, 1, "DVI Mode", "Disable HDMI features for DVI displays", CAT_AV_DIGITAL, NULL, true, "DIRECT_VIDEO", 0, 0, 4, MENU_MAIN, 0 },
 	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), INI_UINT8, 0, 2, "HDMI Color Range", "HDMI color range. Set full for most devices. Limited (16-235) for older displays. Limited (16-255) for some HDMI DACs.", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 7, MENU_MAIN, 0 },
+	{ "HDMI_CEC", (void*)(&(cfg.hdmi_cec)), INI_UINT8, 0, 1, "HDMI CEC", "Enable HDMI CEC for controlling TV and audio equipment", CAT_AV_DIGITAL, NULL, true, NULL, 0, 0, 99, MENU_MAIN, 0 },
 	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), INI_UINT8, 0, 1, "Disable Mouse", "Disable mouse emulation via keyboard", CAT_INPUT_KB_MOUSE, NULL, false, NULL, 0, 0, 99, MENU_BOTH, 0 },
 	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), INI_UINT8, 1, 100, "Mouse Throttle", "Mouse movement speed", CAT_INPUT_KB_MOUSE, "%", false, NULL, 0, 0, 99, MENU_BOTH, 5 },
 	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), INI_UINT8, 0, 1, "Boot Screen", "Show boot screen on startup", CAT_UI, NULL, false, NULL, 0, 0, 99, MENU_MAIN, 0 },
@@ -2985,6 +2986,7 @@ void cfg_reset_all()
 	cfg.direct_video = 0;             // Scaler enabled
 	cfg.vsync_adjust = 0;             // Auto vsync
 	cfg.hdmi_audio_96k = 0;           // 48kHz audio
+	cfg.hdmi_cec = 1;                 // CEC enabled by default
 	cfg.dvi_mode = 0;                 // HDMI mode
 	cfg.hdmi_limited = 0;             // Full range
 	cfg.vscale_mode = 0;              // Interpolation filter

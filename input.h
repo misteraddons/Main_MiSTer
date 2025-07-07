@@ -114,4 +114,7 @@ void parse_buttons();
 char *get_buttons(int type = 0);
 void set_ovr_buttons(char *s, int type);
 
+// CEC input integration
+void input_cec_send_key(uint16_t key, bool pressed);
+
 #endif

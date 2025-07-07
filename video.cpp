@@ -30,6 +30,7 @@
 #include "support.h"
 #include "lib/imlib2/Imlib2.h"
 #include "lib/md5/md5.h"
+#include "hdmi_cec.h"
 
 #define FB_SIZE  (1920*1080)
 #define FB_ADDR  (0x20000000 + (32*1024*1024)) // 512mb + 32mb(Core's fb)
@@ -2516,6 +2517,37 @@ void video_init()
 	video_cfg_init();
 
 	video_set_mode(&v_def, 0);
+	
+	// Initialize CEC if enabled
+	if (cfg.hdmi_cec) {
+		cec_init(true);
+		// Send Image View On to turn on TV
+		cec_send_image_view_on();
+		// Announce ourselves as active source
+		cec_send_active_source();
+	} else {
+		cec_init(false);
+	}
+}
+
+void video_cec_config_update()
+{
+	static int last_cec_setting = -1;
+	
+	if (last_cec_setting != cfg.hdmi_cec) {
+		if (cfg.hdmi_cec) {
+			printf("CEC: Enabling\n");
+			cec_init(true);
+			// Send Image View On to turn on TV
+			cec_send_image_view_on();
+			// Announce ourselves as active source
+			cec_send_active_source();
+		} else {
+			printf("CEC: Disabling\n");
+			cec_init(false);
+		}
+		last_cec_setting = cfg.hdmi_cec;
+	}
 }
 
 
