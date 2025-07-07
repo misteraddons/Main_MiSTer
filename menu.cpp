@@ -4488,7 +4488,6 @@ void HandleUI(void)
 				main_settings_category = cfg_get_category_from_display_index(menusub, MENU_MAIN); // Map display index to actual category
 				
 				// Initialize temporary settings for AV categories
-				printf("DEBUG: Entering main category menu for category %d\n", main_settings_category);
 				if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
 				{
 					cfg_temp_settings_start(main_settings_category);
@@ -4592,7 +4591,6 @@ void HandleUI(void)
 				core_settings_category = cfg_get_category_from_display_index(menusub, MENU_CORE); // Store selected category
 				
 				// Initialize temporary settings for AV categories
-				printf("DEBUG: Entering core category menu for category %d\n", core_settings_category);
 				if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
 				{
 					cfg_temp_settings_start(core_settings_category);
@@ -4629,10 +4627,8 @@ void HandleUI(void)
 
 	case MENU_CORE_CATEGORY1:
 		{
-			printf("DEBUG: MENU_CORE_CATEGORY1 - category=%d\n", core_settings_category);
 			if (video_fb_state())
 			{
-				printf("DEBUG: video_fb_state() true, going to MENU_NONE1\n");
 				menustate = MENU_NONE1;
 				break;
 			}
@@ -4715,7 +4711,6 @@ void HandleUI(void)
 			// Add help text immediately after Apply button (no blank line)
 			OsdWrite(help_text_line, help_buffer); // Help text right after Apply button
 
-			printf("DEBUG: CORE_CATEGORY1 - transitioning to CORE_CATEGORY2\n");
 			menustate = MENU_CORE_CATEGORY2;
 			break;
 		}
@@ -4753,7 +4748,6 @@ void HandleUI(void)
 		
 		if (menu)
 		{
-			printf("DEBUG: CORE_CATEGORY2 - menu button pressed, returning to MENU_CORE_SETTINGS1\n");
 			// Clear temporary settings if user exits without accepting
 			if (core_settings_category == CAT_AV_DIGITAL || core_settings_category == CAT_AV_ANALOG)
 			{
@@ -4910,10 +4904,8 @@ void HandleUI(void)
 
 	case MENU_MAIN_CATEGORY1:
 		{
-			printf("DEBUG: MENU_MAIN_CATEGORY1 - category=%d\n", main_settings_category);
 			if (video_fb_state())
 			{
-				printf("DEBUG: video_fb_state() true, going to MENU_NONE1\n");
 				menustate = MENU_NONE1;
 				break;
 			}
@@ -4922,10 +4914,6 @@ void HandleUI(void)
 			helptext_idx = 0;
 			parentstate = MENU_SETTINGS1; // Return to category selection
 
-			// Check if menusub is out of bounds
-			int max_settings = cfg_count_enabled_settings_in_category(main_settings_category, MENU_MAIN);
-			printf("DEBUG: MAIN_CATEGORY1 start - menusub=%d, max_settings=%d\n", menusub, max_settings);
-			
 			// Generate dynamic category menu using the stored category
 			const osd_category_info_t* cat_info = cfg_get_category_info(main_settings_category);
 			char title[64];
@@ -4934,25 +4922,6 @@ void HandleUI(void)
 			int menusub_int = (int)menusub;
 			int help_text_line = 0;
 			int setting_count = cfg_generate_category_menu(main_settings_category, 0, &menusub_int, title, MENU_MAIN, &main_menu_first_visible, &help_text_line);
-			
-			printf("DEBUG: cfg_generate_category_menu returned setting_count=%d, help_text_line=%d, menusub_int=%d\n", setting_count, help_text_line, menusub_int);
-			
-			if (setting_count <= 0) {
-				printf("ERROR: No settings found for category %d, returning to main menu\n", main_settings_category);
-				menustate = MENU_SETTINGS1;
-				menusub = cfg_get_display_index_from_category(main_settings_category, MENU_MAIN);
-				break;
-			}
-			
-			// Check if menusub is beyond the valid range
-			int max_valid_index = (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
-			if (menusub_int > max_valid_index) {
-				printf("ERROR: menusub %d is beyond max valid index %d, clamping\n", menusub_int, max_valid_index);
-				menusub_int = max_valid_index;
-			}
-			
-			// Update menusub from the possibly adjusted value
-			menusub = (uint32_t)menusub_int;
 			
 			// Set menumask for the number of settings in this category
 			menumask = setting_count > 0 ? (1 << setting_count) - 1 : 0;
@@ -4964,23 +4933,13 @@ void HandleUI(void)
 			const char* help_text = "";
 			if ((main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) && 
 			    menusub == setting_count) {
-				printf("DEBUG: Getting help text for Apply button\n");
 				// Accept button for AV categories
 				help_text = "Apply changes to preview them, then accept or reject";
 			} else {
 				// Get help text for current setting
-				printf("DEBUG: Getting help text for setting at index %d\n", menusub);
 				const ini_var_t* setting = cfg_get_category_setting_at_index(main_settings_category, menusub, MENU_MAIN);
 				if (setting) {
-					printf("DEBUG: Found setting '%s' at index %d\n", setting->name, menusub);
 					help_text = cfg_get_help_text(setting->name);
-					if (!help_text) {
-						printf("ERROR: cfg_get_help_text returned NULL for setting '%s'\n", setting->name);
-						help_text = "";
-					}
-				} else {
-					printf("ERROR: No setting found at index %d - this might cause menu exit!\n", menusub);
-					help_text = "";
 				}
 			}
 			
@@ -5028,7 +4987,6 @@ void HandleUI(void)
 			// Add help text immediately after Apply button (no blank line)
 			OsdWrite(help_text_line, help_buffer); // Help text right after Apply button
 
-			printf("DEBUG: MAIN_CATEGORY1 - transitioning to MAIN_CATEGORY2\n");
 			menustate = MENU_MAIN_CATEGORY2;
 			break;
 		}
@@ -5042,13 +5000,6 @@ void HandleUI(void)
 			break;
 		}
 		
-		// Only print debug when actual input is being handled, not during timer refresh
-		static bool input_received = false;
-		if (menu || up || down || left || right || select) {
-			printf("DEBUG: MAIN_CATEGORY2 - handling input, menusub=%d, menu=%d, up=%d, down=%d, left=%d, right=%d, select=%d\n", 
-			       menusub, menu, up, down, left, right, select);
-			input_received = true;
-		}
 		menumask = 0; // Handle navigation ourselves
 		
 		// Check for pending file picker request
@@ -5073,7 +5024,6 @@ void HandleUI(void)
 		
 		if (menu)
 		{
-			printf("DEBUG: MAIN_CATEGORY2 - menu button pressed, returning to MENU_SETTINGS1\n");
 			// Clear temporary settings if user exits without accepting
 			if (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG)
 			{
@@ -5107,8 +5057,6 @@ void HandleUI(void)
 			// For AV categories, allow navigation to Accept button at setting_count
 			int max_index = (main_settings_category == CAT_AV_DIGITAL || main_settings_category == CAT_AV_ANALOG) ? setting_count : setting_count - 1;
 			
-			printf("DEBUG: DOWN pressed - menusub=%d, setting_count=%d, max_index=%d\n", menusub, setting_count, max_index);
-			
 			if (menusub < max_index)
 			{
 				menusub++;
@@ -5118,7 +5066,6 @@ void HandleUI(void)
 				// Wrap to top
 				menusub = 0;
 			}
-			printf("DEBUG: After DOWN - new menusub=%d\n", menusub);
 			menustate = MENU_MAIN_CATEGORY1; // refresh display
 		}
 
@@ -5146,7 +5093,6 @@ void HandleUI(void)
 				else
 				{
 					// No changes to apply, exit back to category selection
-					printf("DEBUG: No changes to apply, exiting to MENU_SETTINGS1\n");
 					menustate = MENU_SETTINGS1;
 					menusub = cfg_get_display_index_from_category(main_settings_category, MENU_MAIN);
 				}

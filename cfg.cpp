@@ -3238,7 +3238,6 @@ int cfg_generate_category_menu(osd_category_t category, int menu_offset, int* me
 	
 	// Get sorted settings for this category
 	cfg_get_settings_for_category(category, &settings, &count, menu_type);
-	printf("DEBUG: cfg_generate_category_menu - category=%d, count=%d, *menusub=%d\n", category, count, *menusub);
 	
 	// Set category title if provided
 	if (title) {
@@ -4572,17 +4571,11 @@ const ini_var_t* cfg_get_category_setting_at_index(osd_category_t category, int 
 	
 	cfg_get_settings_for_category(category, &settings, &count, menu_type);
 	
-	if (index < 0) {
-		printf("ERROR: cfg_get_category_setting_at_index - negative index %d\n", index);
-		return NULL;
-	}
-	
 	int enabled_index = 0;
 	for (int i = 0; i < count; i++)
 	{
 		// Skip hidden settings (negative menu_position)
 		if (settings[i]->menu_position < 0) {
-			printf("DEBUG: Skipping hidden setting %s at position %d\n", settings[i]->name, settings[i]->menu_position);
 			continue;
 		}
 		
@@ -4601,7 +4594,6 @@ const ini_var_t* cfg_get_category_setting_at_index(osd_category_t category, int 
 		enabled_index++;
 	}
 	
-	printf("ERROR: cfg_get_category_setting_at_index - index %d out of range, enabled_index reached %d\n", index, enabled_index);
 	return NULL; // Index out of range
 }
 
