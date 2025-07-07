@@ -4718,6 +4718,7 @@ void HandleUI(void)
 	case MENU_CORE_CATEGORY2:
 		// Force periodic menu refresh for scrolling text animation
 		static uint32_t core_category_scroll_refresh_timer = 0;
+		if (!core_category_scroll_refresh_timer) core_category_scroll_refresh_timer = GetTimer(100);
 		if (CheckTimer(core_category_scroll_refresh_timer)) {
 			core_category_scroll_refresh_timer = GetTimer(100); // Refresh every 100ms
 			menustate = MENU_CORE_CATEGORY1; // Refresh the display
@@ -4994,6 +4995,7 @@ void HandleUI(void)
 	case MENU_MAIN_CATEGORY2:
 		// Force periodic menu refresh for scrolling text animation
 		static uint32_t main_category_scroll_refresh_timer = 0;
+		if (!main_category_scroll_refresh_timer) main_category_scroll_refresh_timer = GetTimer(100);
 		if (CheckTimer(main_category_scroll_refresh_timer)) {
 			main_category_scroll_refresh_timer = GetTimer(100); // Refresh every 100ms
 			menustate = MENU_MAIN_CATEGORY1; // Refresh the display
