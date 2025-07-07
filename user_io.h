@@ -73,6 +73,8 @@
 #define UIO_GET_RUMBLE  0x3F
 #define UIO_GET_FB_PAR  0x40
 #define UIO_SET_YC_PAR  0x41
+#define UIO_JOYSTICK6   0x42  // 8-player support
+#define UIO_JOYSTICK7   0x43  // 8-player support
 
 // codes as used by 8bit for file loading from OSD
 #define FIO_FILE_TX     0x53

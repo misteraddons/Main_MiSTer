@@ -1714,7 +1714,9 @@ void user_io_digital_joystick(unsigned char joystick, uint64_t map, int newdir)
 	// by other mapping being pressed
 	uint32_t bitmask = (uint32_t)(map) | (uint32_t)(map >> 32);
 	use32 |= bitmask >> 16;
-	spi_uio_cmd_cont((joy < 2) ? (UIO_JOYSTICK0 + joy) : (UIO_JOYSTICK2 + joy - 2));
+	spi_uio_cmd_cont((joy < 2) ? (UIO_JOYSTICK0 + joy) : 
+	                 (joy < 6) ? (UIO_JOYSTICK2 + joy - 2) : 
+	                 (UIO_JOYSTICK6 + joy - 6));
 	spi_w(bitmask);
 	if(use32) spi_w(bitmask >> 16);
 	DisableIO();

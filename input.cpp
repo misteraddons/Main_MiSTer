@@ -34,7 +34,7 @@
 #include "str_util.h"
 
 #define NUMDEV 30
-#define NUMPLAYERS 6
+#define NUMPLAYERS 8
 #define UINPUT_NAME "MiSTer virtual input"
 
 char joy_bnames[NUMBUTTONS][32] = {};
@@ -2262,7 +2262,7 @@ static void update_num_hw(int dev, int num)
 		led_path = get_led_path(dev);
 		if (led_path)
 		{
-			if (set_led(led_path, ":player_id", (num > 5) ? 0 : num))
+			if (set_led(led_path, ":player_id", num))
 			{
 				//duslsense
 				set_led(led_path, ":blue", (num == 0) ? 128 : 64);
@@ -2324,8 +2324,8 @@ static void update_num_hw(int dev, int num)
 				set_led(led_path, ":home", num ? 1 : 15);
 				set_led(led_path, ":player1", (num == 0 || num == 1 || num == 5));
 				set_led(led_path, ":player2", (num == 0 || num == 2 || num == 6));
-				set_led(led_path, ":player3", (num == 0 || num == 3));
-				set_led(led_path, ":player4", (num == 0 || num == 4 || num == 5 || num == 6));
+				set_led(led_path, ":player3", (num == 0 || num == 3 || num == 7));
+				set_led(led_path, ":player4", (num == 0 || num == 4 || num == 5 || num == 6 || num == 7));
 			}
 
 			if (repeat && JOYCON_COMBINED(dev)) dev = input[dev].bind; else break;

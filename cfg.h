@@ -71,7 +71,7 @@ typedef struct {
 	char vfilter_scanlines_default[1023];
 	char shmask_default[1023];
 	char preset_default[1023];
-	char player_controller[6][8][256];
+	char player_controller[8][8][256];
 	char controller_deadzone[32][256];
 	uint8_t rumble;
 	uint8_t wheel_force;
