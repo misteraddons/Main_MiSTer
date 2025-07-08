@@ -5262,8 +5262,9 @@ void HandleUI(void)
 		OsdWrite(m++, s, menusub == 8, sync_disabled ? 1 : 0);
 		
 		// 10. Analog Region (menusub 9) - only for S-Video/CVBS
-		const char *region_str = cfg.ntsc_mode == 0 ? "NTSC" : 
-		                        cfg.ntsc_mode == 1 ? "PAL-60" : "PAL-M";
+		const char *region_str = "NTSC";
+		if (cfg.ntsc_mode == 1) region_str = "PAL-60";
+		else if (cfg.ntsc_mode == 2) region_str = "PAL-M";
 		bool region_disabled = (cfg.vga_mode_int < 2); // Only for S-Video/CVBS
 		sprintf(s, " Analog Reg.: %s", region_str);
 		OsdWrite(m++, s, menusub == 9, region_disabled ? 1 : 0);
@@ -6315,11 +6316,22 @@ void HandleUI(void)
 		cfg_render_setting_value(s, sizeof(s), "RECENTS", "Recent Files");
 		OsdWrite(m++, s, menusub == 3);
 		
-		sprintf(s, " FB Size:       %d", cfg.fb_size);
-		OsdWrite(m++, s, menusub == 4);
+		{
+			const char *fb_size_str = "Auto";
+			if (cfg.fb_size == 1) fb_size_str = "1920x1080";
+			else if (cfg.fb_size == 2) fb_size_str = "1280x720";
+			else if (cfg.fb_size == 3) fb_size_str = "1024x768";
+			else if (cfg.fb_size == 4) fb_size_str = "800x600";
+			sprintf(s, " FB Size:       %s", fb_size_str);
+			OsdWrite(m++, s, menusub == 4);
+		}
 		
-		cfg_render_setting_value(s, sizeof(s), "FB_TERMINAL", "FB Terminal");
-		OsdWrite(m++, s, menusub == 5);
+		{
+			const char *fb_terminal_str = "Off";
+			if (cfg.fb_terminal == 1) fb_terminal_str = "On";
+			sprintf(s, " FB Terminal:   %s", fb_terminal_str);
+			OsdWrite(m++, s, menusub == 5);
+		}
 		
 		if (cfg.osd_timeout == 0)
 			sprintf(s, " OSD Timeout:   Off");

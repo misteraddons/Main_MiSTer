@@ -145,6 +145,13 @@ const ini_var_t ini_vars[] =
 
 const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
 
+// Video mode options for dropdown menus
+const char* video_mode_options[] = {
+	"auto", "1920x1080", "1280x720", "1024x768", "800x600", "640x480", 
+	"720x480", "720x576", "1280x1024", "1366x768", "1024x600", 
+	"1920x1440", "2048x1536", "2560x1440", NULL
+};
+
 // Helper functions for OSD integration
 const osd_category_info_t* cfg_get_category_info(osd_category_t category)
 {
