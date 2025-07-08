@@ -73,6 +73,8 @@
 #define UIO_GET_RUMBLE  0x3F
 #define UIO_GET_FB_PAR  0x40
 #define UIO_SET_YC_PAR  0x41
+//#define UIO_JOYSTICK6   0x42  // 8-player support
+//#define UIO_JOYSTICK7   0x43  // 8-player support
 
 // codes as used by 8bit for file loading from OSD
 #define FIO_FILE_TX     0x53
@@ -257,6 +259,16 @@ uint32_t ValidateUARTbaud(int mode, uint32_t baud);
 char * GetMidiLinkSoundfont();
 void user_io_store_filename(char *filename);
 int user_io_use_cheats();
+
+// UART logging functions
+void uart_log_init();
+void uart_log_send_core(const char *core_name);
+void uart_log_send_game(const char *game_name);
+void uart_log_cleanup();
+void uart_log_process_commands();
+void uart_log_send_ack(const char *command);
+void uart_log_heartbeat();
+bool uart_log_is_connected();
 
 int process_ss(const char *rom_name, int enable = 1);
 

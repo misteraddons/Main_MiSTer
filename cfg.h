@@ -100,6 +100,7 @@ typedef struct {
 	char debug;
 	char main[1024];
 	char vfilter_interlace_default[1023];
+	char uart_log[1024];
 } cfg_t;
 
 extern cfg_t cfg;

@@ -132,6 +132,7 @@ static const ini_var_t ini_vars[] =
 	{ "DEBUG", (void *)(&(cfg.debug)), UINT8, 0, 1 },
 	{ "MAIN", (void*)(&(cfg.main)), STRING, 0, sizeof(cfg.main) - 1 },
 	{"VFILTER_INTERLACE_DEFAULT", (void*)(&(cfg.vfilter_interlace_default)), STRING, 0, sizeof(cfg.vfilter_interlace_default) - 1 },
+	{ "UART_LOG", (void*)(&(cfg.uart_log)), STRING, 0, sizeof(cfg.uart_log) - 1 },
 };
 
 static const int nvars = (int)(sizeof(ini_vars) / sizeof(ini_var_t));
@@ -589,6 +590,7 @@ void cfg_parse()
 	cfg.video_hue = 0;
 	strcpy(cfg.video_gain_offset, "1, 0, 1, 0, 1, 0");
 	strcpy(cfg.main, "MiSTer");
+	cfg.uart_log[0] = '\0';  // UART logging disabled by default
 	has_video_sections = false;
 	using_video_section = false;
 	cfg_error_count = 0;

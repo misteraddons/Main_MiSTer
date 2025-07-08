@@ -1154,6 +1154,7 @@ typedef struct
 	uint16_t jkmap[1024];
 	int      stick_l[2];
 	int      stick_r[2];
+	
 
 	uint8_t  has_kbdmap;
 	uint8_t  kbdmap[256];
@@ -2202,6 +2203,7 @@ static void joy_analog(int dev, int axis, int offset, int stick = 0)
 	}
 }
 
+
 static char* get_led_path(int dev, int add_id = 1)
 {
 	static char path[1024];
@@ -2609,6 +2611,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					input[dev].stick_l[1] = SYS_AXIS2_Y;
 					if ((input[dev].mmap[SYS_AXIS1_Y] >> 16) == 2) input[dev].stick_r[1] = SYS_AXIS1_Y;
 				}
+				
 			}
 		}
 		input[dev].has_mmap++;
@@ -3559,6 +3562,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						}
 					}
 				}
+				
 			}
 			break;
 
@@ -5272,7 +5276,6 @@ int input_test(int getchar)
 											}
 											else if (absinfo.maximum == 62)
 											{
-												//LT/RT analog
 												continue;
 											}
 											else if (ev.code & 1)
