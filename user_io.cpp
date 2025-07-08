@@ -1327,6 +1327,19 @@ void user_io_init(const char *path, const char *xml)
 	core_name[0] = 0;
 	disable_osd = 0;
 
+	// Create _Games symbolic link to games folder for main menu access
+	struct stat link_stat;
+	if (stat("/media/fat/_Games", &link_stat) != 0) {
+		// _Games doesn't exist, create symbolic link
+		if (symlink("/media/fat/games", "/media/fat/_Games") == 0) {
+			if (cfg.debug) printf("Created _Games symbolic link to games folder\n");
+		} else {
+			if (cfg.debug) printf("Failed to create _Games symbolic link: %s\n", strerror(errno));
+		}
+	} else if (cfg.debug) {
+		printf("_Games already exists\n");
+	}
+
 	// we need to set the directory to where the XML file (MRA) is
 	// not the RBF. The RBF will be in arcade, which the user shouldn't
 	// browse

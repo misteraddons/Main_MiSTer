@@ -396,6 +396,14 @@ void SelectFile(const char* path, const char* pFileExt, int Options, unsigned ch
 		pFileExt = "RBFMRAMGL";
 		home_dir = NULL;
 	}
+	else if (strstr(path, "_Games") != NULL)
+	{
+		// Special handling for _Games directory - show common ROM extensions and archives
+		pFileExt = "ZIPSFCSMCSWCNESFDSUNFGENMDBIN" 
+		          "GBGBCSGBGBACUECHDPBPISOADFHDFHDZ"
+		          "N64Z64V64SMSGGSTMSAPRGT64CRTDSKPO2MG";
+		Options |= SCANO_DIR;  // Allow directory navigation
+	}
 	else if (Options & SCANO_TXT)
 	{
 		if(pFileExt == 0) pFileExt = "TXT";
