@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 // CEC I2C address for ADV7513
-#define CEC_I2C_ADDR 0x3F
+#define CEC_I2C_ADDR 0x3C
 
 // CEC Register addresses
 #define CEC_TX_FRAME_HEADER    0x00
@@ -57,7 +57,7 @@
 
 #define CEC_CLK_DIV            0x2B
 
-#define CEC_SOFT_RESET         0x2C
+#define CEC_SOFT_RESET         0x50  // Per ADV7513 datasheet
 
 #define CEC_INT_ENABLE         0x40
 #define CEC_INT_STATUS         0x41

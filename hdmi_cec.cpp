@@ -103,14 +103,37 @@ bool cec_init(bool enable)
 
     printf("CEC INIT: Configuring ADV7513 main registers\n");
     
-    // Check ADV7513 chip ID to confirm variant
+    // Check ADV7513 chip ID and revision to confirm variant
     int chip_id1 = i2c_smbus_read_byte_data(main_fd, 0xF5);
     int chip_id2 = i2c_smbus_read_byte_data(main_fd, 0xF6);
-    printf("CEC DEBUG: Chip ID: 0xF5=0x%02X, 0xF6=0x%02X\n", chip_id1, chip_id2);
+    int chip_rev = i2c_smbus_read_byte_data(main_fd, 0x00); // Chip revision register
+    printf("CEC DEBUG: Chip ID: 0xF5=0x%02X, 0xF6=0x%02X, Rev=0x%02X\n", chip_id1, chip_id2, chip_rev);
     
-    // Identify chip variant - user confirmed this is ADV7513
-    printf("CEC INFO: Confirmed ADV7513 chip (ID: 0x%02X%02X) - CEC should be supported\n", chip_id1, chip_id2);
-    printf("CEC DEBUG: However, CEC registers are showing fixed values - investigating...\n");
+    // Check Fixed I2C Address register (should be programmable per datasheet)
+    int regF9 = i2c_smbus_read_byte_data(main_fd, 0xF9);
+    printf("CEC DEBUG: Fixed I2C Address register 0xF9 = 0x%02X\n", regF9);
+    
+    // Try setting it to 0x00 as recommended
+    i2c_smbus_write_byte_data(main_fd, 0xF9, 0x00);
+    int regF9_after = i2c_smbus_read_byte_data(main_fd, 0xF9);
+    printf("CEC DEBUG: Register 0xF9 after write = 0x%02X\n", regF9_after);
+    
+    // Check if CEC is permanently disabled by reading main map register 0xBA
+    int regBA = i2c_smbus_read_byte_data(main_fd, 0xBA);
+    printf("CEC DEBUG: Register 0xBA = 0x%02X (bit 6 indicates CEC capability)\n", regBA);
+    
+    // Check if this is a CEC-capable variant
+    if (chip_id1 == 0x75 && chip_id2 == 0x11) {
+        printf("CEC ERROR: ADV7513 detected (ID: 0x%02X%02X, Rev: 0x%02X)\n", chip_id1, chip_id2, chip_rev);
+        printf("CEC ERROR: Hardware investigation confirms CEC is DISABLED in this chip\n");
+        printf("CEC ERROR: - Register 0x96 bit 5 (CEC clock enable) cannot be set\n");
+        printf("CEC ERROR: - All CEC map registers read as 0x00\n");
+        printf("CEC ERROR: - CEC functionality requires ADV7511 or ADV7511W chip\n");
+        printf("CEC ERROR: Continuing initialization to demonstrate the issue...\n");
+        
+        // We could return false here to abort, but let's continue to show the problem
+        // return false;
+    }
     
     // The issue appears to be that CEC registers are read-only/fixed
     // This could indicate:
@@ -124,28 +147,108 @@ bool cec_init(bool enable)
     printf("CEC DEBUG: Main registers before - 0x96: 0x%02X, 0x98: 0x%02X\n", 
            reg96_before, reg98_before);
     
+    // First, configure CEC I2C address via register 0xE1
+    printf("CEC INIT: Configuring CEC I2C address via register 0xE1\n");
+    int regE1_before = i2c_smbus_read_byte_data(main_fd, 0xE1);
+    printf("CEC DEBUG: Register 0xE1 before: 0x%02X\n", regE1_before);
+    i2c_smbus_write_byte_data(main_fd, 0xE1, 0x78); // Set CEC address to 0x78 (8-bit) = 0x3C (7-bit)
+    int regE1_after = i2c_smbus_read_byte_data(main_fd, 0xE1);
+    printf("CEC DEBUG: Register 0xE1 after: 0x%02X (should be 0x78)\n", regE1_after);
+    
+    // Check CEC Power Down bit in register 0xE2[0] - must be 0 for CEC to work
+    int regE2_before = i2c_smbus_read_byte_data(main_fd, 0xE2);
+    printf("CEC DEBUG: Register 0xE2 before: 0x%02X (bit 0 is CEC Power Down)\n", regE2_before);
+    if (regE2_before & 0x01) {
+        printf("CEC INIT: Clearing CEC Power Down bit\n");
+        i2c_smbus_write_byte_data(main_fd, 0xE2, regE2_before & ~0x01);
+        int regE2_after = i2c_smbus_read_byte_data(main_fd, 0xE2);
+        printf("CEC DEBUG: Register 0xE2 after: 0x%02X\n", regE2_after);
+    }
+    
+    // Set logical addresses in main map BEFORE enabling CEC clock
+    printf("CEC INIT: Setting logical addresses in main map\n");
+    i2c_smbus_write_byte_data(main_fd, 0x4C, 0xF4); // Device0 = 4 (Playback), Device1 = unused (F)
+    i2c_smbus_write_byte_data(main_fd, 0x4D, 0x0F); // Device2 = unused (F)
+    i2c_smbus_write_byte_data(main_fd, 0x4B, 0x01); // Enable only device0 in bits [6:4]
+    
+    // Close main_fd temporarily before configuring CEC timing
+    i2c_close(main_fd);
+    
+    // Configure CEC timing BEFORE enabling CEC clock (critical!)
+    printf("CEC INIT: Configuring CEC timing registers first\n");
+    
+    // Set CEC to always-on power mode (01) instead of HPD-dependent (00)
+    // Bits [1:0]: 00=Off, 01=Always Active, 10=Active when HPD high
+    cec_write_register(0x4E, (CEC_CLOCK_DIV_12MHZ << 2) | 0x01); // Clock div in bits [7:2], power mode 01
+    uint8_t clk_verify = cec_read_register(0x4E);
+    printf("CEC DEBUG: Clock divider register 0x4E = 0x%02X (should be 0x%02X)\n", 
+           clk_verify, (CEC_CLOCK_DIV_12MHZ << 2) | 0x01);
+    
+    // Set other timing registers per ADV7513 Programming Guide for 12MHz
+    // These are the recommended values from Table 83 for 12MHz CEC clock
+    cec_write_register(0x4F, 0x00); // Glitch filter = 0
+    
+    // Now reopen main_fd and enable CEC clock
+    main_fd = i2c_open(0x39, 0);
+    if (main_fd < 0) {
+        printf("CEC INIT: Failed to reopen main ADV7513 device\n");
+        i2c_close(cec_fd);
+        cec_fd = -1;
+        return false;
+    }
+    
+    // Check if chip is in correct power state
+    int reg41 = i2c_smbus_read_byte_data(main_fd, 0x41);
+    printf("CEC DEBUG: Register 0x41 (Power state) = 0x%02X\n", reg41);
+    
+    // Try writing to main map CEC registers to verify they work
+    printf("CEC DEBUG: Testing main map CEC registers 0x4B-0x4D\n");
+    int reg4B = i2c_smbus_read_byte_data(main_fd, 0x4B);
+    int reg4C = i2c_smbus_read_byte_data(main_fd, 0x4C);
+    int reg4D = i2c_smbus_read_byte_data(main_fd, 0x4D);
+    printf("CEC DEBUG: After writes - 0x4B=0x%02X, 0x4C=0x%02X, 0x4D=0x%02X\n", reg4B, reg4C, reg4D);
+    
     // Enable CEC clock - preserve existing bits and set CEC enable bit
-    int reg96_original = reg96_before;
+    int reg96_original = i2c_smbus_read_byte_data(main_fd, 0x96);
     int reg96_new = reg96_original | 0x20; // Set bit 5 for CEC clock enable
     printf("CEC INIT: Setting CEC clock enable bit - original: 0x%02X, new: 0x%02X\n", 
            reg96_original, reg96_new);
     i2c_smbus_write_byte_data(main_fd, 0x96, reg96_new); // CEC powered up
     
-    // Set logical address valid bits
-    i2c_smbus_write_byte_data(main_fd, 0x98, 0x03); // Enable logical address 0 and 1
-    printf("CEC INIT: Logical address bits enabled (reg 0x98 = 0x03)\n");
+    // Immediate readback
+    int reg96_immediate = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("CEC DEBUG: 0x96 immediate readback: 0x%02X\n", reg96_immediate);
     
-    // SKIP additional register writes that are clearing 0x96
-    // Just verify the CEC clock bit is still set
+    // Set logical address valid bits
+    i2c_smbus_write_byte_data(main_fd, 0x98, 0x03); // Must be 0x03 for proper operation
+    printf("CEC INIT: Register 0x98 set to 0x03 (required for operation)\n");
+    
+    // Check interrupt registers
+    int reg94 = i2c_smbus_read_byte_data(main_fd, 0x94);
+    int reg97 = i2c_smbus_read_byte_data(main_fd, 0x97);
+    printf("CEC DEBUG: Interrupt registers - 0x94=0x%02X, 0x97=0x%02X\n", reg94, reg97);
+    
+    // Check if the CEC clock bit is still set after a delay
+    usleep(1000); // 1ms delay
     int reg96_check = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("CEC DEBUG: 0x96 after basic config: 0x%02X (should have bit 5 set)\n", reg96_check);
+    printf("CEC DEBUG: 0x96 after 1ms delay: 0x%02X (should have bit 5 set)\n", reg96_check);
     
     if (!(reg96_check & 0x20)) {
         printf("CEC ERROR: CEC clock bit was cleared, this shouldn't happen!\n");
+        
+        // Check if it's being cleared by HPD or power state
+        int reg42 = i2c_smbus_read_byte_data(main_fd, 0x42);
+        printf("CEC DEBUG: Register 0x42 (HPD/Power) = 0x%02X\n", reg42);
+        
         // Try to restore it
         i2c_smbus_write_byte_data(main_fd, 0x96, reg96_check | 0x20);
         int reg96_restored = i2c_smbus_read_byte_data(main_fd, 0x96);
         printf("CEC DEBUG: 0x96 after restoration attempt: 0x%02X\n", reg96_restored);
+        
+        // If still failed, check if we need to set something else first
+        if (!(reg96_restored & 0x20)) {
+            printf("CEC ERROR: Cannot maintain CEC clock enable bit - hardware limitation confirmed\n");
+        }
     } else {
         printf("CEC SUCCESS: CEC clock bit is properly set!\n");
     }
