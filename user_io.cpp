@@ -4234,6 +4234,50 @@ bool user_io_screenshot(const char *pngname, int rescale)
 	return true;
 }
 
+// Smart game loading structures
+struct CoreExtensionMapping {
+	const char* extensions;
+	const char* core_name;
+	int priority;
+};
+
+struct CoreSearchPattern {
+	const char* core_name;
+	const char* core_rbf;
+	const char* search_paths[5];
+	const char* file_extensions;
+	char file_type;
+	int file_index;
+	int load_delay;
+};
+
+struct GameSearchResult {
+	char full_path[1024];
+	char display_name[256];
+	char region[32];
+	char core_name[32];
+	bool is_zipped;
+	char zip_internal_path[512];
+};
+
+struct GameSearchResults {
+	GameSearchResult results[50];
+	int count;
+	char search_term[256];
+	char core_name[64];
+	bool selection_pending;
+};
+
+struct FolderCoreMapping {
+	const char* folder;
+	const char* core_name;
+};
+
+// Forward declarations for smart game loading functions
+static void search_all_cores(const char* game_name, GameSearchResults* results);
+static void search_specific_core(const char* core_name, const char* game_name, GameSearchResults* results);
+static void handle_search_results(GameSearchResults* results);
+
 // UART logging implementation
 static int uart_log_fd = -1;
 static char uart_rx_buffer[256];
@@ -4305,44 +4349,6 @@ static FolderCoreMapping folder_mappings[] = {
 #define UART_PONG_TIMEOUT 10000       // Consider disconnected after 10 seconds without pong
 #define CMD_FIFO "/dev/MiSTer_cmd"
 
-// Smart game loading structures
-struct CoreExtensionMapping {
-	const char* extensions;
-	const char* core_name;
-	int priority;
-};
-
-struct CoreSearchPattern {
-	const char* core_name;
-	const char* core_rbf;
-	const char* search_paths[5];
-	const char* file_extensions;
-	char file_type;
-	int file_index;
-	int load_delay;
-};
-
-struct GameSearchResult {
-	char full_path[1024];
-	char display_name[256];
-	char region[32];
-	char core_name[32];
-	bool is_zipped;
-	char zip_internal_path[512];
-};
-
-struct GameSearchResults {
-	GameSearchResult results[50];
-	int count;
-	char search_term[256];
-	char core_name[64];
-	bool selection_pending;
-};
-
-struct FolderCoreMapping {
-	const char* folder;
-	const char* core;
-};
 
 void uart_log_init()
 {
@@ -4652,7 +4658,7 @@ static int compare_game_paths(const void* a, const void* b) {
 }
 
 static const char* detect_core_from_extension(const char* filename) {
-	char* ext = strrchr(filename, '.');
+	const char* ext = strrchr(filename, '.');
 	if (!ext) return NULL;
 	
 	ext++; // Skip the dot
@@ -4678,7 +4684,7 @@ static const char* detect_core_from_extension(const char* filename) {
 static const char* map_folder_to_core(const char* folder_name) {
 	for (int i = 0; folder_mappings[i].folder; i++) {
 		if (strcasecmp(folder_name, folder_mappings[i].folder) == 0) {
-			return folder_mappings[i].core;
+			return folder_mappings[i].core_name;
 		}
 	}
 	return NULL;
@@ -4731,7 +4737,7 @@ static void extract_game_region(const char* filename, char* region, size_t regio
 
 static bool game_name_matches(const char* filename, const char* search_name, const char* extensions) {
 	// Check file extension first
-	char* ext = strrchr(filename, '.');
+	const char* ext = strrchr(filename, '.');
 	if (!ext || !strstr(extensions, ext + 1)) return false;
 	
 	// Parse standard format: "Game Title (Region) (Additional).ext"
