@@ -36,6 +36,7 @@
 #include "ide.h"
 #include "ide_cdrom.h"
 #include "profiling.h"
+#include "cdrom.h"
 
 #include "support.h"
 
@@ -1648,6 +1649,9 @@ void user_io_init(const char *path, const char *xml)
 	if (uartmode < 3 || uartmode > 4) midilink = 0;
 	SetMidiLinkMode(midilink);
 	SetUARTMode(uartmode);
+
+	// Initialize CD-ROM subsystem
+	cdrom_init();
 
 	if (!mgl_get()->count || is_menu() || is_st() || is_archie() || user_io_core_type() == CORE_TYPE_SHARPMZ)
 	{
