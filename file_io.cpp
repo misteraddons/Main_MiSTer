@@ -15,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/mount.h>
 #include <linux/magic.h>
+#include <unistd.h>
 #include <algorithm>
 #include <vector>
 #include <string>
@@ -1126,6 +1127,80 @@ int isUSBMounted()
 	return 0;
 }
 
+static void SetupGamesSymlink(void)
+{
+	struct stat st;
+	const char* games_dir = "/media/fat/games";
+	const char* games_link = "/media/fat/_Games";
+	
+	// Check if /media/fat/games exists
+	if (stat(games_dir, &st) == 0 && S_ISDIR(st.st_mode))
+	{
+		// Check if _Games already exists
+		if (lstat(games_link, &st) == 0)
+		{
+			// If it's a directory, check if it's empty
+			if (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode))
+			{
+				DIR* dir = opendir(games_link);
+				if (dir)
+				{
+					int count = 0;
+					struct dirent* entry;
+					while ((entry = readdir(dir)) != NULL)
+					{
+						if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
+						{
+							count++;
+							break;
+						}
+					}
+					closedir(dir);
+					
+					if (count > 0)
+					{
+						printf("_Games exists as a non-empty directory, not modifying\n");
+						return;
+					}
+					else
+					{
+						// Empty directory, remove it
+						printf("_Games is an empty directory, removing it\n");
+						rmdir(games_link);
+					}
+				}
+			}
+			// If it's a broken symlink or wrong target, remove it
+			if (S_ISLNK(st.st_mode))
+			{
+				char link_target[256];
+				ssize_t len = readlink(games_link, link_target, sizeof(link_target) - 1);
+				if (len > 0)
+				{
+					link_target[len] = '\0';
+					if (strcmp(link_target, games_dir) == 0)
+					{
+						// Link already points to the right place
+						return;
+					}
+				}
+				// Remove wrong/broken symlink
+				unlink(games_link);
+			}
+		}
+		
+		// Create the symlink
+		if (symlink(games_dir, games_link) == 0)
+		{
+			printf("Created symlink: %s -> %s\n", games_link, games_dir);
+		}
+		else
+		{
+			printf("Failed to create symlink: %s -> %s\n", games_link, games_dir);
+		}
+	}
+}
+
 void FindStorage(void)
 {
 	char str[128];
@@ -1206,6 +1281,9 @@ void FindStorage(void)
 	DIR* dir = opendir(full_path);
 	if (dir) closedir(dir);
 	else if (ENOENT == errno) mkdir(full_path, S_IRWXU | S_IRWXG | S_IRWXO);
+	
+	// Setup the _Games symlink
+	SetupGamesSymlink();
 }
 
 struct DirentComp
@@ -1460,6 +1538,10 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		for (size_t i = 0; (d && (de = readdir64(d)))
 				 || (z && i < mz_zip_reader_get_num_files(z)); i++)
 		{
+			if (de && cfg.debug && strstr(path, "_Games")) {
+				printf("Found entry: %s, type=%d (DIR=%d, REG=%d, LNK=%d)\n", 
+					de->d_name, de->d_type, DT_DIR, DT_REG, DT_LNK);
+			}
 #ifdef USE_SCHEDULER
 			if (0 < i && i % YieldIterations == 0)
 			{
@@ -1519,6 +1601,27 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					}
 				}
 			}
+			
+			// Handle symbolic links first - resolve them to their actual type
+			if (!z && de->d_type == DT_LNK)
+			{
+				sprintf(full_path + path_len, "/%s", de->d_name);
+
+				struct stat entrystat;
+
+				if (!stat(full_path, &entrystat))
+				{
+					if (S_ISREG(entrystat.st_mode))
+					{
+						de->d_type = DT_REG;
+					}
+					else if (S_ISDIR(entrystat.st_mode))
+					{
+						de->d_type = DT_DIR;
+						if (cfg.debug) printf("Symlink %s resolved to directory\n", de->d_name);
+					}
+				}
+			}
 			// Handle (possible) symbolic link type in the directory entry
 			else if (de->d_type == DT_LNK || de->d_type == DT_REG)
 			{
@@ -1535,6 +1638,7 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					else if (S_ISDIR(entrystat.st_mode))
 					{
 						de->d_type = DT_DIR;
+						if (cfg.debug) printf("Symlink %s resolved to directory\n", de->d_name);
 					}
 				}
 			}
@@ -1614,7 +1718,11 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 
 					if (!(options & SCANO_DIR))
 					{
-						if (de->d_name[0] != '_' && strcmp(de->d_name, "..")) continue;
+						// Allow all directories when inside _Games folder
+						bool in_games_folder = (strstr(path, "_Games") != NULL || strstr(path, "_games") != NULL);
+						if (cfg.debug) printf("Directory %s: in_games=%d, underscore=%d, SCANO_CORES=%d\n", 
+							de->d_name, in_games_folder, (de->d_name[0] == '_'), (options & SCANO_CORES) ? 1 : 0);
+						if (!in_games_folder && de->d_name[0] != '_' && strcmp(de->d_name, "..")) continue;
 						if (!(options & SCANO_CORES)) continue;
 					}
 				}
@@ -1630,7 +1738,10 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					//check the prefix if given
 					if (prefix && strncasecmp(prefix, de->d_name, strlen(prefix))) continue;
 
-					if (extlen > 0)
+					// Check if we're inside _Games folder for special handling
+					bool in_games_folder = (strstr(path, "_Games") != NULL || strstr(path, "_games") != NULL);
+					
+					if (extlen > 0 && !in_games_folder)
 					{
 						const char *ext = extension;
 						int found = (has_trd && x2trd_ext_supp(de->d_name));
@@ -1675,6 +1786,16 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 							ext += 3;
 						}
 						if (!found) continue;
+					}
+					else if (in_games_folder && extlen == 0)
+					{
+						// Inside _Games folder with no extension filter - show all files
+						// Allow ZIP files to be treated as directories
+						if (!(options & SCANO_NOZIP) && !strcasecmp(de->d_name + strlen(de->d_name) - 4, ".zip") && (options & SCANO_DIR))
+						{
+							de->d_type = DT_DIR;
+							isZip = 1;
+						}
 					}
 				}
 				else
