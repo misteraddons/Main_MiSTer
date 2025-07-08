@@ -4131,7 +4131,7 @@ uint16_t user_io_get_sdram_cfg()
 	return sdram_cfg;
 }
 
-static struct { const char *fmtstr; Imlib_Load_Error errno; } err_strings[] = {
+static struct { const char *fmtstr; Imlib_Load_Error error_code; } err_strings[] = {
   {"file '%s' does not exist", IMLIB_LOAD_ERROR_FILE_DOES_NOT_EXIST},
   {"file '%s' is a directory", IMLIB_LOAD_ERROR_FILE_IS_DIRECTORY},
   {"permission denied to read file '%s'", IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_READ},
@@ -4143,13 +4143,13 @@ static struct { const char *fmtstr; Imlib_Load_Error errno; } err_strings[] = {
   {"ran out of file descriptors trying to access file '%s'", IMLIB_LOAD_ERROR_OUT_OF_FILE_DESCRIPTORS},
   {"denied write permission for file '%s'", IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_WRITE},
   {"out of disk space writing to file '%s'", IMLIB_LOAD_ERROR_OUT_OF_DISK_SPACE},
-  {(const char *)NULL, (Imlib_Load_Error) 0}
+  {NULL, (Imlib_Load_Error) 0}
 };
 
 static void print_imlib_load_error (Imlib_Load_Error err, const char *filepath) {
   int i;
   for (i = 0; err_strings[i].fmtstr != NULL; i++) {
-    if (err == err_strings[i].errno) {
+    if (err == err_strings[i].error_code) {
 	printf("Screenshot Error (%d): ",err);
 	printf(err_strings[i].fmtstr,filepath);
 	printf("\n");
