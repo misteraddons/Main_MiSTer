@@ -152,4 +152,11 @@ const char* FileReadLine(fileTextReader *reader);
 
 void create_path(const char *base_dir, const char* sub_dir);
 
+// Favorites system
+int  FavoritesLoad(const char *directory, char favorites[][1024], int max_count);
+int  FavoritesSave(const char *directory, char favorites[][1024], int count);
+bool FavoritesIsFile(const char *directory, const char *filename);
+bool FavoritesToggle(const char *directory, const char *full_path);
+int  ScanFavoritesDirectory(char* path, int mode, const char *extension, int options);
+
 #endif

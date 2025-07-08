@@ -6021,3 +6021,26 @@ void parse_buttons()
 		joy_bcount++;
 	}
 }
+
+int is_start_button_pressed()
+{
+	// Check all connected input devices for START button press
+	for (int i = 0; i < NUMDEV; i++)
+	{
+		if (input[i].fd > 0 && input[i].has_mmap && input[i].mmap[SYS_BTN_START] != 0)
+		{
+			// Check if START button is currently pressed on this device
+			struct input_event ev;
+			if (ioctl(input[i].fd, EVIOCGKEY(sizeof(ev)), &ev) == 0)
+			{
+				int key_bytes = (input[i].mmap[SYS_BTN_START] / 8);
+				int key_bit = input[i].mmap[SYS_BTN_START] % 8;
+				if (key_bytes < sizeof(ev) && (((char*)&ev)[key_bytes] & (1 << key_bit)))
+				{
+					return 1;
+				}
+			}
+		}
+	}
+	return 0;
+}

@@ -1711,6 +1711,24 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			closedir(d);
 		}
 
+		// Add _Favorites virtual directory entry if there are favorites in this directory
+		// Only add if we're in a games directory and scanning for ROM files (not cores)
+		if ((options & SCANO_DIR) && !(options & SCANO_CORES) && strstr(path, "games"))
+		{
+			char favorites_cache[256][1024];
+			int favorites_count = FavoritesLoad(path, favorites_cache, 256);
+			
+			if (favorites_count > 0)
+			{
+				direntext_t dext;
+				memset(&dext, 0, sizeof(dext));
+				dext.de.d_type = DT_DIR;
+				strcpy(dext.de.d_name, "_Favorites");
+				strcpy(dext.altname, "_Favorites");
+				DirItem.push_back(dext);
+			}
+		}
+
 		printf("Got %d dir entries\n", flist_nDirEntries());
 		if (!flist_nDirEntries()) return 0;
 
@@ -2010,4 +2028,227 @@ const char *FileReadLine(fileTextReader *reader)
 		}
 	}
 	return nullptr;
+}
+
+// Favorites system implementation
+static char favorites_cache[256][1024];
+static int favorites_count = 0;
+static char favorites_dir[1024] = "";
+
+int FavoritesLoad(const char *directory, char favorites[][1024], int max_count)
+{
+	char favorites_path[1024];
+	snprintf(favorites_path, sizeof(favorites_path), "%s/favorites.txt", directory);
+	
+	FILE *file = fopen(favorites_path, "r");
+	if (!file) return 0;
+	
+	int count = 0;
+	char line[1024];
+	while (fgets(line, sizeof(line), file) && count < max_count)
+	{
+		// Remove newline
+		size_t len = strlen(line);
+		if (len > 0 && line[len-1] == '\n') line[len-1] = '\0';
+		if (len > 1 && line[len-2] == '\r') line[len-2] = '\0';
+		
+		// Skip empty lines
+		if (strlen(line) > 0)
+		{
+			strcpy(favorites[count], line);
+			count++;
+		}
+	}
+	
+	fclose(file);
+	return count;
+}
+
+int FavoritesSave(const char *directory, char favorites[][1024], int count)
+{
+	char favorites_path[1024];
+	snprintf(favorites_path, sizeof(favorites_path), "%s/favorites.txt", directory);
+	
+	FILE *file = fopen(favorites_path, "w");
+	if (!file) return 0;
+	
+	for (int i = 0; i < count; i++)
+	{
+		fprintf(file, "%s\n", favorites[i]);
+	}
+	
+	fclose(file);
+	return 1;
+}
+
+bool FavoritesIsFile(const char *directory, const char *filename)
+{
+	// Check if we need to reload favorites for this directory
+	if (strcmp(favorites_dir, directory) != 0)
+	{
+		strcpy(favorites_dir, directory);
+		favorites_count = FavoritesLoad(directory, favorites_cache, 256);
+	}
+	
+	// Build full path for comparison
+	char full_path[1024];
+	snprintf(full_path, sizeof(full_path), "%s/%s", directory, filename);
+	
+	// Check if this file is in favorites
+	for (int i = 0; i < favorites_count; i++)
+	{
+		if (strcmp(favorites_cache[i], full_path) == 0)
+			return true;
+	}
+	
+	return false;
+}
+
+bool FavoritesToggle(const char *directory, const char *full_path)
+{
+	// Load current favorites for this directory
+	if (strcmp(favorites_dir, directory) != 0)
+	{
+		strcpy(favorites_dir, directory);
+		favorites_count = FavoritesLoad(directory, favorites_cache, 256);
+	}
+	
+	// Check if file is already favorited
+	int found_index = -1;
+	for (int i = 0; i < favorites_count; i++)
+	{
+		if (strcmp(favorites_cache[i], full_path) == 0)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index >= 0)
+	{
+		// Remove from favorites
+		for (int i = found_index; i < favorites_count - 1; i++)
+		{
+			strcpy(favorites_cache[i], favorites_cache[i + 1]);
+		}
+		favorites_count--;
+	}
+	else
+	{
+		// Add to favorites (if there's room)
+		if (favorites_count < 256)
+		{
+			strcpy(favorites_cache[favorites_count], full_path);
+			favorites_count++;
+		}
+		else
+		{
+			return false; // No room for more favorites
+		}
+	}
+	
+	// Save to disk
+	FavoritesSave(directory, favorites_cache, favorites_count);
+	return true;
+}
+
+int ScanFavoritesDirectory(char* path, int mode, const char *extension, int options)
+{
+	if (mode == SCANF_INIT)
+	{
+		DirItem.clear();
+		iSelectedEntry = 0;
+		iFirstEntry = 0;
+		
+		// Extract parent directory from "_Favorites" path
+		char parent_path[1024];
+		strcpy(parent_path, path);
+		char* favorites_pos = strstr(parent_path, "/_Favorites");
+		if (favorites_pos)
+		{
+			*favorites_pos = '\0'; // Remove /_Favorites from path
+		}
+		
+		// Load favorites for the parent directory
+		char favorites_cache[256][1024];
+		int favorites_count = FavoritesLoad(parent_path, favorites_cache, 256);
+		
+		// Add .. directory entry to go back
+		direntext_t dext;
+		memset(&dext, 0, sizeof(dext));
+		dext.de.d_type = DT_DIR;
+		strcpy(dext.de.d_name, "..");
+		strcpy(dext.altname, "..");
+		DirItem.push_back(dext);
+		
+		// Add only the favorited files that still exist
+		for (int i = 0; i < favorites_count; i++)
+		{
+			// Extract filename from full path
+			char* filename = strrchr(favorites_cache[i], '/');
+			if (filename)
+			{
+				filename++; // Skip the '/'
+				
+				// Check if file still exists and matches extension
+				if (FileExists(favorites_cache[i]))
+				{
+					// Check extension filter
+					bool matches_extension = false;
+					int extlen = strlen(extension);
+					if (extlen > 0)
+					{
+						const char *ext = extension;
+						while (*ext)
+						{
+							char file_ext[16];
+							int ext_part_len = 0;
+							while (ext_part_len < 3 && *ext && *ext != '|')
+							{
+								file_ext[ext_part_len++] = toupper(*ext);
+								ext++;
+							}
+							file_ext[ext_part_len] = '\0';
+							
+							char* file_ext_pos = strrchr(filename, '.');
+							if (file_ext_pos && !strcasecmp(file_ext_pos + 1, file_ext))
+							{
+								matches_extension = true;
+								break;
+							}
+							
+							if (*ext == '|') ext++;
+						}
+					}
+					else
+					{
+						matches_extension = true; // No extension filter
+					}
+					
+					if (matches_extension)
+					{
+						memset(&dext, 0, sizeof(dext));
+						dext.de.d_type = DT_REG;
+						strcpy(dext.de.d_name, filename);
+						strcpy(dext.altname, filename);
+						
+						// Remove extension for display if it's a common ROM extension
+						char* dot = strrchr(dext.altname, '.');
+						if (dot) *dot = '\0';
+						
+						DirItem.push_back(dext);
+					}
+				}
+			}
+		}
+		
+		printf("Got %d favorites entries\n", flist_nDirEntries());
+		if (flist_nDirEntries() <= 1) return 0; // Only .. entry means no favorites
+		
+		std::sort(DirItem.begin(), DirItem.end(), DirentComp());
+		return flist_nDirEntries();
+	}
+	
+	// For other modes, use standard ScanDirectory logic
+	return ScanDirectory(path, mode, extension, options);
 }

@@ -362,10 +362,26 @@ static int changeDir(char *dir)
 		strcat(selPath, dir);
 	}
 
-	ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+	// Check if entering _Favorites virtual directory
+	if (strstr(selPath, "_Favorites"))
+	{
+		ScanFavoritesDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+	}
+	else
+	{
+		ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+	}
+	
 	if(curdir[0])
 	{
-		ScanDirectory(selPath, SCANF_SET_ITEM, curdir, fs_Options);
+		if (strstr(selPath, "_Favorites"))
+		{
+			ScanFavoritesDirectory(selPath, SCANF_SET_ITEM, curdir, fs_Options);
+		}
+		else
+		{
+			ScanDirectory(selPath, SCANF_SET_ITEM, curdir, fs_Options);
+		}
 	}
 	return 1;
 }
@@ -988,6 +1004,11 @@ void HandleUI(void)
 	static uint32_t lock_pass_timeout = 0;
 	static uint32_t menu_timeout = 0;
 
+	// Favorites system variables
+	static uint32_t start_button_timer = 0;
+	static bool start_button_pressed = false;
+	static bool favorites_toggle_triggered = false;
+
 	static char	cp_MenuCancel;
 
 	uint32_t c = 0;
@@ -1237,6 +1258,42 @@ void HandleUI(void)
 		case KEY_RIGHT:
 			right = true;
 			break;
+		}
+	}
+
+	// Handle START button hold for favorites toggle
+	bool start_pressed = is_start_button_pressed();
+	if (start_pressed && !start_button_pressed)
+	{
+		// Start button just pressed
+		start_button_pressed = true;
+		start_button_timer = GetTimer(2000); // 2 second hold time
+		favorites_toggle_triggered = false;
+	}
+	else if (!start_pressed && start_button_pressed)
+	{
+		// Start button released
+		start_button_pressed = false;
+		start_button_timer = 0;
+	}
+	else if (start_pressed && start_button_pressed && !favorites_toggle_triggered && CheckTimer(start_button_timer))
+	{
+		// START button held for 2 seconds - toggle favorites
+		favorites_toggle_triggered = true;
+		
+		// Only toggle favorites if we're in a file selection menu
+		if (menustate == MENU_FILE_SELECT2 && flist_nDirEntries() > 0)
+		{
+			direntext_t* selected = flist_SelectedItem();
+			if (selected && selected->de.d_type != DT_DIR)
+			{
+				// Build full path for the selected file
+				char full_path[1024];
+				snprintf(full_path, sizeof(full_path), "%s/%s", flist_Path(), selected->de.d_name);
+				
+				// Toggle favorite status
+				FavoritesToggle(flist_Path(), full_path);
+			}
 		}
 	}
 
@@ -7140,8 +7197,17 @@ void PrintDirectory(int expand)
 				len2 = 0;
 			}
 
-			if (!i && k) leftchar = 17;
-			if (i && k < flist_nDirEntries() - 1) leftchar = 16;
+			// Check if this file is favorited and show heart symbol
+			if (flist_DirItem(k)->de.d_type != DT_DIR && 
+			    FavoritesIsFile(flist_Path(), flist_DirItem(k)->de.d_name))
+			{
+				leftchar = 3; // Heart symbol (♥)
+			}
+			else
+			{
+				if (!i && k) leftchar = 17;
+				if (i && k < flist_nDirEntries() - 1) leftchar = 16;
+			}
 		}
 		else if(!flist_nDirEntries()) // selected directory is empty
 		{
