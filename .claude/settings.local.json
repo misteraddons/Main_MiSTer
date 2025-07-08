@@ -13,7 +13,10 @@
       "Bash(ls:*)",
       "Bash(sed:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(printf:*)",
+      "Bash(rm:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

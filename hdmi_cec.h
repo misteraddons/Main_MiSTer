@@ -212,19 +212,19 @@ bool cec_receive_message(cec_message_t *msg);
 void cec_poll(void);
 bool cec_is_enabled(void);
 
-// High-level CEC commands
-void cec_send_image_view_on(void);
-void cec_send_active_source(void);
-void cec_send_standby(void);
-void cec_send_report_physical_address(void);
-void cec_send_device_vendor_id(void);
-void cec_send_cec_version(uint8_t destination);
-void cec_send_set_osd_name(const char* name);
+// High-level CEC commands (return true on success, false on failure)
+bool cec_send_image_view_on(void);
+bool cec_send_active_source(void);
+bool cec_send_standby(void);
+bool cec_send_report_physical_address(void);
+bool cec_send_device_vendor_id(void);
+bool cec_send_cec_version(uint8_t destination);
+bool cec_send_set_osd_name(const char* name);
 
-// Menu navigation
-void cec_send_menu_status(uint8_t destination, uint8_t status);
-void cec_send_user_control_pressed(uint8_t destination, uint8_t control_code);
-void cec_send_user_control_released(uint8_t destination);
+// Menu navigation (return true on success, false on failure)
+bool cec_send_menu_status(uint8_t destination, uint8_t status);
+bool cec_send_user_control_pressed(uint8_t destination, uint8_t control_code);
+bool cec_send_user_control_released(uint8_t destination);
 
 // Get/Set functions
 void cec_set_logical_address(uint8_t addr);

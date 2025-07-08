@@ -2518,15 +2518,30 @@ void video_init()
 
 	video_set_mode(&v_def, 0);
 	
-	// Initialize CEC if enabled
-	if (cfg.hdmi_cec) {
-		cec_init(true);
-		// Send Image View On to turn on TV
-		cec_send_image_view_on();
-		// Announce ourselves as active source
-		cec_send_active_source();
-	} else {
-		cec_init(false);
+	// Initialize CEC if enabled - but let video_cec_config_update handle actual init
+	// to avoid double initialization issues
+	static bool cec_init_done = false;
+	if (!cec_init_done) {
+		if (cfg.hdmi_cec) {
+			if (cec_init(true)) {
+				// Add small delay between CEC messages for reliability
+				usleep(100000); // 100ms
+				// Send Image View On to turn on TV
+				if (!cec_send_image_view_on()) {
+					printf("CEC: Warning - Image View On failed during init\n");
+				}
+				usleep(100000); // 100ms
+				// Announce ourselves as active source
+				if (!cec_send_active_source()) {
+					printf("CEC: Warning - Active Source failed during init\n");
+				}
+			} else {
+				printf("CEC: Error - Failed to initialize CEC\n");
+			}
+		} else {
+			cec_init(false);
+		}
+		cec_init_done = true;
 	}
 }
 
@@ -2537,11 +2552,21 @@ void video_cec_config_update()
 	if (last_cec_setting != cfg.hdmi_cec) {
 		if (cfg.hdmi_cec) {
 			printf("CEC: Enabling\n");
-			cec_init(true);
-			// Send Image View On to turn on TV
-			cec_send_image_view_on();
-			// Announce ourselves as active source
-			cec_send_active_source();
+			if (cec_init(true)) {
+				// Add small delay between CEC messages for reliability
+				usleep(100000); // 100ms
+				// Send Image View On to turn on TV
+				if (!cec_send_image_view_on()) {
+					printf("CEC: Warning - Image View On failed during config update\n");
+				}
+				usleep(100000); // 100ms
+				// Announce ourselves as active source
+				if (!cec_send_active_source()) {
+					printf("CEC: Warning - Active Source failed during config update\n");
+				}
+			} else {
+				printf("CEC: Error - Failed to initialize CEC during config update\n");
+			}
 		} else {
 			printf("CEC: Disabling\n");
 			cec_init(false);
