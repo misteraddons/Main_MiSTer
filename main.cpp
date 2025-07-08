@@ -49,6 +49,9 @@ int main(int argc, char *argv[])
 	offload_start();
 
 	fpga_io_init();
+	
+	// Register cleanup handler
+	atexit(uart_log_cleanup);
 
 	DISKLED_OFF;
 
@@ -83,6 +86,8 @@ int main(int argc, char *argv[])
 		}
 
 		user_io_poll();
+		uart_log_process_commands();
+		uart_log_heartbeat();
 		input_poll(0);
 		HandleUI();
 		OsdUpdate();

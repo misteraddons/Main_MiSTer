@@ -9,6 +9,10 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <unistd.h>
+#include <errno.h>
+#include <termios.h>
+#include <linux/input.h>
 
 #include "lib/imlib2/Imlib2.h"
 
@@ -397,6 +401,9 @@ void user_io_read_core_name()
 	else if (orig_name[0]) strcpy(core_name, p);
 
 	printf("Core name is \"%s\"\n", core_name);
+	
+	// Send UART metadata
+	uart_log_send_core(core_name);
 }
 
 int substrcpy(char *d, const char *s, char idx)
@@ -1413,6 +1420,9 @@ void user_io_init(const char *path, const char *xml)
 	}
 
 	if (cfg.log_file_entry) MakeFile("/tmp/STARTPATH", core_path);
+	
+	// Initialize UART logging
+	uart_log_init();
 
 	if (cfg.bootcore[0] != '\0')
 	{
@@ -1704,6 +1714,7 @@ void user_io_r_analog_joystick(unsigned char joystick, char valueX, char valueY)
 		DisableIO();
 	}
 }
+
 
 void user_io_digital_joystick(unsigned char joystick, uint64_t map, int newdir)
 {
@@ -4208,6 +4219,260 @@ bool user_io_screenshot(const char *pngname, int rescale)
 		Info(msg);
 	}
 	return true;
+}
+
+// UART logging implementation
+static int uart_log_fd = -1;
+static char uart_rx_buffer[256];
+static int uart_rx_pos = 0;
+static uint32_t uart_last_heartbeat = 0;
+static uint32_t uart_last_pong = 0;
+static bool uart_device_connected = false;
+
+#define UART_HEARTBEAT_INTERVAL 5000  // Send ping every 5 seconds
+#define UART_PONG_TIMEOUT 10000       // Consider disconnected after 10 seconds without pong
+
+void uart_log_init()
+{
+	uart_log_cleanup();
+	
+	if (!cfg.uart_log[0]) return;  // UART logging disabled
+	
+	uart_log_fd = open(cfg.uart_log, O_RDWR | O_NOCTTY | O_NDELAY);
+	if (uart_log_fd == -1) {
+		if (cfg.debug) printf("UART: Failed to open %s: %s\n", cfg.uart_log, strerror(errno));
+		return;
+	}
+	
+	// Configure serial port
+	struct termios tty;
+	if (tcgetattr(uart_log_fd, &tty) != 0) {
+		if (cfg.debug) printf("UART: Failed to get attributes: %s\n", strerror(errno));
+		close(uart_log_fd);
+		uart_log_fd = -1;
+		return;
+	}
+	
+	// Set 115200 baud, 8N1
+	cfsetispeed(&tty, B115200);
+	cfsetospeed(&tty, B115200);
+	
+	tty.c_cflag &= ~PARENB;        // No parity
+	tty.c_cflag &= ~CSTOPB;        // 1 stop bit
+	tty.c_cflag &= ~CSIZE;         // Clear size mask
+	tty.c_cflag |= CS8;            // 8 bits
+	tty.c_cflag &= ~CRTSCTS;       // No hardware flow control
+	tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines
+	
+	tty.c_lflag &= ~ICANON;        // Disable canonical mode
+	tty.c_lflag &= ~ECHO;          // Disable echo
+	tty.c_lflag &= ~ECHOE;         // Disable erasure
+	tty.c_lflag &= ~ECHONL;        // Disable new-line echo
+	tty.c_lflag &= ~ISIG;          // Disable interpretation of INTR, QUIT and SUSP
+	
+	tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Turn off s/w flow ctrl
+	tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL); // Disable any special handling of received bytes
+	
+	tty.c_oflag &= ~OPOST;         // Prevent special interpretation of output bytes
+	tty.c_oflag &= ~ONLCR;         // Prevent conversion of newline to carriage return/line feed
+	
+	tty.c_cc[VTIME] = 10;          // Wait for up to 1s (10 deciseconds)
+	tty.c_cc[VMIN] = 0;            // No minimum amount of characters to read
+	
+	if (tcsetattr(uart_log_fd, TCSANOW, &tty) != 0) {
+		if (cfg.debug) printf("UART: Failed to set attributes: %s\n", strerror(errno));
+		close(uart_log_fd);
+		uart_log_fd = -1;
+		return;
+	}
+	
+	// Initialize heartbeat system
+	uart_last_heartbeat = GetTimer(0);
+	uart_last_pong = GetTimer(0);  // Assume connected initially
+	uart_device_connected = true;
+	
+	// Send initial hello message with capabilities
+	char hello[] = "HELLO\n";
+	char status[] = "STATUS:MiSTer UART v1.0 - CORE,GAME,NAV,PING supported\n";
+	if (write(uart_log_fd, hello, strlen(hello)) != -1 && 
+	    write(uart_log_fd, status, strlen(status)) != -1) {
+		if (cfg.debug) printf("UART: Sent hello and status messages\n");
+	}
+	
+	if (cfg.debug) printf("UART: Initialized logging to %s\n", cfg.uart_log);
+}
+
+void uart_log_send_core(const char *core_name)
+{
+	if (uart_log_fd == -1 || !core_name) return;
+	
+	char packet[256];
+	snprintf(packet, sizeof(packet), "CORE:%s\n", core_name);
+	
+	if (write(uart_log_fd, packet, strlen(packet)) == -1) {
+		if (cfg.debug) printf("UART: Failed to send core name: %s\n", strerror(errno));
+	} else if (cfg.debug) {
+		printf("UART: Sent core: %s", packet);
+	}
+}
+
+void uart_log_send_game(const char *game_name)
+{
+	if (uart_log_fd == -1 || !game_name) return;
+	
+	char packet[256];
+	snprintf(packet, sizeof(packet), "GAME:%s\n", game_name);
+	
+	if (write(uart_log_fd, packet, strlen(packet)) == -1) {
+		if (cfg.debug) printf("UART: Failed to send game name: %s\n", strerror(errno));
+	} else if (cfg.debug) {
+		printf("UART: Sent game: %s", packet);
+	}
+}
+
+void uart_log_send_ack(const char *command)
+{
+	if (uart_log_fd == -1 || !command) return;
+	
+	char packet[256];
+	snprintf(packet, sizeof(packet), "ACK:%s\n", command);
+	
+	if (write(uart_log_fd, packet, strlen(packet)) == -1) {
+		if (cfg.debug) printf("UART: Failed to send ack: %s\n", strerror(errno));
+	} else if (cfg.debug) {
+		printf("UART: Sent ack: %s", packet);
+	}
+}
+
+static void uart_process_navigation_command(const char *cmd)
+{
+	if (cfg.debug) printf("UART: Processing navigation command: %s\n", cmd);
+	
+	if (strcmp(cmd, "UP") == 0) {
+		menu_key_set(KEY_UP);
+		uart_log_send_ack("UP");
+	} else if (strcmp(cmd, "DOWN") == 0) {
+		menu_key_set(KEY_DOWN);
+		uart_log_send_ack("DOWN");
+	} else if (strcmp(cmd, "LEFT") == 0) {
+		menu_key_set(KEY_LEFT);
+		uart_log_send_ack("LEFT");
+	} else if (strcmp(cmd, "RIGHT") == 0) {
+		menu_key_set(KEY_RIGHT);
+		uart_log_send_ack("RIGHT");
+	} else if (strcmp(cmd, "OK") == 0) {
+		menu_key_set(KEY_ENTER);
+		uart_log_send_ack("OK");
+	} else if (strcmp(cmd, "BACK") == 0) {
+		menu_key_set(KEY_ESC);
+		uart_log_send_ack("BACK");
+	} else if (strcmp(cmd, "MENU") == 0) {
+		menu_key_set(KEY_F12);
+		uart_log_send_ack("MENU");
+	} else if (strcmp(cmd, "VOLUP") == 0) {
+		menu_key_set(KEY_VOLUMEUP);
+		uart_log_send_ack("VOLUP");
+	} else if (strcmp(cmd, "VOLDOWN") == 0) {
+		menu_key_set(KEY_VOLUMEDOWN);
+		uart_log_send_ack("VOLDOWN");
+	} else if (cfg.debug) {
+		printf("UART: Unknown navigation command: %s\n", cmd);
+	}
+}
+
+void uart_log_process_commands()
+{
+	if (uart_log_fd == -1) return;
+	
+	char buffer[64];
+	ssize_t bytes_read = read(uart_log_fd, buffer, sizeof(buffer) - 1);
+	
+	if (bytes_read > 0) {
+		for (ssize_t i = 0; i < bytes_read; i++) {
+			char c = buffer[i];
+			
+			if (c == '\n' || c == '\r') {
+				if (uart_rx_pos > 0) {
+					uart_rx_buffer[uart_rx_pos] = '\0';
+					
+					// Process the command
+					if (strncmp(uart_rx_buffer, "NAV:", 4) == 0) {
+						uart_process_navigation_command(uart_rx_buffer + 4);
+					} else if (strcmp(uart_rx_buffer, "PING") == 0) {
+						// Respond to ping with pong
+						char pong[] = "PONG\n";
+						if (write(uart_log_fd, pong, strlen(pong)) != -1) {
+							if (cfg.debug) printf("UART: Responded to ping with pong\n");
+						} else if (cfg.debug) {
+							printf("UART: Failed to send pong: %s\n", strerror(errno));
+						}
+					} else if (strcmp(uart_rx_buffer, "PONG") == 0) {
+						// Received pong response - update connection status
+						uart_last_pong = GetTimer(0);
+						if (cfg.debug) printf("UART: Received pong response\n");
+					} else if (strncmp(uart_rx_buffer, "LOAD:", 5) == 0) {
+						// TODO: Implement game loading
+						uart_log_send_ack("LOAD");
+						if (cfg.debug) printf("UART: Load command not yet implemented: %s\n", uart_rx_buffer + 5);
+					} else if (strncmp(uart_rx_buffer, "CORE:", 5) == 0) {
+						// TODO: Implement core switching
+						uart_log_send_ack("CORE");
+						if (cfg.debug) printf("UART: Core command not yet implemented: %s\n", uart_rx_buffer + 5);
+					} else if (cfg.debug) {
+						printf("UART: Unknown command: %s\n", uart_rx_buffer);
+					}
+					
+					uart_rx_pos = 0;
+				}
+			} else if (uart_rx_pos < sizeof(uart_rx_buffer) - 1) {
+				uart_rx_buffer[uart_rx_pos++] = c;
+			}
+		}
+	}
+}
+
+void uart_log_heartbeat()
+{
+	if (uart_log_fd == -1) return;
+	
+	uint32_t now = GetTimer(0);
+	
+	// Check if we need to send a heartbeat
+	if (now - uart_last_heartbeat > UART_HEARTBEAT_INTERVAL) {
+		char packet[] = "PING\n";
+		if (write(uart_log_fd, packet, strlen(packet)) != -1) {
+			uart_last_heartbeat = now;
+			if (cfg.debug) printf("UART: Sent heartbeat ping\n");
+		} else if (cfg.debug) {
+			printf("UART: Failed to send heartbeat: %s\n", strerror(errno));
+		}
+	}
+	
+	// Check connection status based on pong responses
+	bool was_connected = uart_device_connected;
+	uart_device_connected = (now - uart_last_pong < UART_PONG_TIMEOUT);
+	
+	// Log connection status changes
+	if (was_connected != uart_device_connected && cfg.debug) {
+		printf("UART: Device %s\n", uart_device_connected ? "connected" : "disconnected");
+	}
+}
+
+bool uart_log_is_connected()
+{
+	return uart_log_fd != -1 && uart_device_connected;
+}
+
+void uart_log_cleanup()
+{
+	if (uart_log_fd != -1) {
+		close(uart_log_fd);
+		uart_log_fd = -1;
+	}
+	uart_rx_pos = 0;
+	uart_last_heartbeat = 0;
+	uart_last_pong = 0;
+	uart_device_connected = false;
 }
 
 void user_io_screenshot_cmd(const char *cmd)

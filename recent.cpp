@@ -247,6 +247,9 @@ void recent_update(char* dir, char* path, char* label, int idx)
 	// separate the path into directory and filename
 	char* name = strrchr(path, '/');
 	if (name) name++; else name = path;
+	
+	// Send UART metadata for game loading
+	uart_log_send_game(label ? label : name);
 
 	// load the current state.  this is necessary because we may have started a ROM from multiple sources
 	recent_load(idx);
