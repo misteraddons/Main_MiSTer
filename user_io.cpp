@@ -4229,10 +4229,107 @@ static uint32_t uart_last_heartbeat = 0;
 static uint32_t uart_last_pong = 0;
 static bool uart_device_connected = false;
 static int mister_cmd_fd = -1;
+static GameSearchResults pending_selection = {0};
+static int game_selection_index = 0;
+static bool game_selection_active = false;
+
+// Core extension mappings for auto-detection
+static CoreExtensionMapping extension_mappings[] = {
+	// Console cores (high priority - most common)
+	{"sfc|smc|swc", "snes", 1},
+	{"nes|unf|fds", "nes", 1},
+	{"bin|gen|md", "genesis", 1},
+	{"gb|gbc|sgb", "gameboy", 1},
+	{"gba", "gba", 1},
+	{"n64|z64|v64", "n64", 1},
+	{"sms|gg|jp", "sms", 1},
+	
+	// Computer cores (medium priority)
+	{"adf|hdf|hdz", "amiga", 2},
+	{"st|msa", "atarist", 2},
+	{"prg|crt|t64", "c64", 2},
+	{"dsk|po|2mg", "apple2", 2},
+	
+	// CD/Storage cores (lower priority)
+	{"cue|chd|pbp", "psx", 3},
+	{"cue|chd|iso", "saturn", 4},
+	{"cue|chd|iso", "megacd", 4},
+	{"cue|chd|iso", "pcecd", 4}
+};
+
+// Core search patterns
+static CoreSearchPattern search_patterns[] = {
+	{"snes", "_Console/SNES_*.rbf", {"/media/fat/games/snes/", "/media/fat/games/SNES/", "/media/fat/SNES/", NULL}, "sfc|smc|swc", 'F', 0, 1000},
+	{"nes", "_Console/NES_*.rbf", {"/media/fat/games/nes/", "/media/fat/games/NES/", "/media/fat/NES/", NULL}, "nes|unf|fds", 'F', 0, 1000},
+	{"genesis", "_Console/MegaDrive_*.rbf", {"/media/fat/games/genesis/", "/media/fat/games/megadrive/", "/media/fat/Genesis/", NULL}, "bin|gen|md", 'F', 0, 1000},
+	{"sms", "_Console/MegaDrive_*.rbf", {"/media/fat/games/sms/", "/media/fat/games/SMS/", "/media/fat/SMS/", NULL}, "sms|gg|jp", 'F', 0, 1000},
+	{"gameboy", "_Console/Gameboy_*.rbf", {"/media/fat/games/gameboy/", "/media/fat/games/Gameboy/", "/media/fat/Gameboy/", NULL}, "gb|gbc|sgb", 'F', 0, 1000},
+	{"gba", "_Console/GBA_*.rbf", {"/media/fat/games/gba/", "/media/fat/games/GBA/", "/media/fat/GBA/", NULL}, "gba", 'F', 1, 1500},
+	{"n64", "_Console/N64_*.rbf", {"/media/fat/games/n64/", "/media/fat/games/N64/", "/media/fat/N64/", NULL}, "n64|z64|v64", 'F', 0, 2000},
+	{"psx", "_Console/PSX_*.rbf", {"/media/fat/games/psx/", "/media/fat/games/PSX/", "/media/fat/PSX/", NULL}, "cue|chd|pbp", 'S', 0, 2000},
+	{"amiga", "_Computer/Minimig_*.rbf", {"/media/fat/games/amiga/", "/media/fat/games/Amiga/", "/media/fat/Amiga/", NULL}, "adf|hdf|hdz", 'S', 0, 1000},
+	{"saturn", "_Console/Saturn_*.rbf", {"/media/fat/games/saturn/", "/media/fat/games/Saturn/", "/media/fat/Saturn/", NULL}, "cue|chd|iso", 'S', 0, 2000},
+	{"megacd", "_Console/MegaCD_*.rbf", {"/media/fat/games/megacd/", "/media/fat/games/MegaCD/", "/media/fat/MegaCD/", NULL}, "cue|chd|iso", 'S', 0, 2000}
+};
+
+// Folder to core mappings
+static FolderCoreMapping folder_mappings[] = {
+	{"snes", "snes"}, {"SNES", "snes"},
+	{"nes", "nes"}, {"NES", "nes"},
+	{"genesis", "genesis"}, {"Genesis", "genesis"}, {"megadrive", "genesis"},
+	{"sms", "sms"}, {"SMS", "sms"},
+	{"gameboy", "gameboy"}, {"Gameboy", "gameboy"},
+	{"gba", "gba"}, {"GBA", "gba"},
+	{"n64", "n64"}, {"N64", "n64"},
+	{"psx", "psx"}, {"PSX", "psx"},
+	{"amiga", "amiga"}, {"Amiga", "amiga"},
+	{"saturn", "saturn"}, {"Saturn", "saturn"},
+	{"megacd", "megacd"}, {"MegaCD", "megacd"},
+	{NULL, NULL}
+};
 
 #define UART_HEARTBEAT_INTERVAL 5000  // Send ping every 5 seconds
 #define UART_PONG_TIMEOUT 10000       // Consider disconnected after 10 seconds without pong
 #define CMD_FIFO "/dev/MiSTer_cmd"
+
+// Smart game loading structures
+struct CoreExtensionMapping {
+	const char* extensions;
+	const char* core_name;
+	int priority;
+};
+
+struct CoreSearchPattern {
+	const char* core_name;
+	const char* core_rbf;
+	const char* search_paths[5];
+	const char* file_extensions;
+	char file_type;
+	int file_index;
+	int load_delay;
+};
+
+struct GameSearchResult {
+	char full_path[1024];
+	char display_name[256];
+	char region[32];
+	char core_name[32];
+	bool is_zipped;
+	char zip_internal_path[512];
+};
+
+struct GameSearchResults {
+	GameSearchResult results[50];
+	int count;
+	char search_term[256];
+	char core_name[64];
+	bool selection_pending;
+};
+
+struct FolderCoreMapping {
+	const char* folder;
+	const char* core;
+};
 
 void uart_log_init()
 {
@@ -4478,6 +4575,188 @@ bool uart_log_is_connected()
 	return uart_log_fd != -1 && uart_device_connected;
 }
 
+// Smart game loading utility functions
+static void strcpy_tolower(char* dst, const char* src, size_t size) {
+	size_t i;
+	for (i = 0; i < size - 1 && src[i]; i++) {
+		dst[i] = tolower(src[i]);
+	}
+	dst[i] = '\0';
+}
+
+static void trim_whitespace(char* str) {
+	// Trim leading whitespace
+	char* start = str;
+	while (*start && isspace(*start)) start++;
+	
+	// Trim trailing whitespace
+	char* end = start + strlen(start) - 1;
+	while (end > start && isspace(*end)) end--;
+	
+	// Move trimmed string to beginning
+	size_t len = end - start + 1;
+	memmove(str, start, len);
+	str[len] = '\0';
+}
+
+static int count_path_separators(const char* path) {
+	int count = 0;
+	for (const char* p = path; *p; p++) {
+		if (*p == '/') count++;
+	}
+	return count;
+}
+
+static int compare_game_paths(const void* a, const void* b) {
+	GameSearchResult* game_a = (GameSearchResult*)a;
+	GameSearchResult* game_b = (GameSearchResult*)b;
+	return strcmp(game_a->full_path, game_b->full_path);
+}
+
+static const char* detect_core_from_extension(const char* filename) {
+	char* ext = strrchr(filename, '.');
+	if (!ext) return NULL;
+	
+	ext++; // Skip the dot
+	char ext_lower[8];
+	strcpy_tolower(ext_lower, ext, sizeof(ext_lower));
+	
+	// Find best matching core by priority
+	const char* best_core = NULL;
+	int best_priority = 999;
+	
+	for (int i = 0; i < sizeof(extension_mappings)/sizeof(extension_mappings[0]); i++) {
+		if (strstr(extension_mappings[i].extensions, ext_lower)) {
+			if (extension_mappings[i].priority < best_priority) {
+				best_core = extension_mappings[i].core_name;
+				best_priority = extension_mappings[i].priority;
+			}
+		}
+	}
+	
+	return best_core;
+}
+
+static const char* map_folder_to_core(const char* folder_name) {
+	for (int i = 0; folder_mappings[i].folder; i++) {
+		if (strcasecmp(folder_name, folder_mappings[i].folder) == 0) {
+			return folder_mappings[i].core;
+		}
+	}
+	return NULL;
+}
+
+static CoreSearchPattern* find_core_pattern(const char* core_name) {
+	for (int i = 0; i < sizeof(search_patterns)/sizeof(search_patterns[0]); i++) {
+		if (strcasecmp(search_patterns[i].core_name, core_name) == 0) {
+			return &search_patterns[i];
+		}
+	}
+	return NULL;
+}
+
+// Redump name parsing functions
+static void extract_redump_title(const char* filename, char* title, size_t title_size) {
+	// Extract title part before first parenthesis
+	const char* paren = strchr(filename, '(');
+	if (paren) {
+		size_t len = paren - filename;
+		if (len > 0 && filename[len-1] == ' ') len--; // Remove trailing space
+		size_t copy_len = (len < title_size - 1) ? len : title_size - 1;
+		strncpy(title, filename, copy_len);
+		title[copy_len] = '\0';
+	} else {
+		// No parenthesis, use filename without extension
+		strncpy(title, filename, title_size - 1);
+		title[title_size - 1] = '\0';
+		char* dot = strrchr(title, '.');
+		if (dot) *dot = '\0';
+	}
+}
+
+static void extract_redump_region(const char* filename, char* region, size_t region_size) {
+	// Extract region from first parenthesis: "Game (USA)" -> "USA"
+	const char* start = strchr(filename, '(');
+	if (start) {
+		start++; // Skip opening parenthesis
+		const char* end = strchr(start, ')');
+		if (end) {
+			size_t len = end - start;
+			size_t copy_len = (len < region_size - 1) ? len : region_size - 1;
+			strncpy(region, start, copy_len);
+			region[copy_len] = '\0';
+			return;
+		}
+	}
+	strcpy(region, "Unknown");
+}
+
+static bool redump_game_matches(const char* filename, const char* search_name, const char* extensions) {
+	// Check file extension first
+	char* ext = strrchr(filename, '.');
+	if (!ext || !strstr(extensions, ext + 1)) return false;
+	
+	// Parse Redump format: "Game Title (Region) (Additional).ext"
+	char game_title[256];
+	extract_redump_title(filename, game_title, sizeof(game_title));
+	
+	// Case-insensitive partial match
+	char search_lower[256], title_lower[256];
+	strcpy_tolower(search_lower, search_name, sizeof(search_lower));
+	strcpy_tolower(title_lower, game_title, sizeof(title_lower));
+	
+	return strstr(title_lower, search_lower) != NULL;
+}
+
+// Duplicate detection functions
+static bool are_exact_duplicates(GameSearchResult* a, GameSearchResult* b) {
+	// Same core and exact same display name = duplicate
+	if (strcmp(a->core_name, b->core_name) != 0) return false;
+	if (strcmp(a->display_name, b->display_name) != 0) return false;
+	if (strcmp(a->region, b->region) != 0) return false;
+	return true;
+}
+
+static void compact_search_results(GameSearchResults* results, bool keep[]) {
+	int write_idx = 0;
+	
+	for (int read_idx = 0; read_idx < results->count; read_idx++) {
+		if (keep[read_idx]) {
+			if (write_idx != read_idx) {
+				memcpy(&results->results[write_idx], &results->results[read_idx], 
+					  sizeof(GameSearchResult));
+			}
+			write_idx++;
+		}
+	}
+	
+	results->count = write_idx;
+}
+
+static void remove_duplicate_games(GameSearchResults* results) {
+	if (results->count <= 1) return;
+	
+	// Sort results by path to ensure consistent ordering
+	qsort(results->results, results->count, sizeof(GameSearchResult), compare_game_paths);
+	
+	bool keep[50];
+	memset(keep, true, sizeof(keep));
+	
+	for (int i = 0; i < results->count; i++) {
+		if (!keep[i]) continue;
+		
+		for (int j = i + 1; j < results->count; j++) {
+			if (!keep[j]) continue;
+			
+			if (are_exact_duplicates(&results->results[i], &results->results[j])) {
+				keep[j] = false;  // Keep first one (i), remove later one (j)
+			}
+		}
+	}
+	
+	compact_search_results(results, keep);
+}
+
 void uart_log_cleanup()
 {
 	if (uart_log_fd != -1) {
@@ -4492,6 +4771,7 @@ void uart_log_cleanup()
 	uart_last_heartbeat = 0;
 	uart_last_pong = 0;
 	uart_device_connected = false;
+	game_selection_active = false;
 }
 
 void user_io_screenshot_cmd(const char *cmd)
