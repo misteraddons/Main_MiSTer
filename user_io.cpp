@@ -4228,9 +4228,11 @@ static int uart_rx_pos = 0;
 static uint32_t uart_last_heartbeat = 0;
 static uint32_t uart_last_pong = 0;
 static bool uart_device_connected = false;
+static int mister_cmd_fd = -1;
 
 #define UART_HEARTBEAT_INTERVAL 5000  // Send ping every 5 seconds
 #define UART_PONG_TIMEOUT 10000       // Consider disconnected after 10 seconds without pong
+#define CMD_FIFO "/dev/MiSTer_cmd"
 
 void uart_log_init()
 {
@@ -4293,7 +4295,7 @@ void uart_log_init()
 	
 	// Send initial hello message with capabilities
 	char hello[] = "HELLO\n";
-	char status[] = "STATUS:MiSTer UART v1.0 - CORE,GAME,NAV,PING supported\n";
+	char status[] = "STATUS:MiSTer UART v1.1 - CORE,GAME,NAV,CMD,PING supported\n";
 	if (write(uart_log_fd, hello, strlen(hello)) != -1 && 
 	    write(uart_log_fd, status, strlen(status)) != -1) {
 		if (cfg.debug) printf("UART: Sent hello and status messages\n");
@@ -4410,14 +4412,27 @@ void uart_log_process_commands()
 						// Received pong response - update connection status
 						uart_last_pong = GetTimer(0);
 						if (cfg.debug) printf("UART: Received pong response\n");
-					} else if (strncmp(uart_rx_buffer, "LOAD:", 5) == 0) {
-						// TODO: Implement game loading
-						uart_log_send_ack("LOAD");
-						if (cfg.debug) printf("UART: Load command not yet implemented: %s\n", uart_rx_buffer + 5);
-					} else if (strncmp(uart_rx_buffer, "CORE:", 5) == 0) {
-						// TODO: Implement core switching
-						uart_log_send_ack("CORE");
-						if (cfg.debug) printf("UART: Core command not yet implemented: %s\n", uart_rx_buffer + 5);
+					} else if (strncmp(uart_rx_buffer, "CMD:", 4) == 0) {
+						// Forward command to /dev/MiSTer_cmd
+						if (mister_cmd_fd == -1) {
+							mister_cmd_fd = open(CMD_FIFO, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+						}
+						
+						if (mister_cmd_fd >= 0) {
+							char cmd[256];
+							snprintf(cmd, sizeof(cmd), "%s\n", uart_rx_buffer + 4);
+							if (write(mister_cmd_fd, cmd, strlen(cmd)) != -1) {
+								uart_log_send_ack("CMD");
+								if (cfg.debug) printf("UART: Forwarded to MiSTer_cmd: %s", cmd);
+							} else {
+								if (cfg.debug) printf("UART: Failed to forward command: %s\n", strerror(errno));
+								// Try to reopen on next command
+								close(mister_cmd_fd);
+								mister_cmd_fd = -1;
+							}
+						} else {
+							if (cfg.debug) printf("UART: Failed to open MiSTer_cmd FIFO\n");
+						}
 					} else if (cfg.debug) {
 						printf("UART: Unknown command: %s\n", uart_rx_buffer);
 					}
@@ -4468,6 +4483,10 @@ void uart_log_cleanup()
 	if (uart_log_fd != -1) {
 		close(uart_log_fd);
 		uart_log_fd = -1;
+	}
+	if (mister_cmd_fd != -1) {
+		close(mister_cmd_fd);
+		mister_cmd_fd = -1;
 	}
 	uart_rx_pos = 0;
 	uart_last_heartbeat = 0;

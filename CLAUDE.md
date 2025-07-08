@@ -64,7 +64,12 @@ User Input → Input Layer → User I/O → SPI → FPGA Core → Hardware Emula
 
 ### UART Metadata System
 - **Configuration**: `UART_LOG` in `cfg.h` - Serial device path for metadata output
-- **Protocol**: Simple text-based format (`CORE:name\n`, `GAME:name\n`, `PING\n`, `PONG\n`, `HELLO\n`, `STATUS:...\n`)
+- **Protocol**: Simple text-based format
+  - Metadata: `CORE:name\n`, `GAME:name\n`
+  - Heartbeat: `PING\n`, `PONG\n`
+  - Connection: `HELLO\n`, `STATUS:...\n`
+  - Navigation: `NAV:UP\n`, `NAV:DOWN\n`, etc.
+  - Command Bridge: `CMD:<any MiSTer command>\n`
 - **Baud Rate**: 115200, 8N1 configuration
 - **Integration**: Hooks into core loading (`user_io_read_core_name()`) and game loading (`recent_update()`)
 
@@ -91,11 +96,11 @@ User Input → Input Layer → User I/O → SPI → FPGA Core → Hardware Emula
 - **Configuration**: Add `UART_LOG=/dev/ttyUSB0` to MiSTer.ini
 - **Functions**: `uart_log_init()`, `uart_log_send_core()`, `uart_log_send_game()`, `uart_log_process_commands()`, `uart_log_send_ack()`, `uart_log_heartbeat()`, `uart_log_is_connected()`, `uart_log_cleanup()`
 - **Integration Points**: Core loading hooks, game loading hooks, command processing in main loop, heartbeat in main loop, initialization and cleanup
-- **Bidirectional Communication**: Supports navigation commands from external devices
+- **Bidirectional Communication**: Supports navigation commands and MiSTer_cmd bridge
 - **Navigation Commands**: UP, DOWN, LEFT, RIGHT, OK, BACK, MENU, VOLUP, VOLDOWN
+- **Command Bridge**: `CMD:` prefix forwards to `/dev/MiSTer_cmd` for full MiSTer control
 - **Heartbeat System**: Periodic PING/PONG every 5 seconds for connection validation
 - **Connection Status**: Tracks device connectivity with 10-second timeout
-- **Future Commands**: LOAD (game loading), CORE (core switching) - TODO
 - **Compatibility**: Works alongside MT32-Pi (uses User I/O port) and existing UART modes
 - **External Devices**: Compatible with tty2oled, tty2pico, ESP32 devices
 
@@ -133,6 +138,11 @@ The system runs on actual MiSTer hardware with real-time constraints. Changes sh
 - **Debug Output**: Check console for "UART:" messages when debug=1
 - **External Device**: Connect tty2oled, tty2pico, or ESP32 to verify packet reception
 - **Navigation Testing**: Send NAV commands from external device (e.g., `NAV:UP\n`)
+- **Command Bridge Testing**: Send MiSTer commands via `CMD:` prefix:
+  - `CMD:load_core /media/fat/_Computer/C64_20230101.rbf\n`
+  - `CMD:screenshot myimage.png\n`
+  - `CMD:volume 5\n`
+  - `CMD:volume mute\n`
 - **Heartbeat Testing**: Monitor `PING\n` messages every 5 seconds, respond with `PONG\n`
 - **Connection Status**: Watch for `HELLO\n` and `STATUS:...\n` messages on startup
 - **Command Format**: All commands are newline-terminated, acknowledgments returned as `ACK:command\n`
