@@ -1704,6 +1704,18 @@ void user_io_r_analog_joystick(unsigned char joystick, char valueX, char valueY)
 	}
 }
 
+void user_io_analog_triggers(unsigned char joystick, unsigned char left_trigger, unsigned char right_trigger)
+{
+	uint8_t joy = (joystick > 1 || !joyswap) ? joystick : joystick ^ 1;
+	
+	if (core_type == CORE_TYPE_8BIT)
+	{
+		spi_uio_cmd8_cont(UIO_TRIGGERS, joy);
+		spi_w((right_trigger << 8) | left_trigger);
+		DisableIO();
+	}
+}
+
 void user_io_digital_joystick(unsigned char joystick, uint64_t map, int newdir)
 {
 	uint8_t joy = (joystick>1 || !joyswap) ? joystick : joystick ^ 1;

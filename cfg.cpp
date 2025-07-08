@@ -116,6 +116,7 @@ static const ini_var_t ini_vars[] =
 	{ "PLAYER_5_CONTROLLER", (void*)(&(cfg.player_controller[4])), STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]) },
 	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]) },
 	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), UINT8, 0, 1 },
+	{ "ANALOG_TRIGGERS", (void *)(&(cfg.analog_triggers)), UINT8, 0, 1 },
 	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), UINT8, 0, 100 },
 	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), UINT8, 0, 100 },
 	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), UINT8, 0, 100 },
@@ -577,6 +578,7 @@ void cfg_parse()
 	cfg.browse_expand = 1;
 	cfg.logo = 1;
 	cfg.rumble = 1;
+	cfg.analog_triggers = 1;  // Enable analog triggers by default
 	cfg.wheel_force = 50;
 	cfg.dvi_mode = 2;
 	cfg.hdr = 0;

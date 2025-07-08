@@ -73,6 +73,7 @@
 #define UIO_GET_RUMBLE  0x3F
 #define UIO_GET_FB_PAR  0x40
 #define UIO_SET_YC_PAR  0x41
+#define UIO_TRIGGERS    0x44  // analog trigger data
 
 // codes as used by 8bit for file loading from OSD
 #define FIO_FILE_TX     0x53
@@ -206,6 +207,7 @@ int user_io_get_joy_transl();
 void user_io_digital_joystick(unsigned char, uint64_t, int);
 void user_io_l_analog_joystick(unsigned char, char, char);
 void user_io_r_analog_joystick(unsigned char, char, char);
+void user_io_analog_triggers(unsigned char joystick, unsigned char left_trigger, unsigned char right_trigger);
 void user_io_set_joyswap(int swap);
 int user_io_get_joyswap();
 char user_io_osd_is_visible();
