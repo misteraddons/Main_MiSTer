@@ -99,10 +99,23 @@ User Input → Input Layer → User I/O → SPI → FPGA Core → Hardware Emula
 - **Bidirectional Communication**: Supports navigation commands and MiSTer_cmd bridge
 - **Navigation Commands**: UP, DOWN, LEFT, RIGHT, OK, BACK, MENU, VOLUP, VOLDOWN
 - **Command Bridge**: `CMD:` prefix forwards to `/dev/MiSTer_cmd` for full MiSTer control
+- **Smart Game Loading**: Direct game loading via `CMD:load_game_auto` and `CMD:load_game_search`
 - **Heartbeat System**: Periodic PING/PONG every 5 seconds for connection validation
 - **Connection Status**: Tracks device connectivity with 10-second timeout
 - **Compatibility**: Works alongside MT32-Pi (uses User I/O port) and existing UART modes
 - **External Devices**: Compatible with tty2oled, tty2pico, ESP32 devices
+
+### Smart Game Loading System
+- **Auto-Detection**: `CMD:load_game_auto <game_name>` - searches all cores for matching games
+- **Specific Search**: `CMD:load_game_search <core_name> <game_name>` - searches within specific core
+- **Multi-Result Handling**: OSD selection menu for multiple matches with Up/Down/Enter/ESC navigation
+- **ZIP File Support**: Automatic extraction and loading of games within ZIP archives
+- **Duplicate Detection**: Intelligent removal of exact duplicates with alphabetical sorting
+- **Path Intelligence**: 1-level directory depth scanning for optimal performance
+- **Supported Cores**: SNES, NES, Genesis, SMS, Game Boy, GBA, N64, PSX, Amiga, Saturn, Mega CD, PCE CD
+- **Search Paths**: `/media/fat/games/<core>/`, `/media/fat/<CORE>/` with 1 subdirectory depth
+- **Game Selection Menu**: Up to 50 results displayed in pages of 6, with core/title/region/ZIP indicators
+- **Response Codes**: `GAME_LOADED`, `GAME_NOT_FOUND`, `SHOWING_SELECTION`, `GAME_CANCELLED`
 
 ## Important Files
 
@@ -146,6 +159,12 @@ The system runs on actual MiSTer hardware with real-time constraints. Changes sh
 - **Heartbeat Testing**: Monitor `PING\n` messages every 5 seconds, respond with `PONG\n`
 - **Connection Status**: Watch for `HELLO\n` and `STATUS:...\n` messages on startup
 - **Command Format**: All commands are newline-terminated, acknowledgments returned as `ACK:command\n`
+- **Smart Game Loading Testing**:
+  - `CMD:load_game_auto zelda\n` - Auto-detect and load Zelda game from any core
+  - `CMD:load_game_search snes super mario\n` - Search SNES core specifically for Super Mario
+  - Responses: `GAME_LOADED\n`, `GAME_NOT_FOUND\n`, `SHOWING_SELECTION\n`, `GAME_CANCELLED\n`
+  - When `SHOWING_SELECTION` received, use NAV commands to navigate OSD menu
+  - Test with ZIP files and various game naming conventions
 
 ## Architecture Notes
 

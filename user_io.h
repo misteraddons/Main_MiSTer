@@ -269,6 +269,7 @@ void uart_log_process_commands();
 void uart_log_send_ack(const char *command);
 void uart_log_heartbeat();
 bool uart_log_is_connected();
+void handle_game_selection_input(int key, int pressed);
 
 int process_ss(const char *rom_name, int enable = 1);
 

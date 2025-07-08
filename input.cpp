@@ -1722,6 +1722,9 @@ static unsigned long uinp_repeat = 0;
 static struct input_event uinp_ev;
 static void uinp_send_key(uint16_t key, int press)
 {
+	// Check for game selection menu input first
+	handle_game_selection_input(key, press);
+	
 	if (uinp_fd > 0)
 	{
 		if (!uinp_ev.value && press)

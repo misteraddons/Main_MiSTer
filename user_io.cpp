@@ -4509,6 +4509,31 @@ void uart_log_process_commands()
 						// Received pong response - update connection status
 						uart_last_pong = GetTimer(0);
 						if (cfg.debug) printf("UART: Received pong response\n");
+					} else if (strncmp(uart_rx_buffer, "CMD:load_game_auto ", 19) == 0) {
+						// Auto-detect core and load game
+						const char* game_name = uart_rx_buffer + 19;
+						if (strlen(game_name) > 0) {
+							GameSearchResults results;
+							search_all_cores(game_name, &results);
+							handle_search_results(&results);
+							if (cfg.debug) printf("UART: Auto-searching for game: %s (found %d)\n", game_name, results.count);
+						} else {
+							uart_log_send_ack("INVALID_GAME_NAME");
+						}
+					} else if (strncmp(uart_rx_buffer, "CMD:load_game_search ", 21) == 0) {
+						// Search specific core for game: "core_name game_name"
+						const char* params = uart_rx_buffer + 21;
+						char core_name[64], game_name[256];
+						
+						// Parse "core_name game_name" format
+						if (sscanf(params, "%63s %255[^\n]", core_name, game_name) == 2) {
+							GameSearchResults results;
+							search_specific_core(core_name, game_name, &results);
+							handle_search_results(&results);
+							if (cfg.debug) printf("UART: Searching %s for game: %s (found %d)\n", core_name, game_name, results.count);
+						} else {
+							uart_log_send_ack("INVALID_SEARCH_FORMAT");
+						}
 					} else if (strncmp(uart_rx_buffer, "CMD:", 4) == 0) {
 						// Forward command to /dev/MiSTer_cmd
 						if (mister_cmd_fd == -1) {
@@ -4655,8 +4680,8 @@ static CoreSearchPattern* find_core_pattern(const char* core_name) {
 	return NULL;
 }
 
-// Redump name parsing functions
-static void extract_redump_title(const char* filename, char* title, size_t title_size) {
+// Game name parsing functions
+static void extract_game_title(const char* filename, char* title, size_t title_size) {
 	// Extract title part before first parenthesis
 	const char* paren = strchr(filename, '(');
 	if (paren) {
@@ -4674,7 +4699,7 @@ static void extract_redump_title(const char* filename, char* title, size_t title
 	}
 }
 
-static void extract_redump_region(const char* filename, char* region, size_t region_size) {
+static void extract_game_region(const char* filename, char* region, size_t region_size) {
 	// Extract region from first parenthesis: "Game (USA)" -> "USA"
 	const char* start = strchr(filename, '(');
 	if (start) {
@@ -4691,14 +4716,14 @@ static void extract_redump_region(const char* filename, char* region, size_t reg
 	strcpy(region, "Unknown");
 }
 
-static bool redump_game_matches(const char* filename, const char* search_name, const char* extensions) {
+static bool game_name_matches(const char* filename, const char* search_name, const char* extensions) {
 	// Check file extension first
 	char* ext = strrchr(filename, '.');
 	if (!ext || !strstr(extensions, ext + 1)) return false;
 	
-	// Parse Redump format: "Game Title (Region) (Additional).ext"
+	// Parse standard format: "Game Title (Region) (Additional).ext"
 	char game_title[256];
-	extract_redump_title(filename, game_title, sizeof(game_title));
+	extract_game_title(filename, game_title, sizeof(game_title));
 	
 	// Case-insensitive partial match
 	char search_lower[256], title_lower[256];
@@ -4755,6 +4780,356 @@ static void remove_duplicate_games(GameSearchResults* results) {
 	}
 	
 	compact_search_results(results, keep);
+}
+
+// Directory scanning functions
+static void add_search_result(GameSearchResults* results, const char* full_path, 
+                             const char* filename, const char* core_name, bool is_zipped, const char* zip_internal) {
+	if (results->count >= 50) return;
+	
+	GameSearchResult* result = &results->results[results->count];
+	
+	strcpy(result->full_path, full_path);
+	strcpy(result->zip_internal_path, zip_internal);
+	strcpy(result->core_name, core_name);
+	result->is_zipped = is_zipped;
+	
+	// Extract display name and region
+	extract_game_title(filename, result->display_name, sizeof(result->display_name));
+	extract_game_region(filename, result->region, sizeof(result->region));
+	
+	results->count++;
+}
+
+static void search_zip_file(const char* zip_path, const char* game_name, 
+                           const char* extensions, const char* core_name, GameSearchResults* results) {
+	mz_zip_archive zip_archive;
+	memset(&zip_archive, 0, sizeof(zip_archive));
+	
+	if (!mz_zip_reader_init_file(&zip_archive, zip_path, 0)) return;
+	
+	int num_files = mz_zip_reader_get_num_files(&zip_archive);
+	
+	for (int i = 0; i < num_files && results->count < 50; i++) {
+		mz_zip_archive_file_stat file_stat;
+		if (mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) {
+			if (game_name_matches(file_stat.m_filename, game_name, extensions)) {
+				add_search_result(results, zip_path, file_stat.m_filename, core_name, true, file_stat.m_filename);
+			}
+		}
+	}
+	
+	mz_zip_reader_end(&zip_archive);
+}
+
+static void scan_directory_for_games(const char* base_path, const char* game_name, 
+                                    const char* extensions, const char* core_name,
+                                    GameSearchResults* results, int current_depth, int max_depth) {
+	if (current_depth > max_depth) return;
+	
+	DIR *dir = opendir(base_path);
+	if (!dir) return;
+	
+	struct dirent *entry;
+	char full_path[1024];
+	
+	while ((entry = readdir(dir)) != NULL && results->count < 50) {
+		if (entry->d_name[0] == '.') continue;
+		
+		snprintf(full_path, sizeof(full_path), "%s/%s", base_path, entry->d_name);
+		
+		struct stat statbuf;
+		if (stat(full_path, &statbuf) == 0) {
+			if (S_ISDIR(statbuf.st_mode) && current_depth < max_depth) {
+				// Recurse into subdirectory
+				scan_directory_for_games(full_path, game_name, extensions, core_name,
+				                        results, current_depth + 1, max_depth);
+			} else if (S_ISREG(statbuf.st_mode)) {
+				// Check ZIP files
+				char* ext = strrchr(entry->d_name, '.');
+				if (ext && strcasecmp(ext, ".zip") == 0) {
+					search_zip_file(full_path, game_name, extensions, core_name, results);
+				} else if (game_name_matches(entry->d_name, game_name, extensions)) {
+					add_search_result(results, full_path, entry->d_name, core_name, false, "");
+				}
+			}
+		}
+	}
+	
+	closedir(dir);
+}
+
+// Main search functions
+static void search_specific_core(const char* core_name, const char* game_name, GameSearchResults* results) {
+	memset(results, 0, sizeof(*results));
+	strcpy(results->search_term, game_name);
+	strcpy(results->core_name, core_name);
+	
+	// Get core search pattern
+	CoreSearchPattern* pattern = find_core_pattern(core_name);
+	if (!pattern) return;
+	
+	// Search only the paths for this specific core
+	for (int path_idx = 0; pattern->search_paths[path_idx]; path_idx++) {
+		scan_directory_for_games(pattern->search_paths[path_idx], game_name, 
+		                        pattern->file_extensions, core_name, results, 0, 1);
+	}
+	
+	remove_duplicate_games(results);
+}
+
+static void search_all_cores(const char* game_name, GameSearchResults* results) {
+	memset(results, 0, sizeof(*results));
+	strcpy(results->search_term, game_name);
+	strcpy(results->core_name, "auto");
+	
+	// Scan all core directories under /media/fat/games/
+	const char* base_path = "/media/fat/games/";
+	DIR* games_dir = opendir(base_path);
+	if (!games_dir) return;
+	
+	struct dirent* entry;
+	char core_path[1024];
+	
+	while ((entry = readdir(games_dir)) != NULL && results->count < 50) {
+		if (entry->d_name[0] == '.') continue;
+		
+		snprintf(core_path, sizeof(core_path), "%s%s", base_path, entry->d_name);
+		
+		struct stat statbuf;
+		if (stat(core_path, &statbuf) == 0 && S_ISDIR(statbuf.st_mode)) {
+			// This is a core directory - search it
+			const char* detected_core = map_folder_to_core(entry->d_name);
+			if (detected_core) {
+				CoreSearchPattern* pattern = find_core_pattern(detected_core);
+				if (pattern) {
+					scan_directory_for_games(core_path, game_name, pattern->file_extensions, 
+					                        detected_core, results, 0, 1);
+				}
+			}
+		}
+	}
+	
+	closedir(games_dir);
+	remove_duplicate_games(results);
+}
+
+// Game loading functions
+static void load_game_from_zip(const char* zip_path, const char* internal_path, char type, int index) {
+	mz_zip_archive zip_archive;
+	memset(&zip_archive, 0, sizeof(zip_archive));
+	
+	if (!mz_zip_reader_init_file(&zip_archive, zip_path, 0)) {
+		if (cfg.debug) printf("UART: Failed to open ZIP file: %s\n", zip_path);
+		return;
+	}
+	
+	// Find the file within the ZIP
+	int file_index = mz_zip_reader_locate_file(&zip_archive, internal_path, NULL, 0);
+	if (file_index < 0) {
+		if (cfg.debug) printf("UART: File not found in ZIP: %s\n", internal_path);
+		mz_zip_reader_end(&zip_archive);
+		return;
+	}
+	
+	// Get file info
+	mz_zip_archive_file_stat file_stat;
+	if (!mz_zip_reader_file_stat(&zip_archive, file_index, &file_stat)) {
+		if (cfg.debug) printf("UART: Failed to get file stats from ZIP\n");
+		mz_zip_reader_end(&zip_archive);
+		return;
+	}
+	
+	// Create temporary file for extraction
+	char temp_path[1024];
+	snprintf(temp_path, sizeof(temp_path), "/tmp/mister_game_%d_%s", getpid(), strrchr(internal_path, '/') ? strrchr(internal_path, '/') + 1 : internal_path);
+	
+	// Extract the file
+	if (!mz_zip_reader_extract_to_file(&zip_archive, file_index, temp_path, 0)) {
+		if (cfg.debug) printf("UART: Failed to extract file from ZIP\n");
+		mz_zip_reader_end(&zip_archive);
+		return;
+	}
+	
+	mz_zip_reader_end(&zip_archive);
+	
+	// Load the extracted file
+	if (type == 'F') {
+		user_io_file_tx(temp_path, index);
+	} else {
+		user_io_file_mount(temp_path, index);
+	}
+	
+	// Clean up temporary file after a delay (let the system load it first)
+	// Note: In a real implementation, you might want to use a background cleanup task
+	// For now, we'll rely on /tmp cleanup or implement a cleanup timer
+	if (cfg.debug) printf("UART: Loaded game from ZIP: %s -> %s\n", internal_path, temp_path);
+}
+
+static void load_selected_game_direct(GameSearchResult* result, const char* core_name) {
+	// Get core parameters
+	CoreSearchPattern* pattern = find_core_pattern(core_name);
+	if (!pattern) {
+		if (cfg.debug) printf("UART: Unknown core: %s\n", core_name);
+		return;
+	}
+	
+	// Load core first
+	fpga_load_rbf(pattern->core_rbf);
+	usleep(pattern->load_delay * 1000);
+	
+	// Load the game file
+	if (result->is_zipped) {
+		load_game_from_zip(result->full_path, result->zip_internal_path, 
+		                   pattern->file_type, pattern->file_index);
+	} else {
+		if (pattern->file_type == 'F') {
+			user_io_file_tx(result->full_path, pattern->file_index);
+		} else {
+			user_io_file_mount(result->full_path, pattern->file_index);
+		}
+	}
+}
+
+// OSD Selection Menu Functions
+static void update_game_selection_display() {
+	if (!game_selection_active) return;
+	
+	// Calculate display window (show 6 games at a time)
+	int start_idx = (game_selection_index / 6) * 6;
+	int end_idx = start_idx + 6;
+	if (end_idx > pending_selection.count) end_idx = pending_selection.count;
+	
+	// Clear game area
+	for (int line = 2; line < 10; line++) {
+		OsdWrite(line, "", 0);
+	}
+	
+	// Display games
+	for (int i = start_idx; i < end_idx; i++) {
+		char display_text[28];  // Respect 28 char limit
+		char prefix = (i == game_selection_index) ? '>' : ' ';
+		
+		// Format: "> SNES: Game Title (USA)"
+		snprintf(display_text, sizeof(display_text), "%c %s: %s (%s)%s",
+		        prefix,
+		        pending_selection.results[i].core_name,
+		        pending_selection.results[i].display_name,
+		        pending_selection.results[i].region,
+		        pending_selection.results[i].is_zipped ? " Z" : "");  // Just "Z" for ZIP
+		
+		// Highlight selected item
+		int highlight = (i == game_selection_index) ? 1 : 0;
+		OsdWrite(2 + (i - start_idx), display_text, highlight);
+	}
+	
+	// Show navigation help
+	OsdWrite(9, "", 0);
+	char help_text[28];
+	snprintf(help_text, sizeof(help_text), "Up/Down Enter ESC (%d/%d)", 
+	         game_selection_index + 1, pending_selection.count);
+	OsdWrite(10, help_text, 0);
+}
+
+static void show_game_selection_menu(GameSearchResults* results) {
+	// Store results for menu handling
+	memcpy(&pending_selection, results, sizeof(*results));
+	game_selection_index = 0;
+	game_selection_active = true;
+	
+	// Clear OSD and show selection menu
+	OsdClear();
+	OsdEnable(OSD_MSG);
+	
+	// Set menu title
+	char title[28];
+	if (strcmp(results->core_name, "auto") == 0) {
+		snprintf(title, sizeof(title), "Games Found:");
+	} else {
+		snprintf(title, sizeof(title), "Select %s Game:", results->core_name);
+	}
+	OsdWrite(0, title, 0);
+	OsdWrite(1, "", 0); // Blank line
+	
+	// Show games list
+	update_game_selection_display();
+}
+
+static void load_selected_game_from_menu() {
+	if (!game_selection_active || game_selection_index >= pending_selection.count) return;
+	
+	GameSearchResult* selected = &pending_selection.results[game_selection_index];
+	
+	// Show loading message
+	OsdClear();
+	char loading_msg[28];
+	snprintf(loading_msg, sizeof(loading_msg), "Loading: %s", selected->display_name);
+	OsdWrite(4, loading_msg, 0);
+	OsdWrite(5, "Please wait...", 0);
+	
+	// Load the game
+	load_selected_game_direct(selected, selected->core_name);
+	
+	// Clean up and hide OSD
+	game_selection_active = false;
+	OsdDisable();
+	
+	// Send UART confirmation
+	uart_log_send_ack("GAME_LOADED");
+	if (cfg.debug) printf("UART: Loaded game: %s\n", selected->display_name);
+}
+
+static void cancel_game_selection() {
+	game_selection_active = false;
+	OsdDisable();
+	uart_log_send_ack("GAME_CANCELLED");
+	if (cfg.debug) printf("UART: Game selection cancelled\n");
+}
+
+static void handle_search_results(GameSearchResults* results) {
+	if (results->count == 0) {
+		uart_log_send_ack("GAME_NOT_FOUND");
+		return;
+	}
+	
+	if (results->count == 1) {
+		// Single result - load directly
+		load_selected_game_direct(&results->results[0], results->results[0].core_name);
+		uart_log_send_ack("GAME_LOADED");
+	} else {
+		// Multiple results - show OSD selection
+		show_game_selection_menu(results);
+		uart_log_send_ack("SHOWING_SELECTION");
+	}
+}
+
+// Input handling for game selection menu
+void handle_game_selection_input(int key, int pressed) {
+	if (!game_selection_active || !pressed) return;
+	
+	switch (key) {
+	case KEY_UP:
+		if (game_selection_index > 0) {
+			game_selection_index--;
+			update_game_selection_display();
+		}
+		break;
+		
+	case KEY_DOWN:
+		if (game_selection_index < pending_selection.count - 1) {
+			game_selection_index++;
+			update_game_selection_display();
+		}
+		break;
+		
+	case KEY_ENTER:
+		load_selected_game_from_menu();
+		break;
+		
+	case KEY_ESC:
+		cancel_game_selection();
+		break;
+	}
 }
 
 void uart_log_cleanup()
