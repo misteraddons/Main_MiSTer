@@ -87,6 +87,11 @@ enum MENU
 	MENU_CORE_FILE_SELECTED1,
 	MENU_CORE_FILE_SELECTED2,
 	MENU_CORE_FILE_CANCELED,
+	
+	MENU_POPUP_FILE_SELECT1,
+	MENU_POPUP_FILE_SELECT2,
+	MENU_POPUP_FILE_SELECTED,
+	MENU_POPUP_FILE_CANCELED,
 	MENU_RECENT1,
 	MENU_RECENT2,
 	MENU_RECENT3,
@@ -434,6 +439,61 @@ void SelectFile(const char* path, const char* pFileExt, int Options, unsigned ch
 	fs_MenuCancel = MenuCancel;
 
 	menustate = MENU_FILE_SELECT1;
+}
+
+// Popup version of SelectFile for overlay file browser
+void SelectFilePopup(const char* path, const char* pFileExt, int Options)
+{
+	static char tmp[1024];
+	printf("Popup file browser: pFileExt = %s\n", pFileExt);
+	filter_typing_timer = 0;
+	filter[0] = 0;
+
+	strncpy(selPath, path, sizeof(selPath) - 1);
+	selPath[sizeof(selPath) - 1] = 0;
+
+	// Store current menu state to restore later
+	static unsigned char prev_menustate = menustate;
+	
+	if (Options & SCANO_CORES)
+	{
+		strcpy(selPath, get_rbf_dir());
+		if (strlen(get_rbf_name()))
+		{
+			if(strlen(selPath)) strcat(selPath, "/");
+			strcat(selPath, get_rbf_name());
+		}
+		pFileExt = "RBFMRAMGL";
+		home_dir = NULL;
+	}
+	else
+	{
+		home_dir = getRootDir();
+		char *p = strrchr(selPath, '/');
+		if (p)
+		{
+			strcpy(tmp, p + 1);
+			*p = 0;
+		}
+		else
+		{
+			tmp[0] = 0;
+		}
+		ScanDirectory(selPath, SCANF_INIT, pFileExt, Options);
+		strcpy(selPath, tmp);
+	}
+
+	ScanDirectory(selPath, SCANF_INIT, pFileExt, Options);
+	AdjustDirectory(selPath);
+
+	strcpy(fs_pFileExt, pFileExt);
+	fs_ExtLen = strlen(fs_pFileExt);
+	fs_Options = Options & ~SCANO_NOENTER;
+	fs_MenuSelect = MENU_POPUP_FILE_SELECTED;
+	fs_MenuCancel = MENU_POPUP_FILE_CANCELED;
+
+	// Start popup file selection
+	menustate = MENU_POPUP_FILE_SELECT1;
 }
 
 #define STD_EXIT       "            exit"
@@ -6905,6 +6965,119 @@ void HandleUI(void)
 
 	case MENU_CORE_FILE_CANCELED:
 		SelectFile("", 0, SCANO_CORES, MENU_CORE_FILE_SELECTED1, cp_MenuCancel);
+		break;
+
+	/******************************************************************/
+	/* Popup File Selection States                                   */
+	/******************************************************************/
+	case MENU_POPUP_FILE_SELECT1:
+		helptext_idx = (fs_Options & SCANO_UMOUNT) ? HELPTEXT_EJECT : (fs_Options & SCANO_CLEAR) ? HELPTEXT_CLEAR : 0;
+		
+		// Use overlay mode for popup display
+		InfoEnable(4, 3, 40, 20);  // Position and size the popup window
+		OsdSetTitle("Select File", OSD_MSG);  // Use overlay mode
+		PrintDirectory(hold_cnt<2);
+		menustate = MENU_POPUP_FILE_SELECT2;
+		break;
+
+	case MENU_POPUP_FILE_SELECT2:
+		menumask = 0;
+
+		// Handle escape/cancel
+		if (esc || (menu && (!flist_nDirEntries() || flist_SelectedItem()->de.d_type == DT_DIR)))
+		{
+			InfoDisable();  // Close popup
+			menustate = MENU_POPUP_FILE_CANCELED;
+			break;
+		}
+
+		// Handle file selection
+		if (select && flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
+		{
+			SelectedDir[0] = 0;
+			if (strlen(selPath))
+			{
+				strcpy(SelectedDir, selPath);
+				strcat(selPath, "/");
+			}
+			strcat(selPath, flist_SelectedItem()->de.d_name);
+			
+			InfoDisable();  // Close popup
+			menustate = MENU_POPUP_FILE_SELECTED;
+			break;
+		}
+
+		// Handle directory navigation
+		if (select && flist_nDirEntries() && flist_SelectedItem()->de.d_type == DT_DIR)
+		{
+			if (flist_SelectedItem()->de.d_name[0] == '.')
+			{
+				if (strlen(flist_SelectedItem()->de.d_name) == 1) break;
+				if (strlen(flist_SelectedItem()->de.d_name) == 2)
+				{
+					// Go up one level
+					ParentDir(selPath);
+					ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+					AdjustDirectory(selPath);
+					menustate = MENU_POPUP_FILE_SELECT1;
+					break;
+				}
+			}
+			
+			// Enter subdirectory
+			if (strlen(selPath)) strcat(selPath, "/");
+			strcat(selPath, flist_SelectedItem()->de.d_name);
+			ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+			AdjustDirectory(selPath);
+			menustate = MENU_POPUP_FILE_SELECT1;
+			break;
+		}
+
+		// Handle scrolling and other navigation
+		if (up) ScrollLongName();
+		HandleScrollEvents();
+		
+		if (scroll_timer && CheckTimer(scroll_timer))
+		{
+			scroll_timer = 0;
+			scroll_pos = 0;
+			if (cfg.vscale_border) video_menu_bg(1);
+			menustate = MENU_POPUP_FILE_SELECT1;
+		}
+		break;
+
+	case MENU_POPUP_FILE_SELECTED:
+		// File was selected - communicate result back to command bridge
+		printf("CMD: Popup file selected: %s\n", selPath);
+		
+		// Store the selected file for retrieval by command bridge
+		// This could be done through a global variable or callback
+		user_io_store_filename(selPath);
+		
+		// Send notification to core about file selection
+		if (cmd_bridge_is_mister_cmd_available())
+		{
+			char response[1024];
+			snprintf(response, sizeof(response), "popup_result %s", selPath);
+			cmd_bridge_send_to_mister(response);
+		}
+		
+		// Return to previous menu state or close menu
+		menustate = MENU_NONE1;
+		break;
+
+	case MENU_POPUP_FILE_CANCELED:
+		// File selection was canceled
+		printf("CMD: Popup file selection canceled\n");
+		
+		// Send cancel notification to core
+		if (cmd_bridge_is_mister_cmd_available())
+		{
+			cmd_bridge_send_to_mister("popup_result CANCELED");
+		}
+		
+		// Return to previous menu state or close menu
+		menustate = MENU_NONE1;
 		break;
 
 		/******************************************************************/

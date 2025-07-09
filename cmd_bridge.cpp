@@ -8,6 +8,11 @@
 #include <sys/stat.h>
 #include <string.h>
 
+#ifndef TEST_BUILD
+#include "menu.h"
+#include "file_io.h"
+#endif
+
 // Command registry
 #define MAX_COMMANDS 50
 static cmd_definition_t registered_commands[MAX_COMMANDS];
@@ -887,6 +892,62 @@ static void store_search_results(const char* search_type)
     }
 }
 
+// Popup file browser command implementation
+cmd_result_t cmd_popup_browse(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    // Parse arguments: [path] [extensions] [flags]
+    char path[512] = "/media/fat/games";
+    char extensions[256] = "";
+    char flags[64] = "";
+    
+    if (args && args[0])
+    {
+        // Parse path and optional extensions/flags
+        if (sscanf(args, "%s %s %s", path, extensions, flags) < 1)
+        {
+            strcpy(result.message, "Usage: popup_browse [path] [extensions] [flags]");
+            return result;
+        }
+    }
+    
+    printf("CMD: Opening popup file browser at '%s'\n", path);
+    
+#ifndef TEST_BUILD
+    // Call the popup file browser directly
+    extern void SelectFilePopup(const char* path, const char* pFileExt, int Options);
+    
+    // Convert extensions string to options
+    int options = 0;
+    if (strstr(flags, "cores")) options |= SCANO_CORES;
+    if (strstr(flags, "dirs")) options |= SCANO_DIR;
+    if (strstr(flags, "umount")) options |= SCANO_UMOUNT;
+    
+    // Use default extensions if none specified
+    const char* ext = (strlen(extensions) > 0) ? extensions : "";
+    
+    // Trigger the popup file browser
+    SelectFilePopup(path, ext, options);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Popup file browser opened at: %s", path);
+    result.result_code = 0;
+#else
+    // Mock implementation for testing
+    printf("MOCK: Popup file browser would open at path=%s, extensions=%s, flags=%s\n", 
+           path, extensions, flags);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Mock popup browser opened at: %s", path);
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
 // Register all built-in commands
 static void register_builtin_commands()
 {
@@ -903,4 +964,5 @@ static void register_builtin_commands()
     cmd_bridge_register("search_cores", cmd_search_cores, "Search for available cores");
     cmd_bridge_register("search_select", cmd_search_select, "Select item from search results");
     cmd_bridge_register("search_load", cmd_search_load, "Load selected item from search results");
+    cmd_bridge_register("popup_browse", cmd_popup_browse, "Open popup file browser");
 }
