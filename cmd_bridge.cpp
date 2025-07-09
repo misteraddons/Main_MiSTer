@@ -455,6 +455,15 @@ static cmd_result_t cmd_help(const char* args)
     return result;
 }
 
+// Search results storage for selection
+#define MAX_SEARCH_RESULTS 50
+static char search_results[MAX_SEARCH_RESULTS][512];
+static int search_results_count = 0;
+static char last_search_type[64] = "";
+
+// Forward declaration for helper function
+static void store_search_results(const char* search_type);
+
 // Search command implementations
 #ifndef TEST_BUILD
 extern "C" {
@@ -517,10 +526,10 @@ cmd_result_t cmd_search_files(const char* args)
         return result;
     }
     
-    // Default to current directory if no path specified
+    // Default to games directory if no path specified
     if (strlen(search_path) == 0)
     {
-        strcpy(search_path, "/media/fat");
+        strcpy(search_path, "/media/fat/games");
     }
     
     printf("CMD: Searching for files matching '%s' in '%s'\n", pattern, search_path);
@@ -534,12 +543,16 @@ cmd_result_t cmd_search_files(const char* args)
         {
             result.success = true;
             snprintf(result.message, sizeof(result.message), 
-                     "Found %d files matching '%s'", count, pattern);
+                     "Found %d files matching '%s'. Use 'search_select <number>' to select or 'search_load <number>' to load.", 
+                     count, pattern);
             result.result_code = count;
             
-            // List first few results
+            // Store results for selection
+            store_search_results("files");
+            
+            // List all results with numbers
             printf("CMD: Search results:\n");
-            for (int i = 0; i < count && i < 10; i++)
+            for (int i = 0; i < count && i < MAX_SEARCH_RESULTS; i++)
             {
                 char* item = flist_DirItem(i);
                 if (item)
@@ -547,9 +560,9 @@ cmd_result_t cmd_search_files(const char* args)
                     printf("CMD: %d: %s\n", i + 1, item);
                 }
             }
-            if (count > 10)
+            if (count > MAX_SEARCH_RESULTS)
             {
-                printf("CMD: ... and %d more\n", count - 10);
+                printf("CMD: ... and %d more (showing first %d)\n", count - MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
             }
         }
         else
@@ -602,17 +615,25 @@ cmd_result_t cmd_search_games(const char* args)
             {
                 result.success = true;
                 snprintf(result.message, sizeof(result.message), 
-                         "Found %d games matching '%s' in %s", count, game_name, core_name);
+                         "Found %d games matching '%s' in %s. Use 'search_select <number>' to select or 'search_load <number>' to load.", 
+                         count, game_name, core_name);
                 result.result_code = count;
                 
+                // Store results for selection
+                store_search_results("games");
+                
                 printf("CMD: Games found in %s:\n", core_name);
-                for (int i = 0; i < count && i < 10; i++)
+                for (int i = 0; i < count && i < MAX_SEARCH_RESULTS; i++)
                 {
                     char* item = flist_DirItem(i);
                     if (item)
                     {
                         printf("CMD: %d: %s\n", i + 1, item);
                     }
+                }
+                if (count > MAX_SEARCH_RESULTS)
+                {
+                    printf("CMD: ... and %d more (showing first %d)\n", count - MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
                 }
             }
             else
@@ -638,17 +659,24 @@ cmd_result_t cmd_search_games(const char* args)
             {
                 result.success = true;
                 snprintf(result.message, sizeof(result.message), 
-                         "Found %d games matching '%s'", count, game_name);
+                         "Found %d games matching '%s'. Use 'search_select <number>' to select or 'search_load <number>' to load.", count, game_name);
                 result.result_code = count;
                 
+                // Store results for selection
+                store_search_results("games");
+                
                 printf("CMD: Games found:\n");
-                for (int i = 0; i < count && i < 10; i++)
+                for (int i = 0; i < count && i < MAX_SEARCH_RESULTS; i++)
                 {
                     char* item = flist_DirItem(i);
                     if (item)
                     {
                         printf("CMD: %d: %s\n", i + 1, item);
                     }
+                }
+                if (count > MAX_SEARCH_RESULTS)
+                {
+                    printf("CMD: ... and %d more (showing first %d)\n", count - MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
                 }
             }
             else
@@ -697,17 +725,20 @@ cmd_result_t cmd_search_cores(const char* args)
             if (strlen(pattern) > 0)
             {
                 snprintf(result.message, sizeof(result.message), 
-                         "Found %d cores matching '%s'", count, pattern);
+                         "Found %d cores matching '%s'. Use 'search_select <number>' to select or 'search_load <number>' to load.", count, pattern);
             }
             else
             {
                 snprintf(result.message, sizeof(result.message), 
-                         "Found %d cores", count);
+                         "Found %d cores. Use 'search_select <number>' to select or 'search_load <number>' to load.", count);
             }
             result.result_code = count;
             
+            // Store results for selection
+            store_search_results("cores");
+            
             printf("CMD: Cores found:\n");
-            for (int i = 0; i < count && i < 10; i++)
+            for (int i = 0; i < count && i < MAX_SEARCH_RESULTS; i++)
             {
                 char* item = flist_DirItem(i);
                 if (item)
@@ -715,9 +746,9 @@ cmd_result_t cmd_search_cores(const char* args)
                     printf("CMD: %d: %s\n", i + 1, item);
                 }
             }
-            if (count > 10)
+            if (count > MAX_SEARCH_RESULTS)
             {
-                printf("CMD: ... and %d more\n", count - 10);
+                printf("CMD: ... and %d more (showing first %d)\n", count - MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
             }
         }
         else
@@ -741,6 +772,121 @@ cmd_result_t cmd_search_cores(const char* args)
     return result;
 }
 
+cmd_result_t cmd_search_select(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0])
+    {
+        strcpy(result.message, "Usage: search_select <number>");
+        return result;
+    }
+    
+    // Check if we have search results
+    if (search_results_count == 0)
+    {
+        strcpy(result.message, "No search results available. Run a search command first.");
+        return result;
+    }
+    
+    // Parse selection number
+    int selection = atoi(args);
+    
+    if (selection < 1 || selection > search_results_count)
+    {
+        snprintf(result.message, sizeof(result.message), 
+                 "Invalid selection. Choose 1-%d", search_results_count);
+        return result;
+    }
+    
+    // Get selected item (convert to 0-based index)
+    char* selected_item = search_results[selection - 1];
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Selected: %s", selected_item);
+    result.result_code = selection;
+    
+    printf("CMD: Selected item %d: %s\n", selection, selected_item);
+    
+    return result;
+}
+
+cmd_result_t cmd_search_load(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0])
+    {
+        strcpy(result.message, "Usage: search_load <number>");
+        return result;
+    }
+    
+    // Check if we have search results
+    if (search_results_count == 0)
+    {
+        strcpy(result.message, "No search results available. Run a search command first.");
+        return result;
+    }
+    
+    // Parse selection number
+    int selection = atoi(args);
+    
+    if (selection < 1 || selection > search_results_count)
+    {
+        snprintf(result.message, sizeof(result.message), 
+                 "Invalid selection. Choose 1-%d", search_results_count);
+        return result;
+    }
+    
+    // Get selected item (convert to 0-based index)
+    char* selected_item = search_results[selection - 1];
+    
+    printf("CMD: Loading selected item %d: %s\n", selection, selected_item);
+    
+    // Determine what to do based on search type and file extension
+    if (strstr(selected_item, ".rbf"))
+    {
+        // Load core
+        return cmd_load_core(selected_item);
+    }
+    else if (strstr(last_search_type, "games") || strstr(last_search_type, "files"))
+    {
+        // Load game/ROM
+        return cmd_load_game(selected_item);
+    }
+    else
+    {
+        // Default to loading as game
+        return cmd_load_game(selected_item);
+    }
+}
+
+// Enhanced search functions that store results for selection
+static void store_search_results(const char* search_type)
+{
+    // Store search type for later use
+    strncpy(last_search_type, search_type, sizeof(last_search_type) - 1);
+    last_search_type[sizeof(last_search_type) - 1] = '\0';
+    
+    // Store results for selection
+    search_results_count = flist_nDirEntries();
+    if (search_results_count > MAX_SEARCH_RESULTS)
+    {
+        search_results_count = MAX_SEARCH_RESULTS;
+    }
+    
+    for (int i = 0; i < search_results_count; i++)
+    {
+        char* item = flist_DirItem(i);
+        if (item)
+        {
+            strncpy(search_results[i], item, sizeof(search_results[i]) - 1);
+            search_results[i][sizeof(search_results[i]) - 1] = '\0';
+        }
+    }
+}
+
 // Register all built-in commands
 static void register_builtin_commands()
 {
@@ -755,4 +901,6 @@ static void register_builtin_commands()
     cmd_bridge_register("search_files", cmd_search_files, "Search for files by name pattern");
     cmd_bridge_register("search_games", cmd_search_games, "Search for games in _Games directory");
     cmd_bridge_register("search_cores", cmd_search_cores, "Search for available cores");
+    cmd_bridge_register("search_select", cmd_search_select, "Select item from search results");
+    cmd_bridge_register("search_load", cmd_search_load, "Load selected item from search results");
 }
