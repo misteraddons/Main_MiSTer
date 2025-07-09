@@ -55,7 +55,7 @@
 #define CEC_LOGICAL_ADDR2      0x29
 #define CEC_LOGICAL_ADDR_MASK  0x2A
 
-#define CEC_CLK_DIV            0x2B
+#define CEC_CLK_DIV            0x4E  // Correct register per ADV7513 datasheet
 
 #define CEC_SOFT_RESET         0x50  // Per ADV7513 datasheet
 

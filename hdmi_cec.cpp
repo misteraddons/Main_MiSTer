@@ -30,10 +30,10 @@ static const char* cec_device_type_name(uint8_t device_type);
 static void cec_debug_message(const char* direction, const cec_message_t *msg);
 
 // Calculate CEC clock divider based on 12MHz crystal
-// CEC requires 0.05ms time quanta (20kHz)
-// Clock divider = Input Clock / (20kHz * 10) - 1
-// For 12MHz: 12000000 / (20000 * 10) - 1 = 59
-#define CEC_CLOCK_DIV_12MHZ 59
+// CEC requires 750kHz clock from 12MHz input
+// Clock divider = Input Clock / Output Clock - 1
+// For 12MHz: 12000000 / 750000 - 1 = 15 (0x0F)
+#define CEC_CLOCK_DIV_12MHZ 0x0F
 
 static bool cec_write_register(uint8_t reg, uint8_t value)
 {
@@ -74,304 +74,218 @@ bool cec_init(bool enable)
         usleep(100000); // Wait 100ms for hardware to settle
     }
 
-    printf("CEC INIT: Attempting MINIMAL CEC configuration\n");
+    printf("CEC INIT: Starting STEP-BY-STEP ADV7513 CEC debug procedure\n");
     
-    // Open I2C device for CEC
-    cec_fd = i2c_open(CEC_I2C_ADDR, 0);
-    if (cec_fd < 0) {
-        printf("CEC INIT: Failed to open I2C device at address 0x%02X\n", CEC_I2C_ADDR);
-        return false;
-    }
+    printf("\n=== 2.1 Power & Device ID ===\n");
     
-    printf("CEC INIT: Opened CEC I2C device successfully\n");
-    
-    // Test basic I2C communication by reading a known register
-    printf("CEC DEBUG: Testing I2C communication with CEC device\n");
-    for (int addr = 0x27; addr <= 0x2C; addr++) {
-        uint8_t val = cec_read_register(addr);
-        printf("CEC DEBUG: Register 0x%02X = 0x%02X\n", addr, val);
-    }
-
-    // ADV7513 main register configuration for CEC
+    // Open main ADV7513 device first
     int main_fd = i2c_open(0x39, 0);
     if (main_fd < 0) {
         printf("CEC INIT: Failed to open main ADV7513 device\n");
-        i2c_close(cec_fd);
-        cec_fd = -1;
         return false;
     }
-
-    printf("CEC INIT: Configuring ADV7513 main registers\n");
     
-    // Check ADV7513 chip ID and revision to confirm variant
+    // Step 2: Check device ID (0xF5/0xF6 must return 0x75/0x11)
     int chip_id1 = i2c_smbus_read_byte_data(main_fd, 0xF5);
     int chip_id2 = i2c_smbus_read_byte_data(main_fd, 0xF6);
-    int chip_rev = i2c_smbus_read_byte_data(main_fd, 0x00); // Chip revision register
-    printf("CEC DEBUG: Chip ID: 0xF5=0x%02X, 0xF6=0x%02X, Rev=0x%02X\n", chip_id1, chip_id2, chip_rev);
+    printf("Step 2: Device ID - 0xF5=0x%02X, 0xF6=0x%02X (should be 0x75, 0x11)\n", chip_id1, chip_id2);
     
-    // Check Fixed I2C Address register (should be programmable per datasheet)
-    int regF9 = i2c_smbus_read_byte_data(main_fd, 0xF9);
-    printf("CEC DEBUG: Fixed I2C Address register 0xF9 = 0x%02X\n", regF9);
+    // Step 3: Check power state (0x41 bit 6 should be 0 = powered)
+    int reg41 = i2c_smbus_read_byte_data(main_fd, 0x41);
+    printf("Step 3: Power state - 0x41=0x%02X (bit 6=%d, should be 0=powered)\n", 
+           reg41, (reg41 >> 6) & 1);
     
-    // Try setting it to 0x00 as recommended
-    i2c_smbus_write_byte_data(main_fd, 0xF9, 0x00);
-    int regF9_after = i2c_smbus_read_byte_data(main_fd, 0xF9);
-    printf("CEC DEBUG: Register 0xF9 after write = 0x%02X\n", regF9_after);
+    printf("\n=== 2.2 Cable Detect ===\n");
     
-    // Check if CEC is permanently disabled by reading main map register 0xBA
-    int regBA = i2c_smbus_read_byte_data(main_fd, 0xBA);
-    printf("CEC DEBUG: Register 0xBA = 0x%02X (bit 6 indicates CEC capability)\n", regBA);
+    // Step 5: Check HPD and RxSense (0x96[7] = HPD, 0x96[6] = RxSense)
+    int reg96_initial = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("Step 5-6: Cable detect - 0x96=0x%02X (HPD bit7=%d, RxSense bit6=%d)\n", 
+           reg96_initial, (reg96_initial >> 7) & 1, (reg96_initial >> 6) & 1);
     
-    // Check if this is a CEC-capable variant
-    if (chip_id1 == 0x75 && chip_id2 == 0x11) {
-        printf("CEC ERROR: ADV7513 detected (ID: 0x%02X%02X, Rev: 0x%02X)\n", chip_id1, chip_id2, chip_rev);
-        printf("CEC ERROR: Hardware investigation confirms CEC is DISABLED in this chip\n");
-        printf("CEC ERROR: - Register 0x96 bit 5 (CEC clock enable) cannot be set\n");
-        printf("CEC ERROR: - All CEC map registers read as 0x00\n");
-        printf("CEC ERROR: - CEC functionality requires ADV7511 or ADV7511W chip\n");
-        printf("CEC ERROR: Continuing initialization to demonstrate the issue...\n");
-        
-        // We could return false here to abort, but let's continue to show the problem
-        // return false;
-    }
+    printf("\n=== 2.3 CEC Map Visibility ===\n");
     
-    // The issue appears to be that CEC registers are read-only/fixed
-    // This could indicate:
-    // 1. CEC pins not physically connected on this board design
-    // 2. Additional initialization required
-    // 3. Different register mapping for this ADV7513 variant
+    // Step 7: Check CEC I2C address setting
+    int regE1 = i2c_smbus_read_byte_data(main_fd, 0xE1);
+    printf("Step 7: CEC I2C address - 0xE1=0x%02X (default 0x78, 7-bit=0x3C)\n", regE1);
     
-    // Read current register values first
-    int reg96_before = i2c_smbus_read_byte_data(main_fd, 0x96);
-    int reg98_before = i2c_smbus_read_byte_data(main_fd, 0x98);
-    printf("CEC DEBUG: Main registers before - 0x96: 0x%02X, 0x98: 0x%02X\n", 
-           reg96_before, reg98_before);
-    
-    // First, configure CEC I2C address via register 0xE1
-    printf("CEC INIT: Configuring CEC I2C address via register 0xE1\n");
-    int regE1_before = i2c_smbus_read_byte_data(main_fd, 0xE1);
-    printf("CEC DEBUG: Register 0xE1 before: 0x%02X\n", regE1_before);
-    i2c_smbus_write_byte_data(main_fd, 0xE1, 0x78); // Set CEC address to 0x78 (8-bit) = 0x3C (7-bit)
-    int regE1_after = i2c_smbus_read_byte_data(main_fd, 0xE1);
-    printf("CEC DEBUG: Register 0xE1 after: 0x%02X (should be 0x78)\n", regE1_after);
-    
-    // Check CEC Power Down bit in register 0xE2[0] - must be 0 for CEC to work
-    int regE2_before = i2c_smbus_read_byte_data(main_fd, 0xE2);
-    printf("CEC DEBUG: Register 0xE2 before: 0x%02X (bit 0 is CEC Power Down)\n", regE2_before);
-    if (regE2_before & 0x01) {
-        printf("CEC INIT: Clearing CEC Power Down bit\n");
-        i2c_smbus_write_byte_data(main_fd, 0xE2, regE2_before & ~0x01);
-        int regE2_after = i2c_smbus_read_byte_data(main_fd, 0xE2);
-        printf("CEC DEBUG: Register 0xE2 after: 0x%02X\n", regE2_after);
-    }
-    
-    // Set logical addresses in main map BEFORE enabling CEC clock
-    printf("CEC INIT: Setting logical addresses in main map\n");
-    i2c_smbus_write_byte_data(main_fd, 0x4C, 0xF4); // Device0 = 4 (Playback), Device1 = unused (F)
-    i2c_smbus_write_byte_data(main_fd, 0x4D, 0x0F); // Device2 = unused (F)
-    i2c_smbus_write_byte_data(main_fd, 0x4B, 0x01); // Enable only device0 in bits [6:4]
-    
-    // Close main_fd temporarily before configuring CEC timing
-    i2c_close(main_fd);
-    
-    // Configure CEC timing BEFORE enabling CEC clock (critical!)
-    printf("CEC INIT: Configuring CEC timing registers first\n");
-    
-    // Set CEC to always-on power mode (01) instead of HPD-dependent (00)
-    // Bits [1:0]: 00=Off, 01=Always Active, 10=Active when HPD high
-    cec_write_register(0x4E, (CEC_CLOCK_DIV_12MHZ << 2) | 0x01); // Clock div in bits [7:2], power mode 01
-    uint8_t clk_verify = cec_read_register(0x4E);
-    printf("CEC DEBUG: Clock divider register 0x4E = 0x%02X (should be 0x%02X)\n", 
-           clk_verify, (CEC_CLOCK_DIV_12MHZ << 2) | 0x01);
-    
-    // Set other timing registers per ADV7513 Programming Guide for 12MHz
-    // These are the recommended values from Table 83 for 12MHz CEC clock
-    cec_write_register(0x4F, 0x00); // Glitch filter = 0
-    
-    // Now reopen main_fd and enable CEC clock
-    main_fd = i2c_open(0x39, 0);
-    if (main_fd < 0) {
-        printf("CEC INIT: Failed to reopen main ADV7513 device\n");
-        i2c_close(cec_fd);
-        cec_fd = -1;
+    // Open I2C device for CEC using address from 0xE1
+    cec_fd = i2c_open(CEC_I2C_ADDR, 0);
+    if (cec_fd < 0) {
+        printf("CEC INIT: Failed to open I2C device at address 0x%02X\n", CEC_I2C_ADDR);
+        i2c_close(main_fd);
         return false;
     }
     
-    // Check if chip is in correct power state
-    int reg41 = i2c_smbus_read_byte_data(main_fd, 0x41);
-    printf("CEC DEBUG: Register 0x41 (Power state) = 0x%02X\n", reg41);
-    
-    // Try writing to main map CEC registers to verify they work
-    printf("CEC DEBUG: Testing main map CEC registers 0x4B-0x4D\n");
-    int reg4B = i2c_smbus_read_byte_data(main_fd, 0x4B);
-    int reg4C = i2c_smbus_read_byte_data(main_fd, 0x4C);
-    int reg4D = i2c_smbus_read_byte_data(main_fd, 0x4D);
-    printf("CEC DEBUG: After writes - 0x4B=0x%02X, 0x4C=0x%02X, 0x4D=0x%02X\n", reg4B, reg4C, reg4D);
-    
-    // Enable CEC clock - preserve existing bits and set CEC enable bit
-    int reg96_original = i2c_smbus_read_byte_data(main_fd, 0x96);
-    int reg96_new = reg96_original | 0x20; // Set bit 5 for CEC clock enable
-    printf("CEC INIT: Setting CEC clock enable bit - original: 0x%02X, new: 0x%02X\n", 
-           reg96_original, reg96_new);
-    i2c_smbus_write_byte_data(main_fd, 0x96, reg96_new); // CEC powered up
-    
-    // Immediate readback
-    int reg96_immediate = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("CEC DEBUG: 0x96 immediate readback: 0x%02X\n", reg96_immediate);
-    
-    // Set logical address valid bits
-    i2c_smbus_write_byte_data(main_fd, 0x98, 0x03); // Must be 0x03 for proper operation
-    printf("CEC INIT: Register 0x98 set to 0x03 (required for operation)\n");
-    
-    // Check interrupt registers
-    int reg94 = i2c_smbus_read_byte_data(main_fd, 0x94);
-    int reg97 = i2c_smbus_read_byte_data(main_fd, 0x97);
-    printf("CEC DEBUG: Interrupt registers - 0x94=0x%02X, 0x97=0x%02X\n", reg94, reg97);
-    
-    // Check if the CEC clock bit is still set after a delay
-    usleep(1000); // 1ms delay
-    int reg96_check = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("CEC DEBUG: 0x96 after 1ms delay: 0x%02X (should have bit 5 set)\n", reg96_check);
-    
-    if (!(reg96_check & 0x20)) {
-        printf("CEC ERROR: CEC clock bit was cleared, this shouldn't happen!\n");
-        
-        // Check if it's being cleared by HPD or power state
-        int reg42 = i2c_smbus_read_byte_data(main_fd, 0x42);
-        printf("CEC DEBUG: Register 0x42 (HPD/Power) = 0x%02X\n", reg42);
-        
-        // Try to restore it
-        i2c_smbus_write_byte_data(main_fd, 0x96, reg96_check | 0x20);
-        int reg96_restored = i2c_smbus_read_byte_data(main_fd, 0x96);
-        printf("CEC DEBUG: 0x96 after restoration attempt: 0x%02X\n", reg96_restored);
-        
-        // If still failed, check if we need to set something else first
-        if (!(reg96_restored & 0x20)) {
-            printf("CEC ERROR: Cannot maintain CEC clock enable bit - hardware limitation confirmed\n");
-        }
-    } else {
-        printf("CEC SUCCESS: CEC clock bit is properly set!\n");
+    // Step 8: Dump CEC map 0x00-0x0F to confirm visibility
+    printf("Step 8: CEC map dump 0x00-0x0F (non-zero = map visible):\n");
+    for (int i = 0; i <= 0x0F; i++) {
+        uint8_t val = cec_read_register(i);
+        printf("  CEC[0x%02X] = 0x%02X\n", i, val);
     }
     
+    printf("\n=== 2.4 Power-up CEC Engine ===\n");
+    
+    // Step 9: Clear CEC power-down bit 0xE2[0]
+    int regE2_before = i2c_smbus_read_byte_data(main_fd, 0xE2);
+    printf("Step 9: CEC power-down - 0xE2=0x%02X (bit 0=%d, should be 0=powered)\n", 
+           regE2_before, regE2_before & 1);
+    
+    if (regE2_before & 0x01) {
+        printf("Step 9: Clearing CEC power-down bit\n");
+        i2c_smbus_write_byte_data(main_fd, 0xE2, regE2_before & ~0x01);
+        int regE2_after = i2c_smbus_read_byte_data(main_fd, 0xE2);
+        printf("Step 9: After clear - 0xE2=0x%02X (bit 0=%d)\n", regE2_after, regE2_after & 1);
+    }
+    
+    // Step 10: Program clock divider for 12MHz crystal
+    printf("Step 10: Programming clock divider for 12MHz → 750kHz\n");
+    uint8_t timing_value = CEC_CLOCK_DIV_12MHZ;
+    printf("Step 10: Writing 0x%02X to CEC[0x4E] (divider %d)\n", 
+           timing_value, CEC_CLOCK_DIV_12MHZ);
+    cec_write_register(CEC_CLK_DIV, timing_value);
+    uint8_t clk_verify = cec_read_register(CEC_CLK_DIV);
+    printf("Step 10: Readback CEC[0x4E]=0x%02X (should be 0x%02X)\n", clk_verify, timing_value);
+    
+    // Step 11: Wait for clock to stabilize
+    printf("Step 11: Waiting for CEC clock to stabilize (20ms)...\n");
+    usleep(20000); // 20ms delay for clock stability
+    
+    printf("\n=== 2.5 Enable & Reset Block ===\n");
+    
+    // Step 12: Set main 0x96[5] and verify it stays high
+    int reg96_before = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("Step 12: Before CEC clock enable - 0x96=0x%02X (bit 5=%d)\n", 
+           reg96_before, (reg96_before >> 5) & 1);
+    
+    int reg96_new = reg96_before | 0x20; // Set bit 5
+    printf("Step 12: Setting CEC clock enable bit - writing 0x%02X\n", reg96_new);
+    i2c_smbus_write_byte_data(main_fd, 0x96, reg96_new);
+    
+    // Immediate readback - CRITICAL TEST
+    int reg96_immediate = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("Step 12: Immediate readback - 0x96=0x%02X (bit 5=%d)\n", 
+           reg96_immediate, (reg96_immediate >> 5) & 1);
+    
+    if (!(reg96_immediate & 0x20)) {
+        printf("*** STEP 12 FAILED: CEC clock bit cleared immediately! ***\n");
+        printf("*** This indicates: clock missing or divider wrong ***\n");
+        // Continue for more diagnostics
+    } else {
+        printf("Step 12: SUCCESS - CEC clock bit latched properly\n");
+    }
+    
+    // Wait and test again
+    usleep(10000); // 10ms
+    int reg96_delayed = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("Step 12: After 10ms delay - 0x96=0x%02X (bit 5=%d)\n", 
+           reg96_delayed, (reg96_delayed >> 5) & 1);
+    
+    if (!(reg96_delayed & 0x20)) {
+        printf("*** STEP 12 FAILED: CEC clock bit cleared after delay! ***\n");
+        printf("*** This indicates: HPD went low or other power issue ***\n");
+    }
+    
+    // Step 13: Soft reset CEC state machine
+    printf("Step 13: Soft-resetting CEC state machine\n");
+    cec_write_register(CEC_SOFT_RESET, 0x01);
+    printf("Step 13: Reset pulse high - CEC[0x50]=0x01\n");
+    usleep(2000); // 2ms
+    cec_write_register(CEC_SOFT_RESET, 0x00);
+    printf("Step 13: Reset pulse low - CEC[0x50]=0x00\n");
+    
+    printf("\n=== 2.6 Logical Address & Path Setup ===\n");
+    
+    // Step 14: Configure logical address and verify it sticks
+    printf("Step 14: Setting logical address to %d (Playback Device)\n", cec_logical_addr);
+    uint8_t logical_addr_val = cec_logical_addr | 0x10; // Upper nibble = 1 to enable
+    printf("Step 14: Writing 0x%02X to CEC[0x27] (addr=%d, enable=1)\n", 
+           logical_addr_val, cec_logical_addr);
+    
+    cec_write_register(CEC_LOGICAL_ADDR0, logical_addr_val);
+    uint8_t addr_readback = cec_read_register(CEC_LOGICAL_ADDR0);
+    printf("Step 14: Readback CEC[0x27]=0x%02X (should be 0x%02X)\n", 
+           addr_readback, logical_addr_val);
+    
+    if (addr_readback != logical_addr_val) {
+        printf("*** STEP 14 FAILED: Logical address register didn't stick! ***\n");
+        printf("*** This indicates: CEC clock still not working ***\n");
+    }
+    
+    // Set logical address mask
+    printf("Step 14: Setting logical address mask - CEC[0x2A]=0x01\n");
+    cec_write_register(CEC_LOGICAL_ADDR_MASK, 0x01);
+    uint8_t mask_readback = cec_read_register(CEC_LOGICAL_ADDR_MASK);
+    printf("Step 14: Readback CEC[0x2A]=0x%02X (should be 0x01)\n", mask_readback);
+    
+    // Step 15: Enable RX and TX
+    printf("Step 15: Enabling RX (CEC[0x26]=0x01) and TX (CEC[0x11]=0x01)\n");
+    cec_write_register(CEC_RX_ENABLE_REG, 0x01);
+    cec_write_register(CEC_TX_ENABLE_REG, 0x01);
+    cec_write_register(CEC_TX_RETRY, 0x03); // 3 retries
+    
+    uint8_t rx_readback = cec_read_register(CEC_RX_ENABLE_REG);
+    uint8_t tx_readback = cec_read_register(CEC_TX_ENABLE_REG);
+    uint8_t retry_readback = cec_read_register(CEC_TX_RETRY);
+    
+    printf("Step 15: Readback - RX=0x%02X, TX=0x%02X, Retry=0x%02X\n", 
+           rx_readback, tx_readback, retry_readback);
+    
+    printf("\n=== 2.7 Final Register Verification ===\n");
+    
+    // Check interrupt status registers
+    int reg94 = i2c_smbus_read_byte_data(main_fd, 0x94); // Interrupt mask
+    int reg97 = i2c_smbus_read_byte_data(main_fd, 0x97); // Interrupt status
+    printf("Step 16: Interrupt registers - mask[0x94]=0x%02X, status[0x97]=0x%02X\n", reg94, reg97);
+    
+    // Final verification: Check if 0x96[5] is still set
+    int reg96_final = i2c_smbus_read_byte_data(main_fd, 0x96);
+    printf("Final check: 0x96=0x%02X (CEC clock bit 5=%d)\n", 
+           reg96_final, (reg96_final >> 5) & 1);
+    
+    // Final CEC map verification
+    printf("Final CEC map verification:\n");
+    printf("  CEC[0x4E] Clock Div = 0x%02X\n", cec_read_register(CEC_CLK_DIV));
+    printf("  CEC[0x27] Logical Addr = 0x%02X\n", cec_read_register(CEC_LOGICAL_ADDR0));
+    printf("  CEC[0x2A] Addr Mask = 0x%02X\n", cec_read_register(CEC_LOGICAL_ADDR_MASK));
+    printf("  CEC[0x26] RX Enable = 0x%02X\n", cec_read_register(CEC_RX_ENABLE_REG));
+    printf("  CEC[0x11] TX Enable = 0x%02X\n", cec_read_register(CEC_TX_ENABLE_REG));
+    printf("  CEC[0x12] TX Retry = 0x%02X\n", cec_read_register(CEC_TX_RETRY));
+    
+    // Summary diagnosis
+    printf("\n=== DIAGNOSIS SUMMARY ===\n");
+    if (chip_id1 == 0x75 && chip_id2 == 0x11) {
+        printf("✓ Device ID: ADV7513 detected correctly\n");
+    } else {
+        printf("✗ Device ID: Wrong chip (0x%02X, 0x%02X)\n", chip_id1, chip_id2);
+    }
+    
+    if (!(reg41 & 0x40)) {
+        printf("✓ Power: Chip powered up correctly\n");
+    } else {
+        printf("✗ Power: Chip in power-down mode\n");
+    }
+    
+    if (reg96_final & 0x20) {
+        printf("✓ CEC Clock: Bit 5 latched - clock working\n");
+    } else {
+        printf("✗ CEC Clock: Bit 5 cleared - clock/divider problem\n");
+    }
+    
+    if (addr_readback == logical_addr_val) {
+        printf("✓ CEC Registers: Logical address stuck correctly\n");
+    } else {
+        printf("✗ CEC Registers: Values not sticking - clock problem\n");
+    }
+    
+    cec_enabled = true;
     i2c_close(main_fd);
     
-    // Wait for CEC clock to stabilize after main register configuration
-    printf("CEC INIT: Waiting for CEC clock stabilization\n");
-    usleep(50000); // 50ms delay
-
-    // Soft reset CEC
-    printf("CEC INIT: Performing soft reset\n");
-    bool reset1_write = cec_write_register(CEC_SOFT_RESET, 0x01);
-    printf("CEC DEBUG: Soft reset enable write: %s\n", reset1_write ? "OK" : "FAIL");
-    usleep(5000); // Wait 5ms
-    bool reset2_write = cec_write_register(CEC_SOFT_RESET, 0x00);
-    printf("CEC DEBUG: Soft reset disable write: %s\n", reset2_write ? "OK" : "FAIL");
-    usleep(10000); // Additional 10ms for stability
-
-    // Configure CEC clock divider for 12MHz crystal
-    printf("CEC INIT: Setting clock divider to %d (0x%02X) for 12MHz crystal\n", CEC_CLOCK_DIV_12MHZ, CEC_CLOCK_DIV_12MHZ);
-    bool clk_write = cec_write_register(CEC_CLK_DIV, CEC_CLOCK_DIV_12MHZ);
-    uint8_t clk_readback = cec_read_register(CEC_CLK_DIV);
-    printf("CEC DEBUG: CLK_DIV write %s, wrote 0x%02X, read back 0x%02X\n", 
-           clk_write ? "OK" : "FAIL", CEC_CLOCK_DIV_12MHZ, clk_readback);
-
-    // Set logical address
-    printf("CEC INIT: Setting logical address to %d (Playback Device)\n", cec_logical_addr);
-    uint8_t logical_addr_val = cec_logical_addr | 0x10;
-    bool addr_write = cec_write_register(CEC_LOGICAL_ADDR0, logical_addr_val); // Enable logical address 0
-    uint8_t addr_readback = cec_read_register(CEC_LOGICAL_ADDR0);
-    printf("CEC DEBUG: LOGICAL_ADDR0 write %s, wrote 0x%02X, read back 0x%02X\n", 
-           addr_write ? "OK" : "FAIL", logical_addr_val, addr_readback);
-    
-    bool mask_write = cec_write_register(CEC_LOGICAL_ADDR_MASK, 0x01); // Enable only logical address 0
-    uint8_t mask_readback = cec_read_register(CEC_LOGICAL_ADDR_MASK);
-    printf("CEC DEBUG: LOGICAL_ADDR_MASK write %s, wrote 0x01, read back 0x%02X\n", 
-           mask_write ? "OK" : "FAIL", mask_readback);
-
-    // Configure TX
-    printf("CEC INIT: Configuring transmission parameters\n");
-    bool retry_write = cec_write_register(CEC_TX_RETRY, 0x03); // 3 retries
-    uint8_t retry_readback = cec_read_register(CEC_TX_RETRY);
-    printf("CEC DEBUG: TX_RETRY write %s, wrote 0x03, read back 0x%02X\n", 
-           retry_write ? "OK" : "FAIL", retry_readback);
-           
-    cec_write_register(CEC_TX_LOW_DRIVE_COUNTER, 0x14); // Low drive counter
-
-    // Enable RX
-    printf("CEC INIT: Enabling reception\n");
-    bool rx_write = cec_write_register(CEC_RX_ENABLE_REG, 0x01);
-    uint8_t rx_readback = cec_read_register(CEC_RX_ENABLE_REG);
-    printf("CEC DEBUG: RX_ENABLE write %s, wrote 0x01, read back 0x%02X\n", 
-           rx_write ? "OK" : "FAIL", rx_readback);
-
-    // Clear all interrupts
-    cec_write_register(CEC_INT_CLEAR, 0x7F);
-
-    // Enable interrupts (we'll poll instead)
-    bool int_write = cec_write_register(CEC_INT_ENABLE, 0x00);
-    uint8_t int_readback = cec_read_register(CEC_INT_ENABLE);
-    printf("CEC DEBUG: INT_ENABLE write %s, wrote 0x00, read back 0x%02X\n", 
-           int_write ? "OK" : "FAIL", int_readback);
-
-    cec_enabled = true;
-    printf("CEC INIT: Initialization completed successfully\n");
-    
-    // Debug: Read back key registers to verify configuration
-    printf("CEC DEBUG: Post-init register dump:\n");
-    printf("  CLK_DIV (0x2B): 0x%02X\n", cec_read_register(CEC_CLK_DIV));
-    printf("  LOGICAL_ADDR0 (0x27): 0x%02X\n", cec_read_register(CEC_LOGICAL_ADDR0));
-    printf("  LOGICAL_ADDR_MASK (0x2A): 0x%02X\n", cec_read_register(CEC_LOGICAL_ADDR_MASK));
-    printf("  TX_RETRY (0x12): 0x%02X\n", cec_read_register(CEC_TX_RETRY));
-    printf("  RX_ENABLE (0x26): 0x%02X\n", cec_read_register(CEC_RX_ENABLE_REG));
-    printf("  INT_ENABLE (0x40): 0x%02X\n", cec_read_register(CEC_INT_ENABLE));
-    printf("  INT_STATUS (0x41): 0x%02X\n", cec_read_register(CEC_INT_STATUS));
-    
-    // Final diagnostic: Check if CEC is at a different I2C address
-    printf("CEC DEBUG: Testing alternative CEC I2C addresses:\n");
-    i2c_close(cec_fd);
-    
-    // Test common alternative CEC addresses
-    int alt_addresses[] = {0x38, 0x3A, 0x3C, 0x3E, 0x78, 0x7A, 0x7C, 0x7E};
-    for (int i = 0; i < 8; i++) {
-        int test_fd = i2c_open(alt_addresses[i], 0);
-        if (test_fd >= 0) {
-            int test_val = i2c_smbus_read_byte_data(test_fd, 0x27);
-            printf("  Address 0x%02X: register 0x27 = 0x%02X %s\n", 
-                   alt_addresses[i], test_val, 
-                   (test_val != 0xFF && test_val != 0x00) ? "(responds)" : "");
-            i2c_close(test_fd);
-        }
-    }
-    
-    // Reopen original CEC address
-    cec_fd = i2c_open(CEC_I2C_ADDR, 0);
-    
-    // Wait a bit then announce ourselves
-    usleep(500000); // 500ms
-    
-    // Send Report Physical Address to announce our presence
-    cec_send_report_physical_address();
-    
-    // Add continuous CEC monitoring for debugging
-    printf("CEC DEBUG: Starting continuous RX monitoring - checking for TV messages...\n");
-    for (int i = 0; i < 50; i++) { // Monitor for 5 seconds
-        cec_message_t rx_msg;
-        if (cec_receive_message(&rx_msg)) {
-            printf("CEC RX: Received message from TV!\n");
-            cec_debug_message("RX", &rx_msg);
-        }
-        usleep(100000); // 100ms intervals
-        
-        // Also check interrupt status periodically
-        uint8_t int_status = cec_read_register(CEC_INT_STATUS);
-        if (int_status != 0x00) {
-            printf("CEC DEBUG: Interrupt status changed: 0x%02X\n", int_status);
-        }
-    }
+    printf("\n=== CEC INITIALIZATION COMPLETE ===\n");
+    printf("CEC initialization completed with comprehensive diagnostics\n");
+    printf("Check the step-by-step results above to identify any issues\n");
     
     return true;
 }
-
 void cec_deinit(void)
 {
     if (cec_fd >= 0) {
