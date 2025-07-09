@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(chmod:*)",
-      "Bash(gcc:*)"
+      "Bash(gcc:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(sudo:*)",
+      "Bash(./extract_track10:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(true)",
+      "Bash(awk:*)"
     ],
     "deny": []
   }

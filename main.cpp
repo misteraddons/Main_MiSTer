@@ -77,10 +77,15 @@ int main(int argc, char *argv[])
 	cdrom_init();
 	if (cdrom_detect_drive()) {
 		printf("CD-ROM drive detected and ready\n");
-		if (cdrom_is_disc_inserted()) {
+		printf("CD-ROM: About to check for disc insertion...\n");
+		bool disc_present = cdrom_is_disc_inserted();
+		printf("CD-ROM: Disc insertion check result: %s\n", disc_present ? "true" : "false");
+		if (disc_present) {
 			printf("CD-ROM disc detected - testing identification...\n");
 			CDRomGameInfo game_info;
-			if (cdrom_identify_game("/dev/sr0", "PSX", &game_info)) {
+			const char* detected_system = cdrom_get_system_from_detection();
+			printf("CD-ROM: Auto-detected system: %s\n", detected_system);
+			if (cdrom_identify_game("/dev/sr0", detected_system, &game_info)) {
 				printf("Game identified: %s\n", game_info.title);
 			} else {
 				printf("Game identification failed or not implemented\n");

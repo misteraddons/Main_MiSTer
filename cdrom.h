@@ -2,6 +2,7 @@
 #define CDROM_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 // CD-ROM game identification result
 typedef struct CDRomGameInfo {
@@ -18,6 +19,9 @@ typedef struct CDRomGameInfo {
     char redump_name[256];
     char region[64];
     char system[32];
+    char publisher[128];     // Publisher name
+    char year[16];          // Release year
+    char product_code[32];  // Product code (e.g., HCD9008 for PC Engine)
     bool valid;
 } CDRomGameInfo;
 
@@ -33,6 +37,19 @@ void cdrom_cleanup();
 // GameID integration
 bool gameid_setup_environment();
 bool gameid_identify_disc(const char* device_path, const char* system, CDRomGameInfo* result);
+
+// Game identification functions
+bool extract_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
+bool extract_segacd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
+bool extract_pcecd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
+bool extract_neogeocd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
+bool search_gamedb_for_disc(const char* db_path, const char* disc_id, CDRomGameInfo* result);
+
+// Magic word detection functions
+bool detect_saturn_magic_word(const char* device_path);
+bool detect_segacd_magic_word(const char* device_path);
+bool detect_pcecd_magic_word(const char* device_path);
+bool detect_neogeocd_magic_word(const char* device_path);
 
 // Utility functions
 const char* cdrom_get_system_from_detection();
