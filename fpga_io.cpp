@@ -576,17 +576,8 @@ int fpga_get_buttons()
 
 int fpga_get_io_type()
 {
-	uint32_t gpo_before = fpga_gpo_read();
-	fpga_gpo_write(gpo_before | 0x80000000);
-	//uint32_t gpo_after = fpga_gpo_read();
-	uint32_t gpi = fpga_gpi_read();
-	int bit28 = (gpi >> 28) & 1;
-	// Invert: io_detect=1 (analog) → io_type=0, io_detect=0 (no analog) → io_type=1
-	int io_type = !bit28;
-	
-	// printf("IO detection: GPO before=0x%08X, after=0x%08X, GPI=0x%08X, bit28=%d (io_detect), io_type=%d\n", gpo_before, gpo_after, gpi, bit28, io_type);
-	
-	return io_type;
+	fpga_gpo_write(fpga_gpo_read() | 0x80000000);
+	return (fpga_gpi_read() >> 28) & 1;
 }
 
 void reboot(int cold)

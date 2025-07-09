@@ -7010,13 +7010,14 @@ void HandleUI(void)
 					int should_debug = !io_debug_printed;
 					if (should_debug)
 					{
-						printf("IO type: %d, Dual SDRAM: %d, Direct Video: %d\n", io_type, dual_sdr, direct_video);
+						printf("MENU DEBUG: io_type=%d, dual_sdr=%d, direct_video=%d\n", 
+						       io_type, dual_sdr, direct_video);
 					}
 					
 					// Position 10: Secondary SDRAM OR Analog IO (CRT icon) OR blank
 					if (io_type == 0)
 					{
-						// Analog IO board - show CRT icon at position 10
+						// Analog IO board detected - show CRT icon at position 10
 						if (should_debug) printf("Analog IO board detected - adding CRT icon at position %d\n", n);
 						str[n++] = 0x97; // CRT icon at position 10
 					}
