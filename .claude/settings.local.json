@@ -16,7 +16,11 @@
       "Bash(find:*)",
       "Bash(printf:*)",
       "Bash(rm:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(sed:*)",
+      "Bash(make:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
