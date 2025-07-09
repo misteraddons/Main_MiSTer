@@ -65,7 +65,7 @@ $(PRJ): $(OBJ)
 
 .PHONY: clean
 clean:
-	$(Q)rm -f *.elf *.map *.lst *.user *~ $(PRJ)
+	$(Q)rm -f *.elf *.map *.lst *.user *~ $(PRJ) test_cmd_bridge
 	$(Q)rm -rf obj DTAR* x64
 	$(Q)find . \( -name '*.o' -o -name '*.d' -o -name '*.bak' -o -name '*.rej' -o -name '*.org' \) -exec rm -f {} \;
 
@@ -94,3 +94,10 @@ endif
 
 # Ensure correct time stamp
 main.cpp.o: $(filter-out main.cpp.o, $(OBJ))
+
+# Test target for command bridge (uses native compiler)
+test_cmd_bridge: test_cmd_bridge.cpp cmd_bridge.cpp
+	$(Q)$(info Building test utility with native compiler)
+	$(Q)g++ -I. -std=c++14 -o $@ $^ -DTEST_BUILD
+
+.PHONY: test_cmd_bridge
