@@ -6,11 +6,12 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <vector>
-#include <algorithm>
+#include <string.h>
 
 // Command registry
-static std::vector<cmd_definition_t> registered_commands;
+#define MAX_COMMANDS 50
+static cmd_definition_t registered_commands[MAX_COMMANDS];
+static int num_registered_commands = 0;
 static bool cmd_bridge_initialized = false;
 static const char* MISTER_CMD_DEVICE = "/dev/MiSTer_cmd";
 
@@ -24,7 +25,7 @@ void cmd_bridge_init()
     printf("CMD: Initializing command bridge system\n");
     
     // Clear any existing registrations
-    registered_commands.clear();
+    num_registered_commands = 0;
     
     // Register built-in commands
     register_builtin_commands();
@@ -47,23 +48,28 @@ bool cmd_bridge_register(const char* command, cmd_handler_func handler, const ch
     if (!command || !handler) return false;
     
     // Check if command already exists
-    for (const auto& cmd : registered_commands)
+    for (int i = 0; i < num_registered_commands; i++)
     {
-        if (strcasecmp(cmd.command, command) == 0)
+        if (strcasecmp(registered_commands[i].command, command) == 0)
         {
             printf("CMD: Command '%s' already registered\n", command);
             return false;
         }
     }
     
-    // Add new command
-    cmd_definition_t new_cmd = {
-        command,
-        handler,
-        description ? description : ""
-    };
+    // Check if we have space for more commands
+    if (num_registered_commands >= MAX_COMMANDS)
+    {
+        printf("CMD: Maximum number of commands reached\n");
+        return false;
+    }
     
-    registered_commands.push_back(new_cmd);
+    // Add new command
+    registered_commands[num_registered_commands].command = command;
+    registered_commands[num_registered_commands].handler = handler;
+    registered_commands[num_registered_commands].description = description ? description : "";
+    num_registered_commands++;
+    
     printf("CMD: Registered command '%s'\n", command);
     
     return true;
@@ -120,12 +126,12 @@ cmd_result_t cmd_bridge_process(const char* command_line)
     printf("CMD: Processing command='%s' args='%s'\n", cmd_start, args ? args : "(none)");
     
     // Look for registered handler
-    for (const auto& cmd : registered_commands)
+    for (int i = 0; i < num_registered_commands; i++)
     {
-        if (strcasecmp(cmd.command, cmd_start) == 0)
+        if (strcasecmp(registered_commands[i].command, cmd_start) == 0)
         {
             printf("CMD: Found handler for '%s'\n", cmd_start);
-            return cmd.handler(args);
+            return registered_commands[i].handler(args);
         }
     }
     
@@ -197,9 +203,9 @@ void cmd_bridge_list_commands()
     printf("CMD: %-20s %s\n", "Command", "Description");
     printf("CMD: %-20s %s\n", "-------", "-----------");
     
-    for (const auto& cmd : registered_commands)
+    for (int i = 0; i < num_registered_commands; i++)
     {
-        printf("CMD: %-20s %s\n", cmd.command, cmd.description);
+        printf("CMD: %-20s %s\n", registered_commands[i].command, registered_commands[i].description);
     }
     
     if (cmd_bridge_is_mister_cmd_available())
@@ -449,6 +455,292 @@ static cmd_result_t cmd_help(const char* args)
     return result;
 }
 
+// Search command implementations
+#ifndef TEST_BUILD
+extern "C" {
+    // Forward declarations for file_io functions
+    int ScanDirectory(char* path, int mode, const char *extension, int options, 
+                      const char *prefix, const char *filter);
+    int flist_nDirEntries();
+    char* flist_DirItem(int n);
+    void flist_ScanDir(const char *path, const char *extension, int options, 
+                       const char *prefix, const char *filter);
+}
+#else
+// Mock implementations for testing
+int ScanDirectory(char* path, int mode, const char *extension, int options, 
+                  const char *prefix, const char *filter) {
+    printf("MOCK: ScanDirectory called with path=%s, filter=%s\n", path, filter ? filter : "none");
+    return 0;  // Success
+}
+
+int flist_nDirEntries() {
+    return 3;  // Mock 3 entries
+}
+
+char* flist_DirItem(int n) {
+    static char mock_items[3][64] = {
+        "mock_file1.bin",
+        "mock_file2.rbf", 
+        "mock_file3.rom"
+    };
+    if (n >= 0 && n < 3) return mock_items[n];
+    return NULL;
+}
+
+void flist_ScanDir(const char *path, const char *extension, int options, 
+                   const char *prefix, const char *filter) {
+    printf("MOCK: flist_ScanDir called\n");
+}
+#endif
+
+cmd_result_t cmd_search_files(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0])
+    {
+        strcpy(result.message, "Usage: search_files <pattern> [path]");
+        return result;
+    }
+    
+    // Parse arguments - pattern is required, path is optional
+    char pattern[256];
+    char search_path[512];
+    
+    // Initialize search_path to empty
+    search_path[0] = '\0';
+    
+    if (sscanf(args, "%s %s", pattern, search_path) < 1)
+    {
+        strcpy(result.message, "Invalid search pattern");
+        return result;
+    }
+    
+    // Default to current directory if no path specified
+    if (strlen(search_path) == 0)
+    {
+        strcpy(search_path, "/media/fat");
+    }
+    
+    printf("CMD: Searching for files matching '%s' in '%s'\n", pattern, search_path);
+    
+    // Use existing file browser infrastructure
+    if (ScanDirectory(search_path, 0, "", 0, NULL, pattern) >= 0)
+    {
+        int count = flist_nDirEntries();
+        
+        if (count > 0)
+        {
+            result.success = true;
+            snprintf(result.message, sizeof(result.message), 
+                     "Found %d files matching '%s'", count, pattern);
+            result.result_code = count;
+            
+            // List first few results
+            printf("CMD: Search results:\n");
+            for (int i = 0; i < count && i < 10; i++)
+            {
+                char* item = flist_DirItem(i);
+                if (item)
+                {
+                    printf("CMD: %d: %s\n", i + 1, item);
+                }
+            }
+            if (count > 10)
+            {
+                printf("CMD: ... and %d more\n", count - 10);
+            }
+        }
+        else
+        {
+            snprintf(result.message, sizeof(result.message), 
+                     "No files found matching '%s'", pattern);
+        }
+    }
+    else
+    {
+        snprintf(result.message, sizeof(result.message), 
+                 "Failed to search directory '%s'", search_path);
+    }
+    
+    return result;
+}
+
+cmd_result_t cmd_search_games(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0])
+    {
+        strcpy(result.message, "Usage: search_games <game_name> [core_name]");
+        return result;
+    }
+    
+    // Parse arguments
+    char game_name[256];
+    char core_name[256] = "";
+    
+    sscanf(args, "%s %s", game_name, core_name);
+    
+    printf("CMD: Searching for games matching '%s'\n", game_name);
+    
+    // Search in _Games directory first
+    const char* games_path = "/media/fat/_Games";
+    
+    if (strlen(core_name) > 0)
+    {
+        // Search in specific core directory
+        char core_path[512];
+        snprintf(core_path, sizeof(core_path), "%s/%s", games_path, core_name);
+        
+        if (ScanDirectory(core_path, 0, "", 0, NULL, game_name) >= 0)
+        {
+            int count = flist_nDirEntries();
+            
+            if (count > 0)
+            {
+                result.success = true;
+                snprintf(result.message, sizeof(result.message), 
+                         "Found %d games matching '%s' in %s", count, game_name, core_name);
+                result.result_code = count;
+                
+                printf("CMD: Games found in %s:\n", core_name);
+                for (int i = 0; i < count && i < 10; i++)
+                {
+                    char* item = flist_DirItem(i);
+                    if (item)
+                    {
+                        printf("CMD: %d: %s\n", i + 1, item);
+                    }
+                }
+            }
+            else
+            {
+                snprintf(result.message, sizeof(result.message), 
+                         "No games found matching '%s' in %s", game_name, core_name);
+            }
+        }
+        else
+        {
+            snprintf(result.message, sizeof(result.message), 
+                     "Failed to search core directory '%s'", core_name);
+        }
+    }
+    else
+    {
+        // Search across all cores in _Games directory
+        if (ScanDirectory((char*)games_path, 0, "", 0, NULL, game_name) >= 0)
+        {
+            int count = flist_nDirEntries();
+            
+            if (count > 0)
+            {
+                result.success = true;
+                snprintf(result.message, sizeof(result.message), 
+                         "Found %d games matching '%s'", count, game_name);
+                result.result_code = count;
+                
+                printf("CMD: Games found:\n");
+                for (int i = 0; i < count && i < 10; i++)
+                {
+                    char* item = flist_DirItem(i);
+                    if (item)
+                    {
+                        printf("CMD: %d: %s\n", i + 1, item);
+                    }
+                }
+            }
+            else
+            {
+                snprintf(result.message, sizeof(result.message), 
+                         "No games found matching '%s'", game_name);
+            }
+        }
+        else
+        {
+            snprintf(result.message, sizeof(result.message), 
+                     "Failed to search games directory");
+        }
+    }
+    
+    return result;
+}
+
+cmd_result_t cmd_search_cores(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    char pattern[256] = "";
+    
+    // Optional pattern argument
+    if (args && args[0])
+    {
+        sscanf(args, "%s", pattern);
+    }
+    
+    printf("CMD: Searching for cores%s%s\n", 
+           strlen(pattern) > 0 ? " matching '" : "", 
+           strlen(pattern) > 0 ? pattern : "");
+    
+    // Search for RBF files in the root directory
+    const char* cores_path = "/media/fat";
+    
+    if (ScanDirectory((char*)cores_path, 0, "rbf", 0, NULL, 
+                      strlen(pattern) > 0 ? pattern : NULL) >= 0)
+    {
+        int count = flist_nDirEntries();
+        
+        if (count > 0)
+        {
+            result.success = true;
+            if (strlen(pattern) > 0)
+            {
+                snprintf(result.message, sizeof(result.message), 
+                         "Found %d cores matching '%s'", count, pattern);
+            }
+            else
+            {
+                snprintf(result.message, sizeof(result.message), 
+                         "Found %d cores", count);
+            }
+            result.result_code = count;
+            
+            printf("CMD: Cores found:\n");
+            for (int i = 0; i < count && i < 10; i++)
+            {
+                char* item = flist_DirItem(i);
+                if (item)
+                {
+                    printf("CMD: %d: %s\n", i + 1, item);
+                }
+            }
+            if (count > 10)
+            {
+                printf("CMD: ... and %d more\n", count - 10);
+            }
+        }
+        else
+        {
+            if (strlen(pattern) > 0)
+            {
+                snprintf(result.message, sizeof(result.message), 
+                         "No cores found matching '%s'", pattern);
+            }
+            else
+            {
+                strcpy(result.message, "No cores found");
+            }
+        }
+    }
+    else
+    {
+        strcpy(result.message, "Failed to search cores directory");
+    }
+    
+    return result;
+}
+
 // Register all built-in commands
 static void register_builtin_commands()
 {
@@ -460,4 +752,7 @@ static void register_builtin_commands()
     cmd_bridge_register("set_option", cmd_set_option, "Set core configuration option");
     cmd_bridge_register("screenshot", cmd_screenshot, "Take a screenshot");
     cmd_bridge_register("menu", cmd_menu_navigate, "Navigate OSD menu (up/down/left/right/ok/back)");
+    cmd_bridge_register("search_files", cmd_search_files, "Search for files by name pattern");
+    cmd_bridge_register("search_games", cmd_search_games, "Search for games in _Games directory");
+    cmd_bridge_register("search_cores", cmd_search_cores, "Search for available cores");
 }

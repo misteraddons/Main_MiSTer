@@ -100,6 +100,13 @@ int main(int argc, char* argv[]) {
     test_command("menu down");
     test_command("menu ok");
     
+    // Test search commands
+    test_command("search_files sonic");
+    test_command("search_games mario");
+    test_command("search_cores SNES");
+    test_command("search_games zelda Nintendo");
+    test_command("search_cores");
+    
     // Test custom command
     test_command("test_custom hello world");
     

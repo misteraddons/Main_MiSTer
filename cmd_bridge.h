@@ -40,6 +40,9 @@ cmd_result_t cmd_reset_core(const char* args);
 cmd_result_t cmd_set_option(const char* args);
 cmd_result_t cmd_screenshot(const char* args);
 cmd_result_t cmd_menu_navigate(const char* args);
+cmd_result_t cmd_search_files(const char* args);
+cmd_result_t cmd_search_games(const char* args);
+cmd_result_t cmd_search_cores(const char* args);
 
 // Utility functions
 bool cmd_bridge_is_mister_cmd_available();

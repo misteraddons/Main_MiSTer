@@ -95,6 +95,9 @@ cmd_bridge_register("cdrom_load", handle_cdrom_load, "Load game from CD-ROM");
 | `set_option` | `<option> <value>` | Set core configuration |
 | `screenshot` | `[filename]` | Take a screenshot |
 | `menu` | `<up\|down\|left\|right\|ok\|back>` | Navigate OSD menu |
+| `search_files` | `<pattern> [path]` | Search for files by name pattern |
+| `search_games` | `<game_name> [core_name]` | Search for games in _Games directory |
+| `search_cores` | `[pattern]` | Search for available cores |
 
 ## Extending with Custom Commands
 
@@ -188,6 +191,41 @@ void process_external_command(const char* cmd_string) {
 }
 ```
 
+## Search Commands
+
+The command bridge includes powerful search functionality:
+
+### File Search
+```bash
+# Search for files by pattern
+search_files sonic                    # Search for files matching "sonic"
+search_files mario /media/fat/_Games  # Search in specific directory
+```
+
+### Game Search
+```bash
+# Search for games in _Games directory
+search_games zelda                    # Search all cores for "zelda"
+search_games mario SNES               # Search only SNES core for "mario"
+search_games sonic Genesis            # Search Genesis core for "sonic"
+```
+
+### Core Search
+```bash
+# Search for available cores
+search_cores                          # List all cores
+search_cores SNES                     # Search for cores matching "SNES"
+search_cores Console                  # Search for cores matching "Console"
+```
+
+### UART Integration Examples
+```cpp
+// UART command examples
+uart_send_command("CMD:search_games mario");
+uart_send_command("CMD:search_cores SNES");
+uart_send_command("CMD:search_files sonic /media/fat/_Games");
+```
+
 ## Testing
 
 Use the included `test_cmd_bridge` utility:
@@ -200,6 +238,8 @@ make test_cmd_bridge
 ./test_cmd_bridge "help"
 ./test_cmd_bridge "load_core Genesis"
 ./test_cmd_bridge "menu up"
+./test_cmd_bridge "search_games mario"
+./test_cmd_bridge "search_cores SNES"
 ```
 
 ## Future Enhancements
