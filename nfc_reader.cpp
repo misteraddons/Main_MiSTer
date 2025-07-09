@@ -130,6 +130,12 @@ static bool pn532_configure_sam(void)
     return nfc_i2c_read_response(response, sizeof(response), &response_len);
 }
 
+// Forward declarations for PN532 functions
+static bool pn532_write_ndef_text(const char* text_data, const char* language);
+static bool pn532_write_ndef_data(const uint8_t* ndef_data, uint8_t ndef_len);
+static bool pn532_write_page(uint8_t page, const uint8_t* data);
+static bool pn532_format_tag(void);
+
 static bool pn532_read_passive_target(nfc_tag_data_t* tag_data)
 {
     // Read passive target (NFC/RFID tag)
@@ -390,4 +396,225 @@ void nfc_format_uid_string(const nfc_tag_data_t* tag, char* output, uint16_t max
         if (i > 0) strcat(output, ":");
         strcat(output, hex_byte);
     }
+}
+
+// NFC tag programming functions
+bool nfc_write_tag(const char* text_data)
+{
+    if (!text_data || !g_nfc_initialized) {
+        return false;
+    }
+    
+    // Write as NDEF text record with default language
+    return nfc_write_ndef_text(text_data, "en");
+}
+
+bool nfc_write_ndef_text(const char* text_data, const char* language)
+{
+    if (!text_data || !language || !g_nfc_initialized) {
+        return false;
+    }
+    
+    switch (g_nfc_config.module_type) {
+        case NFC_MODULE_PN532:
+            return pn532_write_ndef_text(text_data, language);
+        default:
+            return false;
+    }
+}
+
+bool nfc_format_tag(void)
+{
+    if (!g_nfc_initialized) {
+        return false;
+    }
+    
+    switch (g_nfc_config.module_type) {
+        case NFC_MODULE_PN532:
+            return pn532_format_tag();
+        default:
+            return false;
+    }
+}
+
+bool nfc_is_tag_writable(const nfc_tag_data_t* tag_data)
+{
+    if (!tag_data || !g_nfc_initialized) {
+        return false;
+    }
+    
+    // Most NTAG and Mifare tags are writable
+    // This is a simplified check - real implementation would check tag type
+    return tag_data->uid_length > 0;
+}
+
+bool nfc_get_tag_capacity(const nfc_tag_data_t* tag_data, uint16_t* capacity)
+{
+    if (!tag_data || !capacity || !g_nfc_initialized) {
+        return false;
+    }
+    
+    // Estimate capacity based on tag type and UID length
+    // This is simplified - real implementation would read tag specifications
+    if (tag_data->uid_length == 4) {
+        *capacity = 48;   // NTAG213 (180 bytes total, ~48 usable)
+    } else if (tag_data->uid_length == 7) {
+        *capacity = 137;  // NTAG215 (540 bytes total, ~137 usable)
+    } else {
+        *capacity = 924;  // NTAG216 (928 bytes total, ~924 usable)
+    }
+    
+    return true;
+}
+
+// PN532 specific tag programming functions
+static bool pn532_write_ndef_text(const char* text_data, const char* language)
+{
+    if (!text_data || !language) return false;
+    
+    uint8_t lang_len = strlen(language);
+    uint8_t text_len = strlen(text_data);
+    
+    if (text_len > 200) {
+        printf("NFC: Text too long for tag\n");
+        return false;
+    }
+    
+    // First, get tag info
+    nfc_tag_data_t tag_info;
+    if (!pn532_read_passive_target(&tag_info)) {
+        printf("NFC: No tag present for writing\n");
+        return false;
+    }
+    
+    // Create NDEF Text Record
+    uint8_t ndef_data[256];
+    uint8_t ndef_len = 0;
+    
+    // NDEF Record Header
+    ndef_data[ndef_len++] = 0xD1;        // TNF=0x01 (Well-known), SR=1, ME=1
+    ndef_data[ndef_len++] = 0x01;        // Type Length = 1
+    ndef_data[ndef_len++] = text_len + lang_len + 1; // Payload Length
+    ndef_data[ndef_len++] = 'T';         // Type = "T" (Text)
+    
+    // Text Record Payload
+    ndef_data[ndef_len++] = lang_len;    // Language code length
+    
+    // Language code
+    for (uint8_t i = 0; i < lang_len; i++) {
+        ndef_data[ndef_len++] = language[i];
+    }
+    
+    // Text data
+    for (uint8_t i = 0; i < text_len; i++) {
+        ndef_data[ndef_len++] = text_data[i];
+    }
+    
+    // Write NDEF data to tag
+    return pn532_write_ndef_data(ndef_data, ndef_len);
+}
+
+static bool pn532_write_ndef_data(const uint8_t* ndef_data, uint8_t ndef_len)
+{
+    if (!ndef_data || ndef_len == 0) return false;
+    
+    // This is a simplified implementation
+    // Real implementation would need to:
+    // 1. Determine tag type (NTAG213/215/216, Mifare Classic, etc.)
+    // 2. Calculate proper block/page addresses
+    // 3. Handle authentication for Mifare Classic
+    // 4. Write capability container and NDEF message
+    
+    printf("NFC: Writing NDEF data (%d bytes) to tag\n", ndef_len);
+    
+    // For NTAG213/215/216 tags (most common)
+    // Write to pages 4-x (page 0-3 are header/lock bytes)
+    
+    uint8_t page = 4; // Start writing at page 4
+    uint8_t data_pos = 0;
+    
+    // Write capability container (CC) at page 3
+    uint8_t cc_data[4] = {0xE1, 0x10, 0x12, 0x00}; // CC for NTAG213
+    if (!pn532_write_page(3, cc_data)) {
+        printf("NFC: Failed to write capability container\n");
+        return false;
+    }
+    
+    // Write NDEF message length (TLV format)
+    uint8_t tlv_header[4] = {0x03, ndef_len, 0x00, 0x00}; // T=03 (NDEF), L=ndef_len
+    if (!pn532_write_page(page++, tlv_header)) {
+        printf("NFC: Failed to write NDEF TLV header\n");
+        return false;
+    }
+    
+    // Write NDEF data in 4-byte chunks
+    data_pos = 2; // Skip the TLV header bytes we already wrote
+    
+    while (data_pos < ndef_len) {
+        uint8_t page_data[4] = {0x00, 0x00, 0x00, 0x00};
+        
+        // Fill page with NDEF data
+        for (int i = 0; i < 4 && data_pos < ndef_len; i++) {
+            page_data[i] = ndef_data[data_pos++];
+        }
+        
+        if (!pn532_write_page(page++, page_data)) {
+            printf("NFC: Failed to write NDEF data page %d\n", page - 1);
+            return false;
+        }
+    }
+    
+    // Write terminator TLV
+    uint8_t terminator[4] = {0xFE, 0x00, 0x00, 0x00};
+    if (!pn532_write_page(page, terminator)) {
+        printf("NFC: Failed to write terminator\n");
+        return false;
+    }
+    
+    printf("NFC: Successfully wrote NDEF data to tag\n");
+    return true;
+}
+
+static bool pn532_write_page(uint8_t page, const uint8_t* data)
+{
+    if (!data) return false;
+    
+    // NTAG Write command
+    uint8_t command[] = {
+        PN532_COMMAND_INDATAEXCHANGE,
+        0x01,           // Target number
+        0xA2,           // NTAG Write command
+        page,           // Page number
+        data[0], data[1], data[2], data[3]  // 4 bytes of data
+    };
+    
+    if (!nfc_i2c_write_command(command, sizeof(command))) {
+        return false;
+    }
+    
+    uint8_t response[16];
+    uint8_t response_len;
+    if (!nfc_i2c_read_response(response, sizeof(response), &response_len)) {
+        return false;
+    }
+    
+    // Check for successful write (response should be 0xD5 0x41 0x00)
+    if (response_len >= 3 && response[0] == 0xD5 && response[1] == 0x41 && response[2] == 0x00) {
+        return true;
+    }
+    
+    printf("NFC: Write failed with response: ");
+    for (int i = 0; i < response_len; i++) {
+        printf("%02X ", response[i]);
+    }
+    printf("\n");
+    
+    return false;
+}
+
+static bool pn532_format_tag(void)
+{
+    // Format tag by writing empty NDEF message
+    uint8_t empty_ndef[] = {0xD0, 0x00, 0x00}; // Empty NDEF record
+    return pn532_write_ndef_data(empty_ndef, sizeof(empty_ndef));
 }

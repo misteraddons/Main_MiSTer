@@ -40,6 +40,13 @@ bool nfc_poll_for_tag(nfc_tag_data_t* tag_data);
 bool nfc_read_tag(nfc_tag_data_t* tag_data);
 void nfc_process_tag(const nfc_tag_data_t* tag_data);
 
+// NFC tag programming functions
+bool nfc_write_tag(const char* text_data);
+bool nfc_write_ndef_text(const char* text_data, const char* language);
+bool nfc_format_tag(void);
+bool nfc_is_tag_writable(const nfc_tag_data_t* tag_data);
+bool nfc_get_tag_capacity(const nfc_tag_data_t* tag_data, uint16_t* capacity);
+
 // Background polling functions
 void nfc_start_background_polling(void);
 void nfc_stop_background_polling(void);

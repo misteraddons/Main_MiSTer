@@ -1064,6 +1064,205 @@ cmd_result_t cmd_nfc_poll(const char* args)
     return result;
 }
 
+// NFC tag programming commands
+cmd_result_t cmd_nfc_write(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0]) {
+        strcpy(result.message, "Usage: nfc_write <text_data>");
+        return result;
+    }
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    printf("CMD: Writing text to NFC tag: %s\n", args);
+    
+    if (nfc_write_tag(args)) {
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "Successfully wrote text to NFC tag");
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to write to NFC tag");
+    }
+#else
+    printf("MOCK: Writing to NFC tag: %s\n", args);
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Mock: Text written to NFC tag");
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
+cmd_result_t cmd_nfc_program_game(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0]) {
+        strcpy(result.message, "Usage: nfc_program_game <game_name> [core_name]");
+        return result;
+    }
+    
+    // Parse game name and optional core name
+    char game_name[256];
+    char core_name[256] = "";
+    
+    if (sscanf(args, "%s %s", game_name, core_name) < 1) {
+        strcpy(result.message, "Invalid game name");
+        return result;
+    }
+    
+    // Create game command string
+    char game_cmd[512];
+    if (strlen(core_name) > 0) {
+        snprintf(game_cmd, sizeof(game_cmd), "GAME:%s:%s", game_name, core_name);
+    } else {
+        snprintf(game_cmd, sizeof(game_cmd), "GAME:%s", game_name);
+    }
+    
+    printf("CMD: Programming game tag: %s\n", game_cmd);
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    if (nfc_write_tag(game_cmd)) {
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "Game tag programmed: %s", game_cmd);
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to program game tag");
+    }
+#else
+    printf("MOCK: Programming game tag: %s\n", game_cmd);
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Mock: Game tag programmed: %s", game_cmd);
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
+cmd_result_t cmd_nfc_program_core(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0]) {
+        strcpy(result.message, "Usage: nfc_program_core <core_name>");
+        return result;
+    }
+    
+    // Create core command string
+    char core_cmd[512];
+    snprintf(core_cmd, sizeof(core_cmd), "CORE:%s", args);
+    
+    printf("CMD: Programming core tag: %s\n", core_cmd);
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    if (nfc_write_tag(core_cmd)) {
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "Core tag programmed: %s", core_cmd);
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to program core tag");
+    }
+#else
+    printf("MOCK: Programming core tag: %s\n", core_cmd);
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Mock: Core tag programmed: %s", core_cmd);
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
+cmd_result_t cmd_nfc_program_file(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    if (!args || !args[0]) {
+        strcpy(result.message, "Usage: nfc_program_file <file_path>");
+        return result;
+    }
+    
+    // Create file load command string
+    char file_cmd[512];
+    snprintf(file_cmd, sizeof(file_cmd), "LOAD:%s", args);
+    
+    printf("CMD: Programming file tag: %s\n", file_cmd);
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    if (nfc_write_tag(file_cmd)) {
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "File tag programmed: %s", file_cmd);
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to program file tag");
+    }
+#else
+    printf("MOCK: Programming file tag: %s\n", file_cmd);
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "Mock: File tag programmed: %s", file_cmd);
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
+cmd_result_t cmd_nfc_format(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+    printf("CMD: Formatting NFC tag\n");
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    if (nfc_format_tag()) {
+        result.success = true;
+        strcpy(result.message, "NFC tag formatted successfully");
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to format NFC tag");
+    }
+#else
+    printf("MOCK: Formatting NFC tag\n");
+    result.success = true;
+    strcpy(result.message, "Mock: NFC tag formatted");
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
 // Register all built-in commands
 static void register_builtin_commands()
 {
@@ -1083,4 +1282,9 @@ static void register_builtin_commands()
     cmd_bridge_register("popup_browse", cmd_popup_browse, "Open popup file browser");
     cmd_bridge_register("nfc_setup", cmd_nfc_setup, "Setup NFC reader");
     cmd_bridge_register("nfc_poll", cmd_nfc_poll, "Poll for NFC tags");
+    cmd_bridge_register("nfc_write", cmd_nfc_write, "Write text to NFC tag");
+    cmd_bridge_register("nfc_program_game", cmd_nfc_program_game, "Program NFC tag for game");
+    cmd_bridge_register("nfc_program_core", cmd_nfc_program_core, "Program NFC tag for core");
+    cmd_bridge_register("nfc_program_file", cmd_nfc_program_file, "Program NFC tag for file");
+    cmd_bridge_register("nfc_format", cmd_nfc_format, "Format NFC tag");
 }

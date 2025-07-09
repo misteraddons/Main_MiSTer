@@ -48,6 +48,11 @@ cmd_result_t cmd_search_load(const char* args);
 cmd_result_t cmd_popup_browse(const char* args);
 cmd_result_t cmd_nfc_setup(const char* args);
 cmd_result_t cmd_nfc_poll(const char* args);
+cmd_result_t cmd_nfc_write(const char* args);
+cmd_result_t cmd_nfc_program_game(const char* args);
+cmd_result_t cmd_nfc_program_core(const char* args);
+cmd_result_t cmd_nfc_program_file(const char* args);
+cmd_result_t cmd_nfc_format(const char* args);
 
 // Utility functions
 bool cmd_bridge_is_mister_cmd_available();
