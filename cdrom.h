@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 // CD-ROM game identification result
-struct CDRomGameInfo {
+typedef struct CDRomGameInfo {
     char manufacturer_id[64];
     char id[64]; 
     char version[64];
@@ -19,10 +19,11 @@ struct CDRomGameInfo {
     char region[64];
     char system[32];
     bool valid;
-};
+} CDRomGameInfo;
 
 // CD-ROM detection and management
 bool cdrom_detect_drive();
+bool cdrom_mount_device(const char* device_path);
 bool cdrom_is_disc_inserted();
 bool cdrom_identify_game(const char* device_path, const char* system, CDRomGameInfo* game_info);
 bool cdrom_create_image(const char* device_path, const char* output_path, const char* game_name);

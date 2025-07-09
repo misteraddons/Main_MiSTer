@@ -39,36 +39,34 @@ else
     echo "  Connect USB CD-ROM drive with disc inserted"
 fi
 
-# Test 2: GameID Installation Check
+# Test 2: GameDB Installation Check
 echo
-echo "Test 2: GameID Installation Check"
+echo "Test 2: GameDB Installation Check"
 echo "----------------------------------"
 
-GAMEID_DIR="$MISTER_ROOT/Scripts/_GameID"
-GAMEID_SCRIPT="$GAMEID_DIR/GameID.py"
-GAMEID_DB="$MISTER_ROOT/gameID/db.pkl.gz"
+GAMEDB_DIR="$MISTER_ROOT/GameDB"
 
-if [[ -f "$GAMEID_SCRIPT" ]]; then
-    echo "✓ GameID script found at $GAMEID_SCRIPT"
+if [[ -d "$GAMEDB_DIR" ]]; then
+    echo "✓ GameDB directory found at $GAMEDB_DIR"
     
-    # Test GameID execution
-    if cd "$GAMEID_DIR" && python3 GameID.py --help >/dev/null 2>&1; then
-        echo "✓ GameID script executes successfully"
-    else
-        echo "✗ GameID script has execution issues"
-    fi
+    # Check for JSON database files
+    for system in PSX Saturn SegaCD PCECD; do
+        DB_FILE="$GAMEDB_DIR/$system.data.json"
+        if [[ -f "$DB_FILE" ]]; then
+            echo "✓ $system database found: $DB_FILE"
+            echo "  Database size: $(du -h "$DB_FILE" | cut -f1)"
+        else
+            echo "✗ $system database not found: $DB_FILE"
+        fi
+    done
 else
-    echo "✗ GameID script not found"
-    echo "  Install GameID from: https://github.com/thefatrat/GameID"
-    echo "  Place in: $GAMEID_DIR/"
-fi
-
-if [[ -f "$GAMEID_DB" ]]; then
-    echo "✓ GameID database found at $GAMEID_DB"
-    echo "  Database size: $(du -h "$GAMEID_DB" | cut -f1)"
-else
-    echo "✗ GameID database not found"
-    echo "  Download database to: $GAMEID_DB"
+    echo "✗ GameDB directory not found"
+    echo "  Create directory: $GAMEDB_DIR"
+    echo "  Download JSON databases from:"
+    echo "    PSX: https://github.com/niemasd/GameDB-PSX"
+    echo "    Saturn: https://github.com/niemasd/GameDB-Saturn"
+    echo "    SegaCD: https://github.com/niemasd/GameDB-SegaCD"
+    echo "    PCECD: https://github.com/niemasd/GameDB-PCECD"
 fi
 
 # Test 3: Directory Structure
@@ -87,23 +85,33 @@ done
 
 # Test 4: Simulate disc identification
 echo
-echo "Test 4: Simulate GameID Detection"
+echo "Test 4: Simulate GameDB Detection"
 echo "----------------------------------"
 
-if [[ -f "$GAMEID_SCRIPT" && -f "$GAMEID_DB" ]]; then
-    echo "Simulating GameID command for PSX disc..."
+if [[ -d "$GAMEDB_DIR" ]]; then
+    echo "Testing GameDB JSON parsing capabilities..."
     
-    # Create a test command (without actual device)
-    TEST_CMD="cd '$GAMEID_DIR' && python3 ./GameID.py -d '$GAMEID_DB' -c PSX --help"
-    echo "Test command: $TEST_CMD"
-    
-    if eval "$TEST_CMD" >/dev/null 2>&1; then
-        echo "✓ GameID command structure is valid"
+    # Check if we have at least one database file
+    DB_COUNT=$(find "$GAMEDB_DIR" -name "*.data.json" | wc -l)
+    if [[ $DB_COUNT -gt 0 ]]; then
+        echo "✓ Found $DB_COUNT GameDB JSON files"
+        
+        # Test JSON structure (basic validation)
+        for json_file in "$GAMEDB_DIR"/*.data.json; do
+            if [[ -f "$json_file" ]]; then
+                basename_file=$(basename "$json_file")
+                if head -1 "$json_file" | grep -q "^{" && tail -1 "$json_file" | grep -q "}$"; then
+                    echo "✓ $basename_file has valid JSON structure"
+                else
+                    echo "✗ $basename_file may have invalid JSON structure"
+                fi
+            fi
+        done
     else
-        echo "✗ GameID command failed - check installation"
+        echo "✗ No GameDB JSON files found"
     fi
 else
-    echo "⚠ Skipping GameID test - missing components"
+    echo "⚠ Skipping GameDB test - missing directory"
 fi
 
 # Test 5: File permissions
@@ -175,7 +183,7 @@ echo
 echo "Next Steps:"
 echo "1. Connect USB CD-ROM drive to MiSTer"
 echo "2. Insert a game disc (PSX, Saturn, Sega CD)"
-echo "3. Verify GameID installation is complete"
+echo "3. Verify GameDB installation is complete"
 echo "4. Test with actual MiSTer binary"
 echo
 echo "For manual testing, check these functions:"

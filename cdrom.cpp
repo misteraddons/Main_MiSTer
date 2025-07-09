@@ -49,6 +49,39 @@ void cdrom_cleanup()
     cdrom_drive_detected = false;
 }
 
+bool cdrom_mount_device(const char* device_path)
+{
+    printf("CD-ROM: Attempting to mount device %s\n", device_path);
+    
+    // Check if device exists
+    if (access(device_path, F_OK) != 0) {
+        printf("CD-ROM: Device %s does not exist\n", device_path);
+        return false;
+    }
+    
+    // Check if mount script exists
+    const char* mount_script = "/media/fat/Scripts/cdrom/cdrom_mount.sh";
+    if (access(mount_script, X_OK) != 0) {
+        printf("CD-ROM: Mount script not found or not executable: %s\n", mount_script);
+        return false;
+    }
+    
+    // Execute mount script
+    char mount_cmd[512];
+    snprintf(mount_cmd, sizeof(mount_cmd), "%s %s 2>/dev/null", mount_script, device_path);
+    
+    printf("CD-ROM: Running mount command: %s\n", mount_cmd);
+    int result = ::system(mount_cmd);
+    
+    if (result == 0) {
+        printf("CD-ROM: Device mounted successfully\n");
+        return true;
+    } else {
+        printf("CD-ROM: Mount failed (exit code: %d)\n", result);
+        return false;
+    }
+}
+
 bool cdrom_detect_drive()
 {
     // Check if /dev/sr0 exists and is accessible
@@ -61,6 +94,21 @@ bool cdrom_detect_drive()
         {
             close(fd);
             return true;
+        }
+        else
+        {
+            // Device exists but not readable - try mounting
+            printf("CD-ROM: Device %s exists but not readable, attempting mount\n", cdrom_device_path);
+            if (cdrom_mount_device(cdrom_device_path))
+            {
+                // Try opening again after mount
+                fd = open(cdrom_device_path, O_RDONLY | O_NONBLOCK);
+                if (fd >= 0)
+                {
+                    close(fd);
+                    return true;
+                }
+            }
         }
     }
     
@@ -79,6 +127,22 @@ bool cdrom_detect_drive()
                 close(fd);
                 strcpy(cdrom_device_path, potential_devices[i]);
                 return true;
+            }
+            else
+            {
+                // Device exists but not readable - try mounting
+                printf("CD-ROM: Device %s exists but not readable, attempting mount\n", potential_devices[i]);
+                if (cdrom_mount_device(potential_devices[i]))
+                {
+                    // Try opening again after mount
+                    fd = open(potential_devices[i], O_RDONLY | O_NONBLOCK);
+                    if (fd >= 0)
+                    {
+                        close(fd);
+                        strcpy(cdrom_device_path, potential_devices[i]);
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -104,17 +168,10 @@ bool cdrom_is_disc_inserted()
 
 bool gameid_setup_environment()
 {
-    // Check if GameID script exists
-    if (!FileExists("/media/fat/Scripts/_GameID/GameID.py"))
+    // Check if GameDB directory exists
+    if (!PathIsDir("/media/fat/GameDB"))
     {
-        printf("CD-ROM: GameID script not found, please install GameID to /media/fat/Scripts/_GameID/\n");
-        return false;
-    }
-    
-    // Check if database exists
-    if (!FileExists("/media/fat/gameID/db.pkl.gz"))
-    {
-        printf("CD-ROM: GameID database not found, please install database to /media/fat/gameID/\n");
+        printf("CD-ROM: GameDB directory not found, please install GameDB to /media/fat/GameDB/\n");
         return false;
     }
     
@@ -128,106 +185,28 @@ bool gameid_identify_disc(const char* device_path, const char* system, CDRomGame
     // Clear result structure
     memset(result, 0, sizeof(CDRomGameInfo));
     
-    // Construct GameID command
-    char command[1024];
-    snprintf(command, sizeof(command), 
-        "cd /media/fat/Scripts/_GameID && python ./GameID.py -d /media/fat/gameID/db.pkl.gz -c %s -i %s 2>/dev/null",
-        system, device_path);
+    // Check if GameDB file exists for this system
+    char db_path[512];
+    snprintf(db_path, sizeof(db_path), "/media/fat/GameDB/%s.data.json", system);
     
-    printf("CD-ROM: Running GameID command: %s\n", command);
-    
-    // Execute GameID and capture output
-    FILE* fp = popen(command, "r");
-    if (!fp)
+    if (!FileExists(db_path))
     {
-        printf("CD-ROM: Failed to execute GameID command\n");
+        printf("CD-ROM: GameDB file not found: %s\n", db_path);
         return false;
     }
     
-    char line[512];
-    bool found_data = false;
+    // For now, return basic information until we implement JSON parsing
+    // TODO: Implement proper JSON parsing to match disc ID with database
+    printf("CD-ROM: GameDB lookup not yet implemented for JSON format\n");
+    printf("CD-ROM: Would search in %s for disc at %s\n", db_path, device_path);
     
-    while (fgets(line, sizeof(line), fp))
-    {
-        // Remove newline
-        size_t len = strlen(line);
-        if (len > 0 && line[len-1] == '\n') line[len-1] = '\0';
-        
-        // Parse GameID output format: "field_name    value"
-        char* separator = strstr(line, "    ");
-        if (!separator) continue;
-        
-        *separator = '\0';
-        char* field = line;
-        char* value = separator + 4;
-        
-        // Trim whitespace from value
-        while (*value == ' ' || *value == '\t') value++;
-        
-        // Map fields to result structure
-        if (strcmp(field, "manufacturer_ID") == 0)
-        {
-            strncpy(result->manufacturer_id, value, sizeof(result->manufacturer_id) - 1);
-            found_data = true;
-        }
-        else if (strcmp(field, "ID") == 0)
-        {
-            strncpy(result->id, value, sizeof(result->id) - 1);
-        }
-        else if (strcmp(field, "version") == 0)
-        {
-            strncpy(result->version, value, sizeof(result->version) - 1);
-        }
-        else if (strcmp(field, "device_info") == 0)
-        {
-            strncpy(result->device_info, value, sizeof(result->device_info) - 1);
-        }
-        else if (strcmp(field, "internal_title") == 0)
-        {
-            strncpy(result->internal_title, value, sizeof(result->internal_title) - 1);
-        }
-        else if (strcmp(field, "release_date") == 0)
-        {
-            strncpy(result->release_date, value, sizeof(result->release_date) - 1);
-        }
-        else if (strcmp(field, "device_support") == 0)
-        {
-            strncpy(result->device_support, value, sizeof(result->device_support) - 1);
-        }
-        else if (strcmp(field, "target_area") == 0)
-        {
-            strncpy(result->target_area, value, sizeof(result->target_area) - 1);
-        }
-        else if (strcmp(field, "title") == 0)
-        {
-            strncpy(result->title, value, sizeof(result->title) - 1);
-        }
-        else if (strcmp(field, "language") == 0)
-        {
-            strncpy(result->language, value, sizeof(result->language) - 1);
-        }
-        else if (strcmp(field, "redump_name") == 0)
-        {
-            strncpy(result->redump_name, value, sizeof(result->redump_name) - 1);
-        }
-        else if (strcmp(field, "region") == 0)
-        {
-            strncpy(result->region, value, sizeof(result->region) - 1);
-        }
-    }
+    // Set basic fallback information
+    strncpy(result->system, system, sizeof(result->system) - 1);
+    strncpy(result->title, "Unknown Game", sizeof(result->title) - 1);
+    strncpy(result->id, "UNKNOWN", sizeof(result->id) - 1);
+    result->valid = false;  // Set to false until we implement proper lookup
     
-    int exit_code = pclose(fp);
-    
-    if (found_data && exit_code == 0)
-    {
-        result->valid = true;
-        strncpy(result->system, system, sizeof(result->system) - 1);
-        printf("CD-ROM: Game identified: %s (%s)\n", result->redump_name, result->region);
-        return true;
-    }
-    
-    printf("CD-ROM: Failed to identify disc (exit code: %d)\n", exit_code);
-    return false;
+    return false;  // Return false until we implement proper JSON parsing
 }
 
 bool cdrom_identify_game(const char* device_path, const char* system, CDRomGameInfo* game_info)
@@ -356,7 +335,7 @@ bool cdrom_create_image(const char* device_path, const char* output_path, const 
     // Create output directory if it doesn't exist
     char mkdir_command[1024];
     snprintf(mkdir_command, sizeof(mkdir_command), "mkdir -p \"%s\"", output_dir);
-    system(mkdir_command);
+    ::system(mkdir_command);
     
     return cdrom_create_cue_bin(device_path, output_dir, game_name);
 }
@@ -442,7 +421,7 @@ bool cdrom_store_game_to_library(const char* device_path, const char* system, CD
     
     char mkdir_command[1024];
     snprintf(mkdir_command, sizeof(mkdir_command), "mkdir -p \"%s\"", system_dir);
-    system(mkdir_command);
+    ::system(mkdir_command);
     
     printf("CD-ROM: Storing game '%s' to library at %s\n", safe_name, system_dir);
     
@@ -603,7 +582,7 @@ bool cdrom_test_device(const char* device_path)
     }
     else
     {
-        printf("✓ Read %ld bytes from device\n", bytes_read);
+        printf("✓ Read %d bytes from device\n", (int)bytes_read);
         
         // Check for ISO 9660 signature
         if (bytes_read >= 5 && strncmp(buffer + 1, "CD001", 5) == 0)

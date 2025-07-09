@@ -27,7 +27,7 @@ INCLUDE += -I./lib/bluetooth
 INCLUDE += -I./lib/serial_server/library
 
 PRJ = MiSTer
-C_SRC =   $(wildcard *.c) \
+C_SRC =   $(filter-out test_cdrom.c, $(wildcard *.c)) \
           $(wildcard ./lib/miniz/*.c) \
           $(wildcard ./lib/md5/*.c) \
           $(wildcard ./lib/lzma/*.c) \

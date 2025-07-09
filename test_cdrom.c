@@ -130,7 +130,7 @@ void test_disc_image_creation()
             struct stat st;
             if (stat("/tmp/test_output/Test_Game.bin", &st) == 0)
             {
-                printf("✓ BIN file created (size: %ld bytes)\n", st.st_size);
+                printf("✓ BIN file created (size: %lld bytes)\n", (long long)st.st_size);
             }
             if (stat("/tmp/test_output/Test_Game.cue", &st) == 0)
             {

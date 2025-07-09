@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#include "cdrom.h"
 
 const char *version = "$VER:" VDATE;
 
@@ -70,6 +71,26 @@ int main(int argc, char *argv[])
 
 	FindStorage();
 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
+	
+	// Initialize CD-ROM subsystem
+	printf("Initializing CD-ROM subsystem...\n");
+	cdrom_init();
+	if (cdrom_detect_drive()) {
+		printf("CD-ROM drive detected and ready\n");
+		if (cdrom_is_disc_inserted()) {
+			printf("CD-ROM disc detected - testing identification...\n");
+			CDRomGameInfo game_info;
+			if (cdrom_identify_game("/dev/sr0", "PSX", &game_info)) {
+				printf("Game identified: %s\n", game_info.title);
+			} else {
+				printf("Game identification failed or not implemented\n");
+			}
+		} else {
+			printf("No disc inserted in CD-ROM drive\n");
+		}
+	} else {
+		printf("No CD-ROM drive found\n");
+	}
 
 #ifdef USE_SCHEDULER
 	scheduler_init();
