@@ -11,6 +11,7 @@
 #ifndef TEST_BUILD
 #include "menu.h"
 #include "file_io.h"
+#include "nfc_reader.h"
 #endif
 
 // Command registry
@@ -948,6 +949,121 @@ cmd_result_t cmd_popup_browse(const char* args)
     return result;
 }
 
+// NFC command implementations
+cmd_result_t cmd_nfc_setup(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+#ifndef TEST_BUILD
+    // Parse NFC configuration: [module_type] [i2c_address] [poll_interval]
+    nfc_config_t config = {0};
+    config.module_type = NFC_MODULE_PN532;  // Default to PN532
+    config.i2c_address = 0x24;              // Default PN532 I2C address
+    config.enable_polling = true;
+    config.poll_interval_ms = 500;          // Poll every 500ms
+    
+    if (args && args[0])
+    {
+        // Parse arguments
+        char module_str[32] = "";
+        int addr = 0, interval = 0;
+        
+        int parsed = sscanf(args, "%s %x %d", module_str, &addr, &interval);
+        
+        if (parsed >= 1) {
+            if (strcasecmp(module_str, "pn532") == 0) {
+                config.module_type = NFC_MODULE_PN532;
+            } else if (strcasecmp(module_str, "rc522") == 0) {
+                config.module_type = NFC_MODULE_RC522;
+            }
+        }
+        
+        if (parsed >= 2 && addr > 0 && addr < 0x80) {
+            config.i2c_address = addr;
+        }
+        
+        if (parsed >= 3 && interval > 0) {
+            config.poll_interval_ms = interval;
+        }
+    }
+    
+    printf("CMD: Setting up NFC reader - Type: %s, Address: 0x%02X, Poll: %dms\n",
+           (config.module_type == NFC_MODULE_PN532) ? "PN532" : "RC522",
+           config.i2c_address, config.poll_interval_ms);
+    
+    if (nfc_init(&config)) {
+        nfc_start_background_polling();
+        
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "NFC reader initialized and polling started");
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to initialize NFC reader");
+    }
+#else
+    // Mock implementation
+    printf("MOCK: NFC setup with args: %s\n", args ? args : "(none)");
+    result.success = true;
+    strcpy(result.message, "Mock NFC reader setup successful");
+    result.result_code = 0;
+#endif
+    
+    return result;
+}
+
+cmd_result_t cmd_nfc_poll(const char* args)
+{
+    cmd_result_t result = { false, "", -1 };
+    
+#ifndef TEST_BUILD
+    if (!nfc_is_available()) {
+        strcpy(result.message, "NFC reader not initialized. Use 'nfc_setup' first.");
+        return result;
+    }
+    
+    nfc_tag_data_t tag_data;
+    if (nfc_poll_for_tag(&tag_data)) {
+        char uid_str[64];
+        nfc_format_uid_string(&tag_data, uid_str, sizeof(uid_str));
+        
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "NFC tag detected: %s", uid_str);
+        result.result_code = 1;
+        
+        // Process the tag
+        nfc_process_tag(&tag_data);
+    } else {
+        result.success = true;
+        strcpy(result.message, "No NFC tag detected");
+        result.result_code = 0;
+    }
+#else
+    // Mock implementation
+    printf("MOCK: NFC poll - %s\n", args ? args : "scanning");
+    
+    // Simulate finding a tag occasionally
+    static int poll_count = 0;
+    poll_count++;
+    
+    if (poll_count % 5 == 0) {
+        result.success = true;
+        strcpy(result.message, "Mock NFC tag detected: AA:BB:CC:DD");
+        result.result_code = 1;
+        
+        // Simulate processing a game tag
+        printf("MOCK: Processing tag data: GAME:Sonic:Genesis\n");
+    } else {
+        result.success = true;
+        strcpy(result.message, "No NFC tag detected");
+        result.result_code = 0;
+    }
+#endif
+    
+    return result;
+}
+
 // Register all built-in commands
 static void register_builtin_commands()
 {
@@ -965,4 +1081,6 @@ static void register_builtin_commands()
     cmd_bridge_register("search_select", cmd_search_select, "Select item from search results");
     cmd_bridge_register("search_load", cmd_search_load, "Load selected item from search results");
     cmd_bridge_register("popup_browse", cmd_popup_browse, "Open popup file browser");
+    cmd_bridge_register("nfc_setup", cmd_nfc_setup, "Setup NFC reader");
+    cmd_bridge_register("nfc_poll", cmd_nfc_poll, "Poll for NFC tags");
 }
