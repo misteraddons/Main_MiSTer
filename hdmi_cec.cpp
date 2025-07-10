@@ -216,7 +216,7 @@ bool cec_init(bool enable)
         const char* desc;
     } cec_timing_regs[] = {
         // Clock divider (bits 7:2 = 0x0F, keep bits 1:0)
-        {0x4E, 0x3C, "Clock divider (0x0F << 2)"},  // 0x0F << 2 = 0x3C
+        // Note: We'll handle 0x4E specially to preserve bits 1:0
         
         // CEC timing registers
         {0x51, 0x0D, "CEC timing 1"},
@@ -257,7 +257,21 @@ bool cec_init(bool enable)
         {0x76, 0x84, "CEC timing 36"},
     };
     
-    // Apply all timing registers
+    // First handle register 0x4E specially to preserve bits 1:0
+    uint8_t reg4E_current = cec_read_register(0x4E);
+    uint8_t reg4E_new = (reg4E_current & 0x03) | (0x0F << 2);  // Preserve bits 1:0, set bits 7:2 to 0x0F
+    printf("  CEC[0x4E]: Current=0x%02X, New=0x%02X (bits 7:2=0x0F, preserving bits 1:0)\n", 
+           reg4E_current, reg4E_new);
+    cec_write_register(0x4E, reg4E_new);
+    uint8_t reg4E_verify = cec_read_register(0x4E);
+    if (reg4E_verify != reg4E_new) {
+        printf("  CEC[0x4E]: wrote 0x%02X, read 0x%02X - MISMATCH - Clock divider\n", 
+               reg4E_new, reg4E_verify);
+    } else {
+        printf("  CEC[0x4E]: 0x%02X - OK - Clock divider\n", reg4E_verify);
+    }
+    
+    // Apply all other timing registers
     for (int i = 0; i < sizeof(cec_timing_regs)/sizeof(cec_timing_regs[0]); i++) {
         cec_write_register(cec_timing_regs[i].addr, cec_timing_regs[i].value);
         uint8_t verify = cec_read_register(cec_timing_regs[i].addr);
