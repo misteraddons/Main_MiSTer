@@ -170,7 +170,7 @@ static void scheduler_co_cdrom(void)
 					}
 					
 					// Also clean up numbered selection MGL files and audio CD player files
-					system("rm -f /media/fat/\"[CD] \"*.mgl 2>/dev/null");
+					system("rm -f /media/fat/\"\\0x97 \"*.mgl 2>/dev/null");
 					printf("CD-ROM: Cleaned up selection and audio player MGL files\n");
 				}
 				
@@ -180,7 +180,7 @@ static void scheduler_co_cdrom(void)
 					
 					// Create a simple audio CD player MGL file
 					char audio_mgl_path[512];
-					snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/[CD] Audio Disc.mgl");
+					snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/\\0x97 Audio Disc.mgl");
 					
 					printf("CD-ROM: Attempting to create MGL at: %s\n", audio_mgl_path);
 					FILE* mgl = fopen(audio_mgl_path, "w");

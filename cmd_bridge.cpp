@@ -44,7 +44,7 @@ void cmd_bridge_init()
     
     // Clean up any leftover MGL files from previous session
     printf("CMD: Cleaning up previous CD-ROM MGL files\n");
-    system("rm -f /media/fat/\"[CD] \"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
+    system("rm -f /media/fat/\"\\0x97 \"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
     cmd_bridge_clear_current_mgl_path();
     
     // Clear any existing registrations
@@ -345,7 +345,7 @@ cmd_result_t cmd_load_game(const char* args)
             // Keep spaces and parentheses for better readability
         }
         
-        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/[CD] %s.mgl", game_name);
+        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/\\0x97 %s.mgl", game_name);
         printf("CMD: Attempting to create MGL at: %s\n", mgl_path);
         
         // Store MGL path for cleanup when disc is ejected
@@ -1728,7 +1728,7 @@ static void show_game_selection_popup()
         // Create numbered selection MGL file
         char selection_mgl[512];
         snprintf(selection_mgl, sizeof(selection_mgl), 
-                 "/media/fat/[CD] %d-%s.mgl", 
+                 "/media/fat/\\0x97 %d-%s.mgl", 
                  i + 1, clean_title);
         
         // Create MGL content
