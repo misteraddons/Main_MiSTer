@@ -170,8 +170,8 @@ static void scheduler_co_cdrom(void)
 					}
 					
 					// Also clean up numbered selection MGL files and audio CD player files
-					printf("CD-ROM: Running cleanup command: rm -f /media/fat/\\x97*.mgl\n");
-					int cleanup_result = system("rm -f /media/fat/\x97*.mgl 2>/dev/null");
+					printf("CD-ROM: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, and /media/fat/[0-9]*.mgl\n");
+					int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl 2>/dev/null");
 					printf("CD-ROM: Cleanup command result: %d\n", cleanup_result);
 					printf("CD-ROM: Cleaned up selection and audio player MGL files\n");
 				}

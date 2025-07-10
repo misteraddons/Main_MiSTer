@@ -61,3 +61,8 @@ When multiple region versions exist, the system uses this priority:
 Valid region values (No-Intro convention):
 - Single regions: USA, Europe, Japan, Australia, Brazil, Canada, China, France, Germany, Hong Kong, Italy, Korea, Netherlands, Spain, Sweden
 - Multi-regions: World, Asia, (Japan, USA), (Japan, Europe), (USA, Europe)
+
+### Technical Notes
+- Selection popup MGL files use simple numeric prefixes (1-GameName.mgl, 2-GameName.mgl, etc.)
+- Originally intended to use \x97 character for CD icon display, but not compatible with FAT32 filesystems
+- Cleanup commands use [0-9]*.mgl pattern to remove numbered selection files

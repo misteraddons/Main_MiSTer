@@ -44,8 +44,8 @@ void cmd_bridge_init()
     
     // Clean up any leftover MGL files from previous session
     printf("CMD: Cleaning up previous CD-ROM MGL files\n");
-    printf("CMD: Running cleanup command: rm -f /media/fat/\\x97*.mgl\n");
-    int cleanup_result = system("rm -f /media/fat/\x97*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
+    printf("CMD: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, and /media/fat/[0-9]*.mgl\n");
+    int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
     printf("CMD: Cleanup command result: %d\n", cleanup_result);
     cmd_bridge_clear_current_mgl_path();
     
@@ -1729,10 +1729,19 @@ static void show_game_selection_popup()
         char clean_title[256];
         extract_game_title_from_path(entry->path, clean_title, sizeof(clean_title));
         
+        // Sanitize for filename (keep spaces and parentheses)
+        for (int j = 0; clean_title[j]; j++) {
+            if (clean_title[j] == '[' || clean_title[j] == ']' || clean_title[j] == ',' ||
+                clean_title[j] == '\'' || clean_title[j] == '"' || clean_title[j] == ':') {
+                clean_title[j] = '_';
+            }
+            // Keep spaces and parentheses for better readability
+        }
+        
         // Create numbered selection MGL file
         char selection_mgl[512];
         snprintf(selection_mgl, sizeof(selection_mgl), 
-                 "/media/fat/\x97 %d-%s.mgl", 
+                 "/media/fat/%d-%s.mgl", 
                  i + 1, clean_title);
         
         printf("CMD: Attempting to create selection MGL: %s\n", selection_mgl);
