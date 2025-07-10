@@ -90,8 +90,8 @@ static void scheduler_co_cdrom(void)
 			cdrom_initialized = true;
 		}
 		
-		// Check for CD-ROM much less frequently - every 10 seconds  
-		if (cdrom_initialized && (check_counter % 100000) == 0) { // Check every ~10 seconds
+		// Check for CD-ROM much less frequently - every 40 seconds  
+		if (cdrom_initialized && (check_counter % 400000) == 0) { // Check every ~40 seconds
 			// Only show debug message every 20000 ticks to reduce spam
 			if ((check_counter % 20000) == 0) {
 				printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
@@ -148,8 +148,21 @@ static void scheduler_co_cdrom(void)
 				
 				// If CD status changed from present to not present, clean up MGL files
 				if (!cd_present && last_cd_present) {
-					printf("CD-ROM: Disc ejected, keeping MGL file for manual access\n");
-					// Keep the MGL file so users can manually load it later if desired
+					printf("CD-ROM: Disc ejected, cleaning up MGL file\n");
+					
+					// Get the current MGL file path and delete it
+					const char* mgl_path = cmd_bridge_get_current_mgl_path();
+					if (mgl_path && strlen(mgl_path) > 0) {
+						if (unlink(mgl_path) == 0) {
+							printf("CD-ROM: Deleted MGL file: %s\n", mgl_path);
+						} else {
+							printf("CD-ROM: Failed to delete MGL file: %s\n", mgl_path);
+						}
+						// Clear the tracked path
+						cmd_bridge_clear_current_mgl_path();
+					} else {
+						printf("CD-ROM: No MGL file to clean up\n");
+					}
 				}
 				
 				// If CD status changed from not present to present, delay auto-load

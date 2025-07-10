@@ -16,7 +16,13 @@
 #include "file_io.h"
 #include "support/arcade/mra_loader.h"
 #include "cdrom.h"
+
+// External menu variables for refreshing directory view
+// Note: These may not be available in all build configurations
 #endif
+
+// Global variable to track current MGL file for cleanup
+static char current_mgl_path[512] = "";
 
 // Command registry
 #define MAX_COMMANDS 50
@@ -27,12 +33,18 @@ static const char* MISTER_CMD_DEVICE = "/dev/MiSTer_cmd";
 
 // Forward declarations for built-in handlers
 static void register_builtin_commands();
+static void refresh_menu_directory();
 
 void cmd_bridge_init()
 {
     if (cmd_bridge_initialized) return;
     
     printf("CMD: Initializing command bridge system\n");
+    
+    // Clean up any leftover MGL files from previous session
+    printf("CMD: Cleaning up previous CD-ROM MGL files\n");
+    system("rm -f /media/fat/*.mgl 2>/dev/null");
+    cmd_bridge_clear_current_mgl_path();
     
     // Clear any existing registrations
     num_registered_commands = 0;
@@ -335,6 +347,10 @@ cmd_result_t cmd_load_game(const char* args)
         snprintf(mgl_path, sizeof(mgl_path), "/media/fat/%s.mgl", game_name);
         printf("CMD: MGL path: %s\n", mgl_path);
         
+        // Store MGL path for cleanup when disc is ejected
+        strncpy(current_mgl_path, mgl_path, sizeof(current_mgl_path) - 1);
+        current_mgl_path[sizeof(current_mgl_path) - 1] = '\0';
+        
         FILE* mgl = fopen(mgl_path, "w");
         if (!mgl) {
             printf("CMD: ERROR - Failed to create MGL file at %s\n", mgl_path);
@@ -431,6 +447,9 @@ cmd_result_t cmd_load_game(const char* args)
             snprintf(result.message, sizeof(result.message), "MGL created for %s but autoload disabled", system);
             result.result_code = 0;
         }
+        
+        // Refresh menu directory to show the newly created MGL file
+        refresh_menu_directory();
     } else {
         // For non-CD systems, try direct load (may not work)
         char cmd[512];
@@ -1334,4 +1353,36 @@ static void register_builtin_commands()
     cmd_bridge_register("search_load", cmd_search_load, "Load selected item from search results");
     cmd_bridge_register("popup_browse", cmd_popup_browse, "Open popup file browser");
     cmd_bridge_register("cdrom_autoload", cmd_cdrom_autoload, "Auto-detect and load CD-ROM game");
+}
+
+// Utility functions to manage current MGL path
+const char* cmd_bridge_get_current_mgl_path()
+{
+    return current_mgl_path;
+}
+
+void cmd_bridge_clear_current_mgl_path()
+{
+    current_mgl_path[0] = '\0';
+}
+
+// Function to refresh the menu directory view after creating MGL
+static void refresh_menu_directory()
+{
+#ifndef TEST_BUILD
+    // Check if menu is currently visible
+    if (menu_present()) {
+        printf("CMD: Triggering menu refresh to show new MGL file\n");
+        
+        // Use F5 key (refresh) to trigger menu refresh
+        // F5 is KEY_F5 which is 63 in linux/input.h
+        menu_key_set(63); // F5 key
+        
+        printf("CMD: Menu refresh triggered\n");
+    } else {
+        printf("CMD: Menu not visible, skipping refresh\n");
+    }
+#else
+    printf("CMD: Menu refresh not available in test build\n");
+#endif
 }
