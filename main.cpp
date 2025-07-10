@@ -34,6 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "osd.h"
 #include "offload.h"
 #include "cdrom.h"
+#include "cmd_bridge.h"
 
 const char *version = "$VER:" VDATE;
 
@@ -72,35 +73,19 @@ int main(int argc, char *argv[])
 	FindStorage();
 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
 	
-	// Initialize CD-ROM subsystem
-	printf("Initializing CD-ROM subsystem...\n");
-	cdrom_init();
-	if (cdrom_detect_drive()) {
-		printf("CD-ROM drive detected and ready\n");
-		printf("CD-ROM: About to check for disc insertion...\n");
-		bool disc_present = cdrom_is_disc_inserted();
-		printf("CD-ROM: Disc insertion check result: %s\n", disc_present ? "true" : "false");
-		if (disc_present) {
-			printf("CD-ROM disc detected - testing identification...\n");
-			CDRomGameInfo game_info;
-			const char* detected_system = cdrom_get_system_from_detection();
-			printf("CD-ROM: Auto-detected system: %s\n", detected_system);
-			if (cdrom_identify_game("/dev/sr0", detected_system, &game_info)) {
-				printf("Game identified: %s\n", game_info.title);
-			} else {
-				printf("Game identification failed or not implemented\n");
-			}
-		} else {
-			printf("No disc inserted in CD-ROM drive\n");
-		}
-	} else {
-		printf("No CD-ROM drive found\n");
-	}
+	// Initialize command bridge
+	printf("Initializing command bridge...\n");
+	cmd_bridge_init();
 
 #ifdef USE_SCHEDULER
 	scheduler_init();
 	scheduler_run();
 #else
+	// Initialize CD-ROM processing in background
+	static bool cdrom_initialized = false;
+	static int boot_delay_counter = 0;
+	static bool last_cd_present = false;
+	
 	while (1)
 	{
 		if (!is_fpga_ready(1))
@@ -112,6 +97,51 @@ int main(int argc, char *argv[])
 		input_poll(0);
 		HandleUI();
 		OsdUpdate();
+		
+		// After system has been running for a while, start CD-ROM detection
+		// Wait ~15 seconds to allow network connection to establish
+		boot_delay_counter++;
+		
+		
+		if (!cdrom_initialized && boot_delay_counter > 1200) { // ~15 seconds delay
+			cdrom_init();
+			cdrom_initialized = true;
+		}
+		
+		
+		// CD-ROM background detection - check every ~30 seconds when in menu
+		if (cdrom_initialized && (boot_delay_counter % 2400) == 0) { // Check every ~30 seconds
+			// Only run CD-ROM detection when in menu mode to prevent boot loops
+			if (!is_menu()) {
+				continue;
+			}
+			
+			// Simple, non-blocking check - just see if device exists and is accessible
+			bool cd_present = false;
+			if (access("/dev/sr0", F_OK) == 0) {
+				// Device exists, try a quick non-blocking open/close test
+				int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+				if (fd >= 0) {
+					close(fd);
+					cd_present = true;
+				}
+			}
+			
+			// If CD status changed from not present to present, auto-load the game
+			if (cd_present && !last_cd_present) {
+				printf("CD-ROM: Device accessible, attempting auto-load...\n");
+				
+				// Use command bridge to trigger automatic loading
+				cmd_result_t result = cmd_bridge_process("cdrom_autoload");
+				if (result.success) {
+					printf("CD-ROM: Auto-load initiated successfully\n");
+				} else {
+					printf("CD-ROM: Auto-load failed: %s\n", result.message);
+				}
+			}
+			
+			last_cd_present = cd_present;
+		}
 	}
 #endif
 	return 0;
