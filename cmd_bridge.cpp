@@ -9,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <linux/cdrom.h>
 #include <time.h>
+#include "cfg.h"
 
 #ifndef TEST_BUILD
 #include "menu.h"
@@ -302,7 +303,36 @@ cmd_result_t cmd_load_game(const char* args)
         
         // Create MGL file in /media/fat where MiSTer expects it
         char mgl_path[512];
-        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/autoload_%s.mgl", system);
+        
+        // Extract game name from file path for better MGL naming
+        const char* filename_start = strrchr(args, '/');
+        if (filename_start) {
+            filename_start++; // Skip the '/'
+        } else {
+            filename_start = args;
+        }
+        
+        // Extract name without extension
+        char game_name[256];
+        strncpy(game_name, filename_start, sizeof(game_name) - 1);
+        game_name[sizeof(game_name) - 1] = '\0';
+        
+        // Remove file extension
+        char* ext = strrchr(game_name, '.');
+        if (ext) {
+            *ext = '\0';
+        }
+        
+        // Sanitize for filename (keep spaces and parentheses)
+        for (int i = 0; game_name[i]; i++) {
+            if (game_name[i] == '[' || game_name[i] == ']' || game_name[i] == ',' ||
+                game_name[i] == '\'' || game_name[i] == '"' || game_name[i] == ':') {
+                game_name[i] = '_';
+            }
+            // Keep spaces and parentheses for better readability
+        }
+        
+        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/%s.mgl", game_name);
         printf("CMD: MGL path: %s\n", mgl_path);
         
         FILE* mgl = fopen(mgl_path, "w");
@@ -364,38 +394,16 @@ cmd_result_t cmd_load_game(const char* args)
             return result;
         }
         
-        // Also copy to a standard location that MiSTer might auto-execute
-        char autorun_path[512];
-        snprintf(autorun_path, sizeof(autorun_path), "/media/fat/autorun.mgl");
-        
-        FILE* src = fopen(mgl_path, "r");
-        FILE* dst = fopen(autorun_path, "w");
-        if (src && dst) {
-            char buffer[1024];
-            size_t bytes;
-            while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
-                fwrite(buffer, 1, bytes, dst);
-            }
-            fclose(src);
-            fclose(dst);
-            printf("CMD: Also copied MGL to autorun location: %s\n", autorun_path);
-        }
-        
-        // Load the MGL file using direct xml_load function
-        printf("CMD: Loading MGL file using xml_load function\n");
-        
+        // Check if we should actually load the game or just create MGL
+        if (cfg.cdrom_autoload) {
+            // Load the MGL file using direct xml_load function
+            printf("CMD: Loading MGL file using xml_load function\n");
+            
 #ifndef TEST_BUILD
-        int xml_result = xml_load(mgl_path);
-        printf("CMD: xml_load returned: %d\n", xml_result);
-        
-        if (xml_result != 0) {
-            // If that failed, try the autorun path
-            printf("CMD: Trying xml_load with autorun path\n");
-            xml_result = xml_load(autorun_path);
-            printf("CMD: xml_load (autorun) returned: %d\n", xml_result);
-        }
-        
-        if (xml_result == 0) {
+            int xml_result = xml_load(mgl_path);
+            printf("CMD: xml_load returned: %d\n", xml_result);
+            
+            if (xml_result == 0) {
 #else
         printf("CMD: xml_load not available in test build\n");
         bool xml_result = false;
@@ -412,9 +420,16 @@ cmd_result_t cmd_load_game(const char* args)
             
             // Don't remove the MGL file immediately - let it stay for debugging
             printf("CMD: Keeping MGL file for debugging: %s\n", mgl_path);
+            } else {
+                strcpy(result.message, "Failed to load MGL file");
+                printf("CMD: ERROR - Failed to send command to MiSTer_cmd\n");
+            }
         } else {
-            strcpy(result.message, "Failed to load MGL file");
-            printf("CMD: ERROR - Failed to send command to MiSTer_cmd\n");
+            // Autoload disabled - MGL created but not loaded
+            printf("CMD: CD-ROM autoload disabled - MGL created but not loaded\n");
+            result.success = true;
+            snprintf(result.message, sizeof(result.message), "MGL created for %s but autoload disabled", system);
+            result.result_code = 0;
         }
     } else {
         // For non-CD systems, try direct load (may not work)
@@ -649,40 +664,33 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
     
     printf("CMD: Game identified: %s\n", game_info.title);
     
-    // Use the disc ID that was already extracted during game identification
-    char actual_disc_id[64] = "";
-    if (strlen(game_info.id) > 0) {
-        strncpy(actual_disc_id, game_info.id, sizeof(actual_disc_id) - 1);
-        actual_disc_id[sizeof(actual_disc_id) - 1] = '\0';
-        printf("CMD: Using disc ID from game identification: %s\n", actual_disc_id);
-    } else {
-        // Fallback to game title if no disc ID available
-        snprintf(actual_disc_id, sizeof(actual_disc_id), "%s", game_info.title);
-        printf("CMD: No disc ID available, using game title for flag: %s\n", actual_disc_id);
+    // Create MGL filename based on game title (sanitized for filesystem)
+    char mgl_filename[256];
+    char sanitized_title[256];
+    
+    // Sanitize game title for filename (replace spaces and special chars with underscores)
+    strncpy(sanitized_title, game_info.title, sizeof(sanitized_title) - 1);
+    sanitized_title[sizeof(sanitized_title) - 1] = '\0';
+    
+    for (int i = 0; sanitized_title[i]; i++) {
+        if (sanitized_title[i] == '[' || sanitized_title[i] == ']' || sanitized_title[i] == ',' ||
+            sanitized_title[i] == '\'' || sanitized_title[i] == '"' || sanitized_title[i] == ':' ||
+            sanitized_title[i] == '/' || sanitized_title[i] == '\\') {
+            sanitized_title[i] = '_';
+        }
+        // Keep spaces and parentheses for better readability
     }
     
-    // Use persistent location that survives MiSTer restarts
-    char flag_file[512];
-    snprintf(flag_file, sizeof(flag_file), "/tmp/cdrom_processed_%s_%s", detected_system, actual_disc_id);
+    snprintf(mgl_filename, sizeof(mgl_filename), "/media/fat/%s.mgl", sanitized_title);
     
-    printf("CMD: Checking if disc %s already processed (flag: %s)\n", actual_disc_id, flag_file);
+    printf("CMD: Checking for existing MGL: %s\n", mgl_filename);
     
-    if (access(flag_file, F_OK) == 0) {
-        strcpy(result.message, "Game already processed, skipping auto-load");
+    if (access(mgl_filename, F_OK) == 0) {
+        strcpy(result.message, "Game MGL already exists, skipping auto-load");
         return result;
     }
     
-    // Note: Flag cleanup is now handled when disc is ejected (cd_present=0) in scheduler
-    
-    // Create flag file to prevent reprocessing this specific disc
-    FILE* flag = fopen(flag_file, "w");
-    if (flag) {
-        fprintf(flag, "%s|%s|%ld\n", game_info.title, actual_disc_id, time(NULL));
-        fclose(flag);
-        printf("CMD: Created flag file for disc %s\n", actual_disc_id);
-    }
-    
-    // Search for the game
+    // Search for the game to get the file path for MGL creation
     char search_cmd[512];
     snprintf(search_cmd, sizeof(search_cmd), "search_games \"%s\" %s", game_info.title, detected_system);
     
@@ -692,8 +700,20 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
         return result;
     }
     
-    // Load the first search result
+    // Always create MGL file by calling search_load (which creates the MGL)
+    printf("CMD: Creating MGL file for detected game\n");
     cmd_result_t load_result = cmd_bridge_process("search_load 1");
+    
+    // If autoload is disabled, create MGL but don't actually load the game
+    if (!cfg.cdrom_autoload) {
+        printf("CMD: CD-ROM autoload disabled in configuration, MGL created but not loaded\n");
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), "MGL created for '%s' but autoload disabled", game_info.title);
+        result.result_code = 0;
+        return result;
+    }
+    
+    printf("CMD: CD-ROM autoload enabled, MGL created and game loaded\n");
     if (load_result.success) {
         result.success = true;
         snprintf(result.message, sizeof(result.message), "Game loaded: %s", game_info.title);

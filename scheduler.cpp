@@ -7,6 +7,8 @@
 #include <linux/cdrom.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/time.h>
+#include <sys/wait.h>
 #include "libco.h"
 #include "menu.h"
 #include "user_io.h"
@@ -67,6 +69,7 @@ static void scheduler_co_cdrom(void)
 	static int check_counter = 0;
 	static bool last_cd_present = false;
 	static int cdrom_autoload_delay = 0;
+	static int cdrom_fd = -1;
 	
 	printf("CD-ROM: Auto-detection coroutine started\n");
 	
@@ -75,36 +78,67 @@ static void scheduler_co_cdrom(void)
 		// Initialize CD-ROM subsystem after a delay
 		if (!cdrom_initialized && check_counter > 100) { // ~5 seconds delay
 			cdrom_init();
+			// Open device once and keep it open
+			if (access("/dev/sr0", F_OK) == 0) {
+				cdrom_fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+				if (cdrom_fd >= 0) {
+					printf("CD-ROM: Device opened persistently (fd=%d)\n", cdrom_fd);
+				} else {
+					printf("CD-ROM: Failed to open device persistently: %s\n", strerror(errno));
+				}
+			}
 			cdrom_initialized = true;
 		}
 		
-		// Check for CD very infrequently when in menu mode to prevent blocking
-		if (cdrom_initialized && (check_counter % 1000) == 0) { // Check every ~50 seconds
+		// Check for CD-ROM much less frequently - every 10 seconds  
+		if (cdrom_initialized && (check_counter % 100000) == 0) { // Check every ~10 seconds
 			// Only show debug message every 20000 ticks to reduce spam
 			if ((check_counter % 20000) == 0) {
 				printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
 			}
 			
-			// Only run CD-ROM detection when in menu mode to prevent boot loops
+			// Only run CD-ROM detection when in menu mode to prevent boot loops  
 			if (is_menu()) {
-				// Quick, non-blocking disc detection
 				bool cd_present = false;
-				if (access("/dev/sr0", F_OK) == 0) {
+				
+				// Fork a background process to handle all CD-ROM I/O operations
+				// This completely isolates blocking operations from the main process
+				pid_t pid = fork();
+				if (pid == 0) {
+					// Child process - handle all CD-ROM I/O here
+					bool child_cd_present = false;
+					
+					// Open device in child process (won't block main process)
 					int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
 					if (fd >= 0) {
-						// Use simpler approach - just check if device opens successfully
-						cd_present = true;
+						int status = ioctl(fd, CDROM_DISC_STATUS);
+						if (status == CDS_DISC_OK || status == CDS_DATA_1 || status == CDS_DATA_2 || 
+						    status == CDS_AUDIO || status == CDS_MIXED) {
+							child_cd_present = true;
+						}
 						close(fd);
-						if (!last_cd_present) {
-							printf("CD-ROM: Disc present and accessible\n");
+					}
+					
+					// Write result to a simple flag file for main process to read
+					FILE* flag = fopen("/tmp/cdrom_status", "w");
+					if (flag) {
+						fprintf(flag, "%d\n", child_cd_present ? 1 : 0);
+						fclose(flag);
+					}
+					
+					exit(0); // Child process exits
+				} else if (pid > 0) {
+					// Parent process - non-blocking check of result file
+					FILE* flag = fopen("/tmp/cdrom_status", "r");
+					if (flag) {
+						int status = 0;
+						if (fscanf(flag, "%d", &status) == 1) {
+							cd_present = (status == 1);
 						}
-					} else {
-						if (last_cd_present) {
-							printf("CD-ROM: Cannot open device: %s\n", strerror(errno));
-						}
+						fclose(flag);
 					}
 				} else {
-					printf("CD-ROM: Device /dev/sr0 does not exist\n");
+					printf("CD-ROM: Failed to fork CD-ROM detection process\n");
 				}
 				
 				// Only print status when state changes
@@ -112,11 +146,10 @@ static void scheduler_co_cdrom(void)
 					printf("CD-ROM: cd_present=%d, last_cd_present=%d\n", cd_present, last_cd_present);
 				}
 				
-				// If CD status changed from present to not present, clean up flags
+				// If CD status changed from present to not present, clean up MGL files
 				if (!cd_present && last_cd_present) {
-					printf("CD-ROM: Disc ejected, cleaning up processed game flags\n");
-					int result = system("rm -f /tmp/cdrom_processed_* 2>/dev/null");
-					printf("CD-ROM: Flag cleanup completed (exit code: %d)\n", result);
+					printf("CD-ROM: Disc ejected, keeping MGL file for manual access\n");
+					// Keep the MGL file so users can manually load it later if desired
 				}
 				
 				// If CD status changed from not present to present, delay auto-load
