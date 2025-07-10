@@ -32,8 +32,8 @@ static void cec_debug_message(const char* direction, const cec_message_t *msg);
 // Calculate CEC clock divider based on 12MHz crystal
 // CEC requires 750kHz clock from 12MHz input
 // Clock divider = Input Clock / Output Clock - 1
-// For 12MHz: 12000000 / 750000 - 1 = 15 (0x0F)
-#define CEC_CLOCK_DIV_12MHZ 0x0F
+// For 12MHz: ADV7513 uses 0x3C for proper CEC timing
+#define CEC_CLOCK_DIV_12MHZ 0x3C
 
 static bool cec_write_register(uint8_t reg, uint8_t value)
 {
@@ -90,17 +90,65 @@ bool cec_init(bool enable)
     int chip_id2 = i2c_smbus_read_byte_data(main_fd, 0xF6);
     printf("Step 2: Device ID - 0xF5=0x%02X, 0xF6=0x%02X (should be 0x75, 0x11)\n", chip_id1, chip_id2);
     
-    // Step 3: Check power state (0x41 bit 6 should be 0 = powered)
+    // Step 3: Check and ensure power state (0x41 bit 6 should be 0 = powered)
     int reg41 = i2c_smbus_read_byte_data(main_fd, 0x41);
     printf("Step 3: Power state - 0x41=0x%02X (bit 6=%d, should be 0=powered)\n", 
            reg41, (reg41 >> 6) & 1);
     
+    // Step 3b: Force enable CEC power domain if needed
+    if (reg41 & 0x40) {
+        printf("Step 3b: Enabling CEC power domain - clearing 0x41[6]\n");
+        i2c_smbus_write_byte_data(main_fd, 0x41, reg41 & ~0x40);
+        usleep(5000); // 5ms delay for power stabilization
+        reg41 = i2c_smbus_read_byte_data(main_fd, 0x41);
+        printf("Step 3b: Power state after enable - 0x41=0x%02X\n", reg41);
+    }
+    
     printf("\n=== 2.2 Cable Detect ===\n");
     
-    // Step 5: Check HPD and RxSense (0x96[7] = HPD, 0x96[6] = RxSense)
-    int reg96_initial = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("Step 5-6: Cable detect - 0x96=0x%02X (HPD bit7=%d, RxSense bit6=%d)\n", 
-           reg96_initial, (reg96_initial >> 7) & 1, (reg96_initial >> 6) & 1);
+    // Step 5: Check HPD and RxSense from INT_STATUS register 0x42
+    int int42_initial = i2c_smbus_read_byte_data(main_fd, 0x42);
+    bool hpd_initial = int42_initial & 0x40;   // bit 6
+    bool rsen_initial = int42_initial & 0x20;  // bit 5
+    printf("Step 5-6: Cable detect - INT_STATUS 0x42=0x%02X (HPD bit6=%d, RxSense bit5=%d)\n", 
+           int42_initial, hpd_initial ? 1 : 0, rsen_initial ? 1 : 0);
+    
+    // Step 5b: Apply friend's exact override sequence
+    printf("Step 5b: Applying complete override sequence\n");
+    
+    // 1. Force HPD high
+    printf("Step 5b1: Setting 0xD6=0xC0 (HPD always high)\n");
+    i2c_smbus_write_byte_data(main_fd, 0xD6, 0xC0);
+    
+    // 2. Force RxSense high AND HDMI mode
+    printf("Step 5b2: Setting 0xAF=0x44 (RxSense force high + HDMI mode)\n");
+    i2c_smbus_write_byte_data(main_fd, 0xAF, 0x44);
+    
+    // 3. Disable monitor sense power-down
+    printf("Step 5b3: Setting 0xA1 bit 6 (disable monitor sense power-down)\n");
+    i2c_smbus_write_byte_data(main_fd, 0xA1, 0x40);
+    
+    // 4. Clear INT to latch new sense
+    printf("Step 5b4: Reading INT_STATUS to latch new sense\n");
+    int int_status = i2c_smbus_read_byte_data(main_fd, 0x42);
+    printf("Step 5b4: INT_STATUS 0x42=0x%02X\n", int_status);
+    
+    usleep(20000); // 20ms delay
+    
+    // Verify overrides are working - check INT_STATUS 0x42 for actual HPD/RxSense
+    int int42_after = i2c_smbus_read_byte_data(main_fd, 0x42);
+    bool hpd_after = int42_after & 0x40;   // bit 6
+    bool rsen_after = int42_after & 0x20;  // bit 5
+    int reg96_after = i2c_smbus_read_byte_data(main_fd, 0x96);
+    int regAF = i2c_smbus_read_byte_data(main_fd, 0xAF);
+    int regA1 = i2c_smbus_read_byte_data(main_fd, 0xA1);
+    int regD6 = i2c_smbus_read_byte_data(main_fd, 0xD6);
+    
+    printf("Step 5b5: After overrides:\n");
+    printf("  INT_STATUS 0x42=0x%02X (HPD bit6=%d, RxSense bit5=%d) - ACTUAL STATUS\n", 
+           int42_after, hpd_after ? 1 : 0, rsen_after ? 1 : 0);
+    printf("  0x96=0x%02X (CEC clock bit5=%d)\n", reg96_after, (reg96_after >> 5) & 1);
+    printf("  Override regs: 0xAF=0x%02X, 0xA1=0x%02X, 0xD6=0x%02X\n", regAF, regA1, regD6);
     
     printf("\n=== 2.3 CEC Map Visibility ===\n");
     
@@ -125,49 +173,57 @@ bool cec_init(bool enable)
     
     printf("\n=== 2.4 Power-up CEC Engine ===\n");
     
-    // Step 9: Clear CEC power-down bit 0xE2[0]
+    // Step 9: Enable CEC engine in 0xE2 (try force-enable mode to bypass HPD)
     int regE2_before = i2c_smbus_read_byte_data(main_fd, 0xE2);
-    printf("Step 9: CEC power-down - 0xE2=0x%02X (bit 0=%d, should be 0=powered)\n", 
+    printf("Step 9: CEC control - 0xE2=0x%02X (bit 0=%d, should be 0=powered)\n", 
            regE2_before, regE2_before & 1);
     
-    if (regE2_before & 0x01) {
-        printf("Step 9: Clearing CEC power-down bit\n");
-        i2c_smbus_write_byte_data(main_fd, 0xE2, regE2_before & ~0x01);
-        int regE2_after = i2c_smbus_read_byte_data(main_fd, 0xE2);
-        printf("Step 9: After clear - 0xE2=0x%02X (bit 0=%d)\n", regE2_after, regE2_after & 1);
-    }
+    // Step 9: Power-up CEC before using it (friend's recommended method)
+    printf("Step 9: Powering up CEC engine\n");
+    uint8_t e2 = i2c_smbus_read_byte_data(main_fd, 0xE2);
+    e2 |= 0x03;  // bit0 = CEC_PDN_N (power up), bit1 = CEC_HPD_BYPASS
+    printf("Step 9: Writing 0xE2=0x%02X (power + bypass)\n", e2);
+    i2c_smbus_write_byte_data(main_fd, 0xE2, e2);
+    usleep(5000); // 5ms delay for CEC engine to power up
     
-    // Step 10: Program clock divider for 12MHz crystal
-    printf("Step 10: Programming clock divider for 12MHz → 750kHz\n");
-    uint8_t timing_value = CEC_CLOCK_DIV_12MHZ;
-    printf("Step 10: Writing 0x%02X to CEC[0x4E] (divider %d)\n", 
-           timing_value, CEC_CLOCK_DIV_12MHZ);
-    cec_write_register(CEC_CLK_DIV, timing_value);
-    uint8_t clk_verify = cec_read_register(CEC_CLK_DIV);
-    printf("Step 10: Readback CEC[0x4E]=0x%02X (should be 0x%02X)\n", clk_verify, timing_value);
+    int regE2_after = i2c_smbus_read_byte_data(main_fd, 0xE2);
+    printf("Step 9: After enable - 0xE2=0x%02X (bit0=%d PDN_N, bit1=%d HPD_BYPASS)\n", 
+           regE2_after, regE2_after & 1, (regE2_after >> 1) & 1);
     
-    // Step 11: Wait for clock to stabilize
-    printf("Step 11: Waiting for CEC clock to stabilize (20ms)...\n");
-    usleep(20000); // 20ms delay for clock stability
+    usleep(5000); // 5ms delay for CEC engine to power up
     
     printf("\n=== 2.5 Enable & Reset Block ===\n");
     
-    // Step 12: Set main 0x96[5] and verify it stays high
+    // Step 10: Enable CEC clock first (some ADV7513 variants require this order)
     int reg96_before = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("Step 12: Before CEC clock enable - 0x96=0x%02X (bit 5=%d)\n", 
+    printf("Step 10: Before CEC clock enable - 0x96=0x%02X (bit 5=%d)\n", 
            reg96_before, (reg96_before >> 5) & 1);
     
     int reg96_new = reg96_before | 0x20; // Set bit 5
-    printf("Step 12: Setting CEC clock enable bit - writing 0x%02X\n", reg96_new);
+    printf("Step 10: Setting CEC clock enable bit - writing 0x%02X\n", reg96_new);
     i2c_smbus_write_byte_data(main_fd, 0x96, reg96_new);
     
-    // Immediate readback - CRITICAL TEST
+    // Step 11: Program clock divider AFTER enabling clock
+    printf("Step 11: Programming clock divider for 12MHz → 750kHz\n");
+    
+    uint8_t timing_value = CEC_CLOCK_DIV_12MHZ;  // 0x3C
+    printf("Step 11: Writing 0x%02X to CEC[0x4E]\n", timing_value);
+    cec_write_register(CEC_CLK_DIV, timing_value);
+    
+    uint8_t clk_verify = cec_read_register(CEC_CLK_DIV);
+    printf("Step 11: Readback CEC[0x4E]=0x%02X (should be 0x%02X)\n", clk_verify, timing_value);
+    
+    // Step 12: Wait for clock to stabilize and verify enable bit
+    printf("Step 12: Waiting for CEC clock to stabilize (20ms)...\n");
+    usleep(20000); // 20ms delay for clock stability
+    
+    // Verify clock enable bit after divider setup
     int reg96_immediate = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("Step 12: Immediate readback - 0x96=0x%02X (bit 5=%d)\n", 
+    printf("Step 12: After divider setup - 0x96=0x%02X (bit 5=%d)\n", 
            reg96_immediate, (reg96_immediate >> 5) & 1);
     
     if (!(reg96_immediate & 0x20)) {
-        printf("*** STEP 12 FAILED: CEC clock bit cleared immediately! ***\n");
+        printf("*** STEP 12 FAILED: CEC clock bit cleared after divider! ***\n");
         printf("*** This indicates: clock missing or divider wrong ***\n");
         // Continue for more diagnostics
     } else {
@@ -177,7 +233,7 @@ bool cec_init(bool enable)
     // Wait and test again
     usleep(10000); // 10ms
     int reg96_delayed = i2c_smbus_read_byte_data(main_fd, 0x96);
-    printf("Step 12: After 10ms delay - 0x96=0x%02X (bit 5=%d)\n", 
+    printf("Step 12: After final delay - 0x96=0x%02X (bit 5=%d)\n", 
            reg96_delayed, (reg96_delayed >> 5) & 1);
     
     if (!(reg96_delayed & 0x20)) {
@@ -185,30 +241,93 @@ bool cec_init(bool enable)
         printf("*** This indicates: HPD went low or other power issue ***\n");
     }
     
-    // Step 13: Soft reset CEC state machine
-    printf("Step 13: Soft-resetting CEC state machine\n");
+    // Step 13: Soft reset CEC state machine (per ADI procedure 2.5)
+    printf("Step 13: Soft-resetting CEC state machine (ADI procedure 2.5)\n");
     cec_write_register(CEC_SOFT_RESET, 0x01);
     printf("Step 13: Reset pulse high - CEC[0x50]=0x01\n");
     usleep(2000); // 2ms
     cec_write_register(CEC_SOFT_RESET, 0x00);
     printf("Step 13: Reset pulse low - CEC[0x50]=0x00\n");
+    usleep(10000); // 10ms delay for CEC state machine to stabilize
+    
+    // Step 13b: Re-apply ALL overrides after soft reset (they may have been cleared)
+    printf("Step 13b: Re-applying all overrides after soft reset\n");
+    i2c_smbus_write_byte_data(main_fd, 0xD6, 0xC0);  // HPD override
+    i2c_smbus_write_byte_data(main_fd, 0xAF, 0x44);  // RxSense override + HDMI mode
+    i2c_smbus_write_byte_data(main_fd, 0xA1, 0x40);  // Disable monitor sense power-down
+    int int_status2 = i2c_smbus_read_byte_data(main_fd, 0x42);
+    printf("Step 13b: Read INT_STATUS 0x42=0x%02X to latch HPD state\n", int_status2);
+    usleep(20000); // 20ms delay for overrides to take effect
+    
+    // Verify clock, divider, and all overrides after reset
+    int int42_after_reset = i2c_smbus_read_byte_data(main_fd, 0x42);
+    bool hpd_reset = int42_after_reset & 0x40;   // bit 6
+    bool rsen_reset = int42_after_reset & 0x20;  // bit 5
+    int reg96_after_reset = i2c_smbus_read_byte_data(main_fd, 0x96);
+    uint8_t clk_after_reset = cec_read_register(CEC_CLK_DIV);
+    int regD6_after_reset = i2c_smbus_read_byte_data(main_fd, 0xD6);
+    int regAF_after_reset = i2c_smbus_read_byte_data(main_fd, 0xAF);
+    int regA1_after_reset = i2c_smbus_read_byte_data(main_fd, 0xA1);
+    
+    printf("Step 13b: After reset - INT_STATUS 0x42=0x%02X (HPD=%d, RxSense=%d)\n", 
+           int42_after_reset, hpd_reset ? 1 : 0, rsen_reset ? 1 : 0);
+    printf("Step 13b: 0x96=0x%02X (CEC_CLK bit5=%d)\n", 
+           reg96_after_reset, (reg96_after_reset >> 5) & 1);
+    printf("Step 13b: Override regs - 0xD6=0x%02X, 0xAF=0x%02X, 0xA1=0x%02X, CLK_DIV=0x%02X\n", 
+           regD6_after_reset, regAF_after_reset, regA1_after_reset, clk_after_reset);
+    
+    printf("\n=== REGISTER DUMP BEFORE LOGICAL ADDRESS SETUP ===\n");
+    printf("Main map key registers:\n");
+    printf("  0x41 (Power): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0x41));
+    printf("  0x94 (Int Mask): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0x94));
+    printf("  0x96 (Status): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0x96));
+    printf("  0x97 (Int Status): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0x97));
+    printf("  0xE1 (CEC I2C): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0xE1));
+    printf("  0xE2 (CEC Control): 0x%02X\n", i2c_smbus_read_byte_data(main_fd, 0xE2));
+    
+    printf("CEC map key registers:\n");
+    printf("  0x4E (Clock Div): 0x%02X\n", cec_read_register(0x4E));
+    printf("  0x50 (Soft Reset): 0x%02X\n", cec_read_register(0x50));
+    printf("  0x26 (RX Enable): 0x%02X\n", cec_read_register(0x26));
+    printf("  0x11 (TX Enable): 0x%02X\n", cec_read_register(0x11));
+    printf("  0x12 (TX Retry): 0x%02X\n", cec_read_register(0x12));
+    printf("  0x27 (Logical Addr): 0x%02X\n", cec_read_register(0x27));
+    printf("  0x2A (Addr Mask): 0x%02X\n", cec_read_register(0x2A));
+    printf("  0x40 (CEC Int Mask): 0x%02X\n", cec_read_register(0x40));
+    printf("  0x41 (CEC Int Status): 0x%02X\n", cec_read_register(0x41));
     
     printf("\n=== 2.6 Logical Address & Path Setup ===\n");
     
-    // Step 14: Configure logical address and verify it sticks
+    // Step 14: Clear logical address first, then set it (ADI procedure)
+    printf("Step 14a: Clearing logical address register first\n");
+    cec_write_register(CEC_LOGICAL_ADDR0, 0x00); // Clear first
+    usleep(2000);
+    
+    // Step 14: Configure logical address and verify it sticks (per ADI procedure 2.6)
     printf("Step 14: Setting logical address to %d (Playback Device)\n", cec_logical_addr);
     uint8_t logical_addr_val = cec_logical_addr | 0x10; // Upper nibble = 1 to enable
     printf("Step 14: Writing 0x%02X to CEC[0x27] (addr=%d, enable=1)\n", 
            logical_addr_val, cec_logical_addr);
     
-    cec_write_register(CEC_LOGICAL_ADDR0, logical_addr_val);
-    uint8_t addr_readback = cec_read_register(CEC_LOGICAL_ADDR0);
-    printf("Step 14: Readback CEC[0x27]=0x%02X (should be 0x%02X)\n", 
-           addr_readback, logical_addr_val);
+    // Try setting logical address multiple times with delays
+    bool addr_success = false;
+    for (int retry = 0; retry < 5; retry++) {
+        cec_write_register(CEC_LOGICAL_ADDR0, logical_addr_val);
+        usleep(5000); // 5ms delay between attempts
+        uint8_t addr_readback = cec_read_register(CEC_LOGICAL_ADDR0);
+        printf("Step 14: Attempt %d - Readback CEC[0x27]=0x%02X (should be 0x%02X)\n", 
+               retry + 1, addr_readback, logical_addr_val);
+        
+        if (addr_readback == logical_addr_val) {
+            printf("Step 14: SUCCESS - Logical address set on attempt %d\n", retry + 1);
+            addr_success = true;
+            break;
+        }
+    }
     
-    if (addr_readback != logical_addr_val) {
-        printf("*** STEP 14 FAILED: Logical address register didn't stick! ***\n");
-        printf("*** This indicates: CEC clock still not working ***\n");
+    if (!addr_success) {
+        printf("*** STEP 14 FAILED: Logical address register didn't stick after 5 attempts! ***\n");
+        printf("*** This indicates: CEC engine not responding to writes ***\n");
     }
     
     // Set logical address mask
@@ -217,11 +336,15 @@ bool cec_init(bool enable)
     uint8_t mask_readback = cec_read_register(CEC_LOGICAL_ADDR_MASK);
     printf("Step 14: Readback CEC[0x2A]=0x%02X (should be 0x01)\n", mask_readback);
     
-    // Step 15: Enable RX and TX
-    printf("Step 15: Enabling RX (CEC[0x26]=0x01) and TX (CEC[0x11]=0x01)\n");
-    cec_write_register(CEC_RX_ENABLE_REG, 0x01);
-    cec_write_register(CEC_TX_ENABLE_REG, 0x01);
-    cec_write_register(CEC_TX_RETRY, 0x03); // 3 retries
+    // Step 15: Enable RX and TX (try bit-wise approach for RX register)
+    printf("Step 15: Reading current RX register value\n");
+    uint8_t rx_current = cec_read_register(CEC_RX_ENABLE_REG);
+    printf("Step 15: Current RX=0x%02X, enabling receive with OR operation\n", rx_current);
+    
+    printf("Step 15: Setting TX=0x01, Retry=0x03 per ADI procedure\n");
+    cec_write_register(CEC_RX_ENABLE_REG, rx_current | 0x01);  // OR with enable bit
+    cec_write_register(CEC_TX_ENABLE_REG, 0x01);  // ADI: "and TX (0x11 = 0x01)"
+    cec_write_register(CEC_TX_RETRY, 0x03);       // ADI: "retry count 0x03"
     
     uint8_t rx_readback = cec_read_register(CEC_RX_ENABLE_REG);
     uint8_t tx_readback = cec_read_register(CEC_TX_ENABLE_REG);
@@ -271,7 +394,7 @@ bool cec_init(bool enable)
         printf("✗ CEC Clock: Bit 5 cleared - clock/divider problem\n");
     }
     
-    if (addr_readback == logical_addr_val) {
+    if (addr_success) {
         printf("✓ CEC Registers: Logical address stuck correctly\n");
     } else {
         printf("✗ CEC Registers: Values not sticking - clock problem\n");

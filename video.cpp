@@ -1467,8 +1467,9 @@ static void hdmi_config_init()
 		0xAA, 0x00,				// ADI required Write.
 		0xAB, 0x40,				// ADI required Write.
 
-		0xAF, (uint8_t)(0b00000100	// [7]=0 HDCP Disabled.
-								// [6:5] must be b00!
+		0xAF, (uint8_t)(0b01000100	// [7]=0 HDCP Disabled.
+								// [6]=1 RxSense override for CEC
+								// [5] must be b0!
 								// [4]=0 Current frame is unencrypted
 								// [3:2] must be b01!
 			| ((cfg.dvi_mode == 1) ? 0b00 : 0b10)),	 //	[1]=1 HDMI Mode.
@@ -2509,6 +2510,19 @@ void video_init()
 
 	fb_init();
 	hdmi_config_init();
+	
+	// Initialize CEC immediately after HDMI config to preserve override settings
+	static bool cec_init_done = false;
+	if (!cec_init_done && cfg.hdmi_cec) {
+		printf("CEC: Early initialization after HDMI config\n");
+		if (cec_init(true)) {
+			printf("CEC: Early initialization successful\n");
+		} else {
+			printf("CEC: Early initialization failed\n");
+		}
+		cec_init_done = true;
+	}
+	
 	hdmi_config_set_hdr();
 	video_mode_load();
 
@@ -2518,30 +2532,19 @@ void video_init()
 
 	video_set_mode(&v_def, 0);
 	
-	// Initialize CEC if enabled - but let video_cec_config_update handle actual init
-	// to avoid double initialization issues
-	static bool cec_init_done = false;
-	if (!cec_init_done) {
-		if (cfg.hdmi_cec) {
-			if (cec_init(true)) {
-				// Add small delay between CEC messages for reliability
-				usleep(100000); // 100ms
-				// Send Image View On to turn on TV
-				if (!cec_send_image_view_on()) {
-					printf("CEC: Warning - Image View On failed during init\n");
-				}
-				usleep(100000); // 100ms
-				// Announce ourselves as active source
-				if (!cec_send_active_source()) {
-					printf("CEC: Warning - Active Source failed during init\n");
-				}
-			} else {
-				printf("CEC: Error - Failed to initialize CEC\n");
-			}
-		} else {
-			cec_init(false);
+	// Send initial CEC messages if already initialized
+	if (cec_init_done && cfg.hdmi_cec && cec_is_enabled()) {
+		// Add small delay between CEC messages for reliability
+		usleep(100000); // 100ms
+		// Send Image View On to turn on TV
+		if (!cec_send_image_view_on()) {
+			printf("CEC: Warning - Image View On failed during init\n");
 		}
-		cec_init_done = true;
+		usleep(100000); // 100ms
+		// Announce ourselves as active source
+		if (!cec_send_active_source()) {
+			printf("CEC: Warning - Active Source failed during init\n");
+		}
 	}
 }
 
