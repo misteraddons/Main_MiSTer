@@ -92,10 +92,6 @@ static void scheduler_co_cdrom(void)
 		
 		// Check for CD-ROM much less frequently - every 20 seconds  
 		if (cdrom_initialized && (check_counter % 200000) == 0) { // Check every ~20 seconds
-			// Only show debug message every 20000 ticks to reduce spam
-			if ((check_counter % 20000) == 0) {
-				printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
-			}
 			
 			// Only run CD-ROM detection when in menu mode to prevent boot loops  
 			if (is_menu()) {
