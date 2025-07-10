@@ -52,5 +52,6 @@ bool cmd_bridge_is_mister_cmd_available();
 void cmd_bridge_list_commands();
 const char* cmd_bridge_get_current_mgl_path();
 void cmd_bridge_clear_current_mgl_path();
+void cmd_bridge_set_current_mgl_path(const char* path);
 
 #endif // CMD_BRIDGE_H

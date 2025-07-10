@@ -4,12 +4,15 @@
 ## Development Preferences
 - Use unix line endings
 
+## Interaction Guidelines
+- Never mention claude or coauthor
+
 ## CD-ROM Auto-Detection System TODO
 
 ### High Priority Tasks
-- [x] Add configuration improvements (cdrom_autoload_delay, cdrom_show_selection, cdrom_preferred_region)
-- [ ] Implement fuzzy game matching with partial titles and typo tolerance
-- [ ] Create OSD selection popup for multiple game matches
+- [x] Add configuration improvements (cdrom_autoload_delay, cdrom_auto_select, cdrom_preferred_region)
+- [x] Implement fuzzy game matching with partial titles and typo tolerance
+- [x] Create OSD selection popup for multiple game matches
 
 ### Medium Priority Tasks
 - [ ] Add CD audio player functionality for audio CDs

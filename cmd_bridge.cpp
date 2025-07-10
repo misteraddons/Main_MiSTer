@@ -45,6 +45,7 @@ void cmd_bridge_init()
     // Clean up any leftover MGL files from previous session
     printf("CMD: Cleaning up previous CD-ROM MGL files\n");
     system("rm -f /media/fat/*.mgl 2>/dev/null");
+    system("rm -f /media/fat/[0-9]*.mgl 2>/dev/null"); // Clean numbered selection files
     cmd_bridge_clear_current_mgl_path();
     
     // Clear any existing registrations
@@ -650,6 +651,166 @@ static cmd_result_t cmd_help(const char* args)
     return result;
 }
 
+// CD audio player commands
+static cmd_result_t cmd_cdaudio_play(const char* args)
+{
+    cmd_result_t result = { false, "CD audio playback failed", -1 };
+    
+    // Check if CD-ROM device is available
+    if (access("/dev/sr0", F_OK) != 0) {
+        strcpy(result.message, "CD-ROM device not found");
+        return result;
+    }
+    
+    // Check if this is an audio CD
+    int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        strcpy(result.message, "Cannot open CD-ROM device");
+        return result;
+    }
+    
+    // Check disc status
+    int status = ioctl(fd, CDROM_DISC_STATUS);
+    if (status != CDS_DISC_OK && status != CDS_AUDIO && status != CDS_MIXED) {
+        close(fd);
+        strcpy(result.message, "No audio CD detected");
+        return result;
+    }
+    
+    // Get track information
+    struct cdrom_tochdr tochdr;
+    if (ioctl(fd, CDROMREADTOCHDR, &tochdr) != 0) {
+        close(fd);
+        strcpy(result.message, "Cannot read CD table of contents");
+        return result;
+    }
+    
+    close(fd);
+    
+    // Parse track argument (default to track 1)
+    int track = 1;
+    if (args && args[0]) {
+        track = atoi(args);
+        if (track < 1 || track > tochdr.cdth_trk1) {
+            snprintf(result.message, sizeof(result.message), 
+                     "Invalid track number %d (available: 1-%d)", track, tochdr.cdth_trk1);
+            return result;
+        }
+    }
+    
+    // Send ATAPI PLAY AUDIO command via MiSTer_cmd
+    char play_cmd[128];
+    snprintf(play_cmd, sizeof(play_cmd), "cdaudio_play %d", track);
+    
+    if (cmd_bridge_send_to_mister(play_cmd)) {
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), 
+                 "Playing CD audio track %d of %d", track, tochdr.cdth_trk1);
+        result.result_code = track;
+    } else {
+        strcpy(result.message, "Failed to send audio playback command");
+    }
+    
+    return result;
+}
+
+static cmd_result_t cmd_cdaudio_stop(const char* args)
+{
+    cmd_result_t result = { false, "CD audio stop failed", -1 };
+    
+    // Send ATAPI STOP command via MiSTer_cmd
+    if (cmd_bridge_send_to_mister("cdaudio_stop")) {
+        result.success = true;
+        strcpy(result.message, "CD audio playback stopped");
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to send audio stop command");
+    }
+    
+    return result;
+}
+
+static cmd_result_t cmd_cdaudio_pause(const char* args)
+{
+    cmd_result_t result = { false, "CD audio pause failed", -1 };
+    
+    // Send ATAPI PAUSE/RESUME command via MiSTer_cmd
+    if (cmd_bridge_send_to_mister("cdaudio_pause")) {
+        result.success = true;
+        strcpy(result.message, "CD audio playback paused/resumed");
+        result.result_code = 0;
+    } else {
+        strcpy(result.message, "Failed to send audio pause command");
+    }
+    
+    return result;
+}
+
+static cmd_result_t cmd_cdaudio_info(const char* args)
+{
+    cmd_result_t result = { false, "CD audio info failed", -1 };
+    
+    // Check if CD-ROM device is available
+    if (access("/dev/sr0", F_OK) != 0) {
+        strcpy(result.message, "CD-ROM device not found");
+        return result;
+    }
+    
+    int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        strcpy(result.message, "Cannot open CD-ROM device");
+        return result;
+    }
+    
+    // Check disc status
+    int status = ioctl(fd, CDROM_DISC_STATUS);
+    if (status != CDS_DISC_OK && status != CDS_AUDIO && status != CDS_MIXED) {
+        close(fd);
+        strcpy(result.message, "No audio CD detected");
+        return result;
+    }
+    
+    // Get track information
+    struct cdrom_tochdr tochdr;
+    if (ioctl(fd, CDROMREADTOCHDR, &tochdr) != 0) {
+        close(fd);
+        strcpy(result.message, "Cannot read CD table of contents");
+        return result;
+    }
+    
+    printf("CMD: CD Audio Information:\n");
+    printf("CMD: First track: %d\n", tochdr.cdth_trk0);
+    printf("CMD: Last track: %d\n", tochdr.cdth_trk1);
+    printf("CMD: Total tracks: %d\n", tochdr.cdth_trk1 - tochdr.cdth_trk0 + 1);
+    
+    // Get track details
+    for (int track = tochdr.cdth_trk0; track <= tochdr.cdth_trk1; track++) {
+        struct cdrom_tocentry tocentry;
+        tocentry.cdte_track = track;
+        tocentry.cdte_format = CDROM_MSF;
+        
+        if (ioctl(fd, CDROMREADTOCENTRY, &tocentry) == 0) {
+            printf("CMD: Track %d: %02d:%02d:%02d (%s)\n", 
+                   track,
+                   tocentry.cdte_addr.msf.minute,
+                   tocentry.cdte_addr.msf.second,
+                   tocentry.cdte_addr.msf.frame,
+                   (tocentry.cdte_ctrl & CDROM_DATA_TRACK) ? "Data" : "Audio");
+        }
+    }
+    
+    close(fd);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), 
+             "CD has %d tracks (%d-%d)", 
+             tochdr.cdth_trk1 - tochdr.cdth_trk0 + 1,
+             tochdr.cdth_trk0, tochdr.cdth_trk1);
+    result.result_code = tochdr.cdth_trk1 - tochdr.cdth_trk0 + 1;
+    
+    return result;
+}
+
 // CD-ROM auto-load command
 static cmd_result_t cmd_cdrom_autoload(const char* args)
 {
@@ -720,8 +881,17 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
         return result;
     }
     
+    // Check if multiple results found and auto_select setting
+    if (search_result.result_code > 1 && cfg.cdrom_auto_select == 0) {
+        printf("CMD: Multiple games found (%d matches), showing selection popup (auto_select disabled)\n", search_result.result_code);
+        result.success = true;
+        snprintf(result.message, sizeof(result.message), "Multiple matches found for '%s' - check OSD for selection", game_info.title);
+        result.result_code = search_result.result_code;
+        return result;
+    }
+    
     // Always create MGL file by calling search_load (which creates the MGL)
-    printf("CMD: Creating MGL file for detected game\n");
+    printf("CMD: Creating MGL file for detected game (using best match)\n");
     cmd_result_t load_result = cmd_bridge_process("search_load 1");
     
     // If autoload is disabled, create MGL but don't actually load the game
@@ -765,6 +935,7 @@ static void store_search_results(const char* search_type);
 static void extract_game_title_from_path(const char* path, char* title, size_t title_size);
 static void sort_search_results_by_score();
 static void add_enhanced_search_result(const char* path, const char* search_term, const char* preferred_region);
+static void show_game_selection_popup();
 
 // Search command implementations
 #ifndef TEST_BUILD
@@ -1028,6 +1199,16 @@ cmd_result_t cmd_search_games(const char* args)
                 printf("CMD: %d. [Score:%d F:%d R:%d] %s -> %s\n", 
                        i + 1, entry->total_score, entry->fuzzy_score, entry->region_score,
                        entry->title, entry->path);
+            }
+            
+            // Show OSD selection if multiple matches and auto_select is disabled
+            printf("CMD: Checking selection conditions: results=%d, auto_select=%d\n", 
+                   search_results_count, cfg.cdrom_auto_select);
+            if (search_results_count > 1 && cfg.cdrom_auto_select == 0) {
+                printf("CMD: Conditions met, showing selection popup\n");
+                show_game_selection_popup();
+            } else {
+                printf("CMD: Conditions not met for popup\n");
             }
         } else {
             printf("CMD: Find command failed, falling back to basic search\n");
@@ -1404,6 +1585,10 @@ static void register_builtin_commands()
     cmd_bridge_register("search_load", cmd_search_load, "Load selected item from search results");
     cmd_bridge_register("popup_browse", cmd_popup_browse, "Open popup file browser");
     cmd_bridge_register("cdrom_autoload", cmd_cdrom_autoload, "Auto-detect and load CD-ROM game");
+    cmd_bridge_register("cdaudio_play", cmd_cdaudio_play, "Play CD audio track (cdaudio_play [track_number])");
+    cmd_bridge_register("cdaudio_stop", cmd_cdaudio_stop, "Stop CD audio playback");
+    cmd_bridge_register("cdaudio_pause", cmd_cdaudio_pause, "Pause/resume CD audio playback");
+    cmd_bridge_register("cdaudio_info", cmd_cdaudio_info, "Show CD audio disc information");
 }
 
 // Utility functions to manage current MGL path
@@ -1415,6 +1600,15 @@ const char* cmd_bridge_get_current_mgl_path()
 void cmd_bridge_clear_current_mgl_path()
 {
     current_mgl_path[0] = '\0';
+}
+
+void cmd_bridge_set_current_mgl_path(const char* path)
+{
+    if (path && strlen(path) < sizeof(current_mgl_path)) {
+        strcpy(current_mgl_path, path);
+    } else {
+        current_mgl_path[0] = '\0';
+    }
 }
 
 // Enhanced search helper functions
@@ -1512,6 +1706,62 @@ static void add_enhanced_search_result(const char* path, const char* search_term
     entry->total_score = (entry->fuzzy_score * 7 + entry->region_score * 3) / 10;
     
     search_results_count++;
+}
+
+// Show OSD selection popup for multiple game matches
+static void show_game_selection_popup()
+{
+#ifndef TEST_BUILD
+    if (search_results_count <= 1) return;
+    
+    // Create a visible file listing on screen for manual selection
+    // This creates MGL files for each option that appear in the file browser
+    printf("CMD: Creating numbered MGL files for manual selection\n");
+    
+    for (int i = 0; i < search_results_count && i < 9; i++) { // Limit to 9 to avoid clutter
+        search_result_entry_t* entry = &search_results_enhanced[i];
+        
+        // Extract just the filename for cleaner display
+        char clean_title[256];
+        extract_game_title_from_path(entry->path, clean_title, sizeof(clean_title));
+        
+        // Create numbered selection MGL file
+        char selection_mgl[512];
+        snprintf(selection_mgl, sizeof(selection_mgl), 
+                 "/media/fat/%d-%s.mgl", 
+                 i + 1, clean_title);
+        
+        // Create MGL content
+        FILE* mgl = fopen(selection_mgl, "w");
+        if (mgl) {
+            fprintf(mgl, "<mistergamedescription>\n");
+            fprintf(mgl, "    <rbf>_Console/MegaCD</rbf>\n");
+            fprintf(mgl, "    <file delay=\"1\" type=\"s\" index=\"0\" path=\"%s\"/>\n", entry->path);
+            fprintf(mgl, "</mistergamedescription>\n");
+            fclose(mgl);
+            
+            printf("CMD: Created selection MGL: %s\n", selection_mgl);
+        }
+    }
+    
+    // Show info message about the selection files
+    char message[512];
+    snprintf(message, sizeof(message), 
+             "Multiple CD games found!\n\n"
+             "Check main menu for numbered\n"
+             "selection files (1-%d).\n\n"
+             "Best matches are listed first.", 
+             search_results_count > 9 ? 9 : search_results_count);
+    
+    InfoMessage(message, 8000, "CD-ROM Auto-Detection");
+    
+    // Trigger menu refresh to show new files
+    refresh_menu_directory();
+    
+    printf("CMD: Selection MGLs created and menu refreshed\n");
+#else
+    printf("CMD: Game selection popup not available in test build\n");
+#endif
 }
 
 // Function to refresh the menu directory view after creating MGL
