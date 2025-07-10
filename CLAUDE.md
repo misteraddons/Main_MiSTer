@@ -15,7 +15,7 @@
 - [x] Create OSD selection popup for multiple game matches
 
 ### Medium Priority Tasks
-- [ ] Add CD audio player functionality for audio CDs
+- [x] Add CD audio player functionality for audio CDs
 - [ ] Implement multi-disc game handling and disc swapping
 - [ ] Complete PC Engine CD detection and support
 - [ ] Complete Neo Geo CD detection and support
@@ -64,5 +64,18 @@ Valid region values (No-Intro convention):
 
 ### Technical Notes
 - Selection popup MGL files use simple numeric prefixes (1-GameName.mgl, 2-GameName.mgl, etc.)
+- Audio CD MGL files use embedded metadata: "Artist - Album.mgl" or disc ID fallback
 - Originally intended to use \x97 character for CD icon display, but not compatible with FAT32 filesystems
-- Cleanup commands use [0-9]*.mgl pattern to remove numbered selection files
+- Cleanup commands use [0-9]*.mgl pattern to remove numbered selection files and "Audio*.mgl" for audio CDs
+
+### CD Audio Player Implementation
+- Complete backend functionality with cdaudio_play, cdaudio_stop, cdaudio_pause, cdaudio_info commands
+- Automatic audio CD detection and MGL creation with intelligent naming
+- Embedded metadata extraction: CD-Text (artist/album), MCN/UPC, subchannel data
+- Smart naming priority: Artist - Album > Disc ID > Generic fallback
+- TOC-based disc fingerprinting generates unique CDDB-style disc IDs
+- MGL files named as "Artist - Album.mgl" when CD-Text available
+- References _Utility/CD_Audio_Player core (requires separate utility core installation)
+- Direct device access via /dev/sr0 for real-time audio playback
+- Extracts track count, timing, offsets, and disc length from Table of Contents (TOC)
+- Generates CDDB-compatible disc IDs for potential metadata lookup integration

@@ -5,6 +5,14 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/cdrom.h>
+
+// Ensure CD-ROM ioctl structures are defined
+#ifndef CDROM_GET_MCN
+#define CDROM_GET_MCN 0x5311
+struct cdrom_mcn {
+	u_char medium_catalog_number[14];
+};
+#endif
 #include <errno.h>
 #include <string.h>
 #include <sys/time.h>
@@ -19,6 +27,101 @@
 #include "cdrom.h"
 #include "cmd_bridge.h"
 #include "cfg.h"
+
+// Generate a CDDB-style disc ID from TOC data
+static int generate_cddb_disc_id(int fd, char* disc_id, size_t disc_id_size)
+{
+	struct cdrom_tochdr tochdr;
+	if (ioctl(fd, CDROMREADTOCHDR, &tochdr) != 0) {
+		return -1;
+	}
+	
+	int num_tracks = tochdr.cdth_trk1 - tochdr.cdth_trk0 + 1;
+	if (num_tracks <= 0 || num_tracks > 99) {
+		return -1;
+	}
+	
+	// Get track offsets for CDDB calculation
+	int track_offsets[100];
+	int total_seconds = 0;
+	
+	for (int track = tochdr.cdth_trk0; track <= tochdr.cdth_trk1; track++) {
+		struct cdrom_tocentry tocentry;
+		tocentry.cdte_track = track;
+		tocentry.cdte_format = CDROM_MSF;
+		
+		if (ioctl(fd, CDROMREADTOCENTRY, &tocentry) == 0) {
+			// Convert MSF to seconds offset
+			int offset = tocentry.cdte_addr.msf.minute * 60 + tocentry.cdte_addr.msf.second;
+			track_offsets[track - tochdr.cdth_trk0] = offset + 2; // +2 for lead-in
+		} else {
+			return -1;
+		}
+	}
+	
+	// Get lead-out track for total disc length
+	struct cdrom_tocentry lead_out;
+	lead_out.cdte_track = CDROM_LEADOUT;
+	lead_out.cdte_format = CDROM_MSF;
+	
+	if (ioctl(fd, CDROMREADTOCENTRY, &lead_out) == 0) {
+		total_seconds = lead_out.cdte_addr.msf.minute * 60 + lead_out.cdte_addr.msf.second;
+	} else {
+		return -1;
+	}
+	
+	// Calculate CDDB disc ID using standard algorithm
+	int checksum = 0;
+	for (int i = 0; i < num_tracks; i++) {
+		int offset = track_offsets[i];
+		while (offset > 0) {
+			checksum += (offset % 10);
+			offset /= 10;
+		}
+	}
+	
+	int disc_length = total_seconds - track_offsets[0];
+	unsigned int cddb_id = ((checksum % 0xff) << 24) | ((disc_length & 0xffff) << 8) | (num_tracks & 0xff);
+	
+	// Generate more descriptive ID including track pattern
+	snprintf(disc_id, disc_id_size, "%08x-%02d", cddb_id, num_tracks);
+	
+	printf("CD-ROM: Generated TOC-based disc ID: %s (tracks: %d, length: %d sec)\n", 
+	       disc_id, num_tracks, disc_length);
+	
+	return 0;
+}
+
+// Extract CD-Text metadata from embedded disc data
+static int extract_cdtext_metadata(int fd, char* album, size_t album_size, char* artist, size_t artist_size)
+{
+	// Try to read Media Catalog Number first
+	struct cdrom_mcn mcn;
+	if (ioctl(fd, CDROM_GET_MCN, &mcn) == 0) {
+		printf("CD-ROM: Media Catalog Number: %s\n", mcn.medium_catalog_number);
+	}
+	
+	// CD-Text reading requires accessing subchannel data
+	// This is a simplified approach - full CD-Text parsing is complex
+	struct cdrom_subchnl subchnl;
+	subchnl.cdsc_format = CDROM_MSF;
+	
+	if (ioctl(fd, CDROMSUBCHNL, &subchnl) == 0) {
+		printf("CD-ROM: Subchannel data available for metadata extraction\n");
+		
+		// For now, we'll use basic fallback naming
+		// Full CD-Text implementation would require parsing R-W subchannel packs
+		snprintf(album, album_size, "Unknown Album");
+		snprintf(artist, artist_size, "Unknown Artist");
+		
+		return 1; // Indicate basic metadata available
+	}
+	
+	// No CD-Text or subchannel data available
+	album[0] = '\0';
+	artist[0] = '\0';
+	return 0;
+}
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
@@ -170,8 +273,8 @@ static void scheduler_co_cdrom(void)
 					}
 					
 					// Also clean up numbered selection MGL files and audio CD player files
-					printf("CD-ROM: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, and /media/fat/[0-9]*.mgl\n");
-					int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl 2>/dev/null");
+					printf("CD-ROM: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, /media/fat/[0-9]*.mgl, and /media/fat/Audio*.mgl\n");
+					int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null");
 					printf("CD-ROM: Cleanup command result: %d\n", cleanup_result);
 					printf("CD-ROM: Cleaned up selection and audio player MGL files\n");
 				}
@@ -180,9 +283,64 @@ static void scheduler_co_cdrom(void)
 				if (cd_present && audio_cd && (!last_cd_present || !last_audio_cd)) {
 					printf("CD-ROM: Audio CD detected, creating audio player MGL\n");
 					
-					// Create a simple audio CD player MGL file
+					// Generate unique disc ID and extract embedded metadata
+					char disc_id[64] = "";
+					char album[256] = "";
+					char artist[256] = "";
+					int track_count = 0;
+					int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+					if (fd >= 0) {
+						struct cdrom_tochdr tochdr;
+						if (ioctl(fd, CDROMREADTOCHDR, &tochdr) == 0) {
+							track_count = tochdr.cdth_trk1 - tochdr.cdth_trk0 + 1;
+						}
+						
+						// Generate CDDB-style disc ID for potential metadata lookup
+						if (generate_cddb_disc_id(fd, disc_id, sizeof(disc_id)) == 0) {
+							printf("CD-ROM: Audio CD disc ID: %s\n", disc_id);
+						}
+						
+						// Try to extract embedded CD-Text metadata
+						if (extract_cdtext_metadata(fd, album, sizeof(album), artist, sizeof(artist))) {
+							printf("CD-ROM: Found embedded metadata - Album: %s, Artist: %s\n", album, artist);
+						}
+						
+						close(fd);
+					}
+					
+					// Create descriptive audio CD MGL filename with available metadata
 					char audio_mgl_path[512];
-					snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/\x97 Audio Disc.mgl");
+					if (strlen(album) > 0 && strlen(artist) > 0) {
+						// Use CD-Text metadata if available
+						char clean_album[256], clean_artist[256];
+						strncpy(clean_album, album, sizeof(clean_album) - 1);
+						strncpy(clean_artist, artist, sizeof(clean_artist) - 1);
+						
+						// Sanitize for filename
+						for (int i = 0; clean_album[i]; i++) {
+							if (clean_album[i] == '/' || clean_album[i] == '\\' || clean_album[i] == ':' || 
+							    clean_album[i] == '*' || clean_album[i] == '?' || clean_album[i] == '"' ||
+							    clean_album[i] == '<' || clean_album[i] == '>' || clean_album[i] == '|') {
+								clean_album[i] = '_';
+							}
+						}
+						for (int i = 0; clean_artist[i]; i++) {
+							if (clean_artist[i] == '/' || clean_artist[i] == '\\' || clean_artist[i] == ':' || 
+							    clean_artist[i] == '*' || clean_artist[i] == '?' || clean_artist[i] == '"' ||
+							    clean_artist[i] == '<' || clean_artist[i] == '>' || clean_artist[i] == '|') {
+								clean_artist[i] = '_';
+							}
+						}
+						
+						snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/%s - %s.mgl", 
+						         clean_artist, clean_album);
+					} else if (strlen(disc_id) > 0) {
+						// Use disc ID if no CD-Text
+						snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/Audio CD %s.mgl", disc_id);
+					} else {
+						// Fallback naming
+						snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/Audio CD.mgl");
+					}
 					
 					printf("CD-ROM: Attempting to create MGL at: %s\n", audio_mgl_path);
 					FILE* mgl = fopen(audio_mgl_path, "w");

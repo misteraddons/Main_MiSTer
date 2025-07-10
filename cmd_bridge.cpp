@@ -44,8 +44,8 @@ void cmd_bridge_init()
     
     // Clean up any leftover MGL files from previous session
     printf("CMD: Cleaning up previous CD-ROM MGL files\n");
-    printf("CMD: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, and /media/fat/[0-9]*.mgl\n");
-    int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
+    printf("CMD: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, /media/fat/[0-9]*.mgl, and /media/fat/Audio*.mgl\n");
+    int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
     printf("CMD: Cleanup command result: %d\n", cleanup_result);
     cmd_bridge_clear_current_mgl_path();
     
