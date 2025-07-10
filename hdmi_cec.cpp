@@ -298,6 +298,20 @@ bool cec_init(bool enable)
     
     printf("Step 11b: CEC timing configuration complete\n");
     
+    // Step 11c: Set legacy mode and clear rx buffers (per Linux driver)
+    printf("Step 11c: Setting CEC legacy mode and clearing RX buffers\n");
+    cec_write_register(0x4A, 0x00);  // Legacy mode
+    printf("Step 11c: CEC[0x4A]=0x00 (legacy mode)\n");
+    
+    // Step 11d: Power up CEC section (register 0xE2)
+    printf("Step 11d: Powering up CEC section\n");
+    int regE2_current = i2c_smbus_read_byte_data(main_fd, 0xE2);
+    printf("Step 11d: Current 0xE2=0x%02X\n", regE2_current);
+    // Set bit to power up CEC (exact bit depends on ADV7513 vs ADV7511)
+    int regE2_new = regE2_current | 0x01;  // Typical CEC power up bit
+    i2c_smbus_write_byte_data(main_fd, 0xE2, regE2_new);
+    printf("Step 11d: Set 0xE2=0x%02X (CEC power up)\n", regE2_new);
+    
     // Step 12: Wait for clock to stabilize and verify enable bit
     printf("Step 12: Waiting for CEC clock to stabilize (20ms)...\n");
     usleep(20000); // 20ms delay for clock stability
@@ -334,6 +348,14 @@ bool cec_init(bool enable)
     cec_write_register(CEC_SOFT_RESET, 0x00);
     printf("Step 13: Reset pulse low - CEC[0x50]=0x00\n");
     usleep(10000); // 10ms delay for CEC state machine to stabilize
+    
+    // Step 13a: Setup CEC logical addresses (per Linux driver)
+    printf("Step 13a: Setting up CEC logical addresses\n");
+    cec_write_register(CEC_LOGICAL_ADDR0, CEC_LOG_ADDR_PLAYBACK1);  // Primary address
+    cec_write_register(CEC_LOGICAL_ADDR1, 0xFF);  // No secondary address
+    cec_write_register(CEC_LOGICAL_ADDR2, 0xFF);  // No tertiary address
+    cec_write_register(CEC_LOGICAL_ADDR_MASK, 0x10);  // Enable address 0 only (bit 4 = addr 4)
+    printf("Step 13a: Logical address = %d (Playback Device 1)\n", CEC_LOG_ADDR_PLAYBACK1);
     
     // Step 13b: Re-apply ALL overrides after soft reset (they may have been cleared)
     printf("Step 13b: Re-applying all overrides after soft reset\n");
