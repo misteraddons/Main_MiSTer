@@ -206,12 +206,74 @@ bool cec_init(bool enable)
     // Step 11: Program clock divider AFTER enabling clock
     printf("Step 11: Programming clock divider for 12MHz → 750kHz\n");
     
-    uint8_t timing_value = CEC_CLOCK_DIV_12MHZ;  // 0x3C
-    printf("Step 11: Writing 0x%02X to CEC[0x4E]\n", timing_value);
-    cec_write_register(CEC_CLK_DIV, timing_value);
+    // Apply comprehensive CEC timing registers
+    printf("Step 11a: Applying comprehensive CEC timing configuration\n");
     
-    uint8_t clk_verify = cec_read_register(CEC_CLK_DIV);
-    printf("Step 11: Readback CEC[0x4E]=0x%02X (should be 0x%02X)\n", clk_verify, timing_value);
+    // Structure for register settings
+    struct {
+        uint8_t addr;
+        uint8_t value;
+        const char* desc;
+    } cec_timing_regs[] = {
+        // Clock divider (bits 7:2 = 0x0F, keep bits 1:0)
+        {0x4E, 0x3C, "Clock divider (0x0F << 2)"},  // 0x0F << 2 = 0x3C
+        
+        // CEC timing registers
+        {0x51, 0x0D, "CEC timing 1"},
+        {0x52, 0x2F, "CEC timing 2"},
+        {0x53, 0x0C, "CEC timing 3"},
+        {0x54, 0x4E, "CEC timing 4"},
+        {0x55, 0x0E, "CEC timing 5"},
+        {0x56, 0x10, "CEC timing 6"},
+        {0x57, 0x0A, "CEC timing 7"},
+        {0x58, 0xD7, "CEC timing 8"},
+        {0x59, 0x09, "CEC timing 9"},
+        {0x5A, 0xF6, "CEC timing 10"},
+        {0x5B, 0x0B, "CEC timing 11"},
+        {0x5C, 0xB8, "CEC timing 12"},
+        {0x5D, 0x07, "CEC timing 13"},
+        {0x5E, 0x08, "CEC timing 14"},
+        {0x5F, 0x05, "CEC timing 15"},
+        {0x60, 0xB7, "CEC timing 16"},
+        {0x61, 0x08, "CEC timing 17"},
+        {0x62, 0x5A, "CEC timing 18"},
+        {0x63, 0x01, "CEC timing 19"},
+        {0x64, 0xC2, "CEC timing 20"},
+        {0x65, 0x04, "CEC timing 21"},
+        {0x66, 0x65, "CEC timing 22"},
+        {0x67, 0x05, "CEC timing 23"},
+        {0x68, 0x46, "CEC timing 24"},
+        {0x69, 0x03, "CEC timing 25"},
+        {0x6A, 0x14, "CEC timing 26"},
+        {0x6B, 0x0A, "CEC timing 27"},
+        {0x6C, 0x8C, "CEC timing 28"},
+        {0x6E, 0x00, "CEC timing 29"},
+        {0x6F, 0xBC, "CEC timing 30"},
+        {0x71, 0x00, "CEC timing 31"},
+        {0x72, 0xE1, "CEC timing 32"},
+        {0x73, 0x02, "CEC timing 33"},
+        {0x74, 0xA3, "CEC timing 34"},
+        {0x75, 0x03, "CEC timing 35"},
+        {0x76, 0x84, "CEC timing 36"},
+    };
+    
+    // Apply all timing registers
+    for (int i = 0; i < sizeof(cec_timing_regs)/sizeof(cec_timing_regs[0]); i++) {
+        cec_write_register(cec_timing_regs[i].addr, cec_timing_regs[i].value);
+        uint8_t verify = cec_read_register(cec_timing_regs[i].addr);
+        if (verify != cec_timing_regs[i].value) {
+            printf("  CEC[0x%02X]: wrote 0x%02X, read 0x%02X - MISMATCH - %s\n", 
+                   cec_timing_regs[i].addr, cec_timing_regs[i].value, verify, cec_timing_regs[i].desc);
+        } else if (i < 5 || i == sizeof(cec_timing_regs)/sizeof(cec_timing_regs[0])-1) {
+            // Show first few and last for brevity
+            printf("  CEC[0x%02X]: 0x%02X - OK - %s\n", 
+                   cec_timing_regs[i].addr, verify, cec_timing_regs[i].desc);
+        } else if (i == 5) {
+            printf("  ... (applying remaining timing registers) ...\n");
+        }
+    }
+    
+    printf("Step 11b: CEC timing configuration complete\n");
     
     // Step 12: Wait for clock to stabilize and verify enable bit
     printf("Step 12: Waiting for CEC clock to stabilize (20ms)...\n");
