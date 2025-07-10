@@ -873,9 +873,17 @@ cmd_result_t cmd_search_games(const char* args)
     
     if (strlen(core_name) > 0)
     {
+        // Map system names to directory names
+        const char* dir_name = core_name;
+        if (strcmp(core_name, "SegaCD") == 0) {
+            dir_name = "MegaCD";  // Database uses SegaCD, but directory is MegaCD
+        }
+        
         // Search in specific core directory
         char core_path[512];
-        snprintf(core_path, sizeof(core_path), "%s/%s", games_base, core_name);
+        snprintf(core_path, sizeof(core_path), "%s/%s", games_base, dir_name);
+        
+        printf("CMD: Mapped system '%s' to directory '%s'\n", core_name, dir_name);
         
         // Manual recursive search since SCANO_DIR doesn't do deep recursion
         printf("CMD: Performing manual recursive search in '%s' for '%s'\n", core_path, game_name);

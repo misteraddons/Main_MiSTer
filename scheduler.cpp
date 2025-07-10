@@ -1,5 +1,11 @@
 #include "scheduler.h"
 #include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/cdrom.h>
+#include <errno.h>
+#include <string.h>
 #include "libco.h"
 #include "menu.h"
 #include "user_io.h"
@@ -7,10 +13,13 @@
 #include "fpga_io.h"
 #include "osd.h"
 #include "profiling.h"
+#include "cdrom.h"
+#include "cmd_bridge.h"
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
 static cothread_t co_ui = nullptr;
+static cothread_t co_cdrom = nullptr;
 static cothread_t co_last = nullptr;
 
 static void scheduler_wait_fpga_ready(void)
@@ -51,12 +60,92 @@ static void scheduler_co_ui(void)
 	}
 }
 
+static void scheduler_co_cdrom(void)
+{
+	static bool cdrom_initialized = false;
+	static int check_counter = 0;
+	static bool last_cd_present = false;
+	
+	printf("CD-ROM: Auto-detection coroutine started\n");
+	
+	for (;;)
+	{
+		// Initialize CD-ROM subsystem after a delay
+		if (!cdrom_initialized && check_counter > 300) { // ~15 seconds delay
+			cdrom_init();
+			cdrom_initialized = true;
+		}
+		
+		// Check for CD every ~5 seconds when in menu mode
+		if (cdrom_initialized && (check_counter % 100) == 0) { // Check every ~5 seconds
+			printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
+			
+			// Only run CD-ROM detection when in menu mode to prevent boot loops
+			if (is_menu()) {
+				// Proper disc detection using ioctl
+				bool cd_present = false;
+				if (access("/dev/sr0", F_OK) == 0) {
+					int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+					if (fd >= 0) {
+						// Use CDROM_DISC_STATUS to check if disc is actually present
+						int status = ioctl(fd, CDROM_DISC_STATUS);
+						close(fd);
+						
+						if (status == CDS_DISC_OK || status == CDS_DATA_1 || status == CDS_DATA_2 || 
+						    status == CDS_AUDIO || status == CDS_MIXED) {
+							cd_present = true;
+							printf("CD-ROM: Disc present and ready (status=%d)\n", status);
+						} else if (status == CDS_NO_DISC) {
+							printf("CD-ROM: No disc in drive\n");
+						} else if (status == CDS_TRAY_OPEN) {
+							printf("CD-ROM: Tray is open\n");
+						} else if (status == CDS_DRIVE_NOT_READY) {
+							printf("CD-ROM: Drive not ready\n");
+						} else {
+							printf("CD-ROM: Drive status unknown (%d)\n", status);
+						}
+					} else {
+						printf("CD-ROM: Cannot open device: %s\n", strerror(errno));
+					}
+				} else {
+					printf("CD-ROM: Device /dev/sr0 does not exist\n");
+				}
+				
+				printf("CD-ROM: cd_present=%d, last_cd_present=%d\n", cd_present, last_cd_present);
+				
+				// If CD status changed from not present to present, auto-load the game
+				if (cd_present && !last_cd_present) {
+					printf("CD-ROM: Device accessible, attempting auto-load...\n");
+					
+					// Use command bridge to trigger automatic loading
+					cmd_result_t result = cmd_bridge_process("cdrom_autoload");
+					if (result.success) {
+						printf("CD-ROM: Auto-load initiated successfully\n");
+					} else {
+						printf("CD-ROM: Auto-load failed: %s\n", result.message);
+					}
+				}
+				
+				last_cd_present = cd_present;
+			}
+		}
+		
+		check_counter++;
+		scheduler_yield();
+	}
+}
+
 static void scheduler_schedule(void)
 {
 	if (co_last == co_poll)
 	{
 		co_last = co_ui;
 		co_switch(co_ui);
+	}
+	else if (co_last == co_ui)
+	{
+		co_last = co_cdrom;
+		co_switch(co_cdrom);
 	}
 	else
 	{
@@ -71,6 +160,7 @@ void scheduler_init(void)
 
 	co_poll = co_create(co_stack_size, scheduler_co_poll);
 	co_ui = co_create(co_stack_size, scheduler_co_ui);
+	co_cdrom = co_create(co_stack_size, scheduler_co_cdrom);
 }
 
 void scheduler_run(void)
@@ -82,6 +172,7 @@ void scheduler_run(void)
 		scheduler_schedule();
 	}
 
+	co_delete(co_cdrom);
 	co_delete(co_ui);
 	co_delete(co_poll);
 	co_delete(co_scheduler);

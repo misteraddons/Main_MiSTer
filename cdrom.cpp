@@ -169,11 +169,24 @@ bool cdrom_is_disc_inserted()
         return false;
     }
     
+    // Force cache flush and ensure we read from physical disc
+    printf("CD-ROM: Flushing drive cache...\n");
+    ioctl(fd, CDROM_MEDIA_CHANGED);
+    
     // First try to read from sector 0 (data disc)
     char buffer[2048];
+    memset(buffer, 0, sizeof(buffer));
+    
+    // Ensure we start from beginning of disc
+    if (lseek(fd, 0, SEEK_SET) < 0) {
+        printf("CD-ROM: Failed to seek to sector 0\n");
+        close(fd);
+        return false;
+    }
+    
     ssize_t result = read(fd, buffer, sizeof(buffer));
     
-    printf("CD-ROM: Sector 0 read result: %ld bytes\n", result);
+    printf("CD-ROM: Sector 0 read result: %d bytes\n", (int)result);
     
     if (result > 0) {
         printf("CD-ROM: Data disc detected at sector 0\n");
@@ -794,6 +807,23 @@ bool extract_saturn_disc_id(const char* device_path, char* disc_id, size_t disc_
     // Saturn game ID is typically found at offset 0x20 from start of header
     // Format is usually manufacturer ID + product code
     char* id_start = header + 0x20;
+    
+    // Debug: Show raw data at ID location
+    printf("CD-ROM: Raw data at offset 0x20: ");
+    for (int i = 0; i < 16; i++) {
+        if (id_start + i < header + sizeof(header)) {
+            printf("%02X ", (unsigned char)(id_start[i]));
+        }
+    }
+    printf("\n");
+    printf("CD-ROM: ASCII at offset 0x20: ");
+    for (int i = 0; i < 16; i++) {
+        if (id_start + i < header + sizeof(header)) {
+            char c = id_start[i];
+            printf("%c", (c >= 32 && c <= 126) ? c : '.');
+        }
+    }
+    printf("\n");
     
     // Extract product code (usually 8-10 characters)
     char temp_id[32] = "";
@@ -1449,36 +1479,52 @@ bool search_gamedb_for_disc(const char* db_path, const char* disc_id, CDRomGameI
         return false;
     }
     
-    // Extract fields directly from the JSON object
+    // Create a substring containing only this disc's entry
+    size_t entry_length = obj_end - obj_start + 1;
+    char* entry_json = (char*)malloc(entry_length + 1);
+    if (!entry_json) {
+        free(json_buffer);
+        return false;
+    }
+    
+    strncpy(entry_json, obj_start, entry_length);
+    entry_json[entry_length] = '\0';
+    
+    printf("CD-ROM: Parsing entry: %.200s...\n", entry_json);
+    
+    // Extract fields from the specific JSON entry
     bool found = false;
     
     // Extract title
-    if (extract_json_string(json_buffer, "title", result->title, sizeof(result->title))) {
+    if (extract_json_string(entry_json, "title", result->title, sizeof(result->title))) {
         printf("CD-ROM: Title: %s\n", result->title);
         found = true;
     }
     
     // Extract region
-    if (extract_json_string(json_buffer, "region", result->region, sizeof(result->region))) {
+    if (extract_json_string(entry_json, "region", result->region, sizeof(result->region))) {
         printf("CD-ROM: Region: %s\n", result->region);
     } else {
         strncpy(result->region, "Unknown", sizeof(result->region) - 1);
     }
     
     // Extract publisher
-    if (extract_json_string(json_buffer, "publisher", result->publisher, sizeof(result->publisher))) {
+    if (extract_json_string(entry_json, "publisher", result->publisher, sizeof(result->publisher))) {
         printf("CD-ROM: Publisher: %s\n", result->publisher);
     }
     
     // Extract year
-    if (extract_json_string(json_buffer, "year", result->year, sizeof(result->year))) {
+    if (extract_json_string(entry_json, "year", result->year, sizeof(result->year))) {
         printf("CD-ROM: Year: %s\n", result->year);
     }
     
     // Extract product code
-    if (extract_json_string(json_buffer, "product_code", result->product_code, sizeof(result->product_code))) {
+    if (extract_json_string(entry_json, "product_code", result->product_code, sizeof(result->product_code))) {
         printf("CD-ROM: Product Code: %s\n", result->product_code);
     }
+    
+    // Clean up entry JSON
+    free(entry_json);
     
     // Set the disc ID
     strncpy(result->id, disc_id, sizeof(result->id) - 1);
