@@ -7153,13 +7153,8 @@ void PrintDirectory(int expand)
 				len2 = 0;
 			}
 
-			// Check if this is an MGL file and show CD icon
-			if (isXmlName(flist_DirItem(k)->de.d_name) == 2) {
-				leftchar = 151;  // CD icon for MGL files
-			} else {
-				if (!i && k) leftchar = 17;
-				if (i && k < flist_nDirEntries() - 1) leftchar = 16;
-			}
+			if (!i && k) leftchar = 17;
+			if (i && k < flist_nDirEntries() - 1) leftchar = 16;
 		}
 		else if(!flist_nDirEntries()) // selected directory is empty
 		{
