@@ -170,7 +170,7 @@ static void scheduler_co_cdrom(void)
 					}
 					
 					// Also clean up numbered selection MGL files and audio CD player files
-					system("rm -f /media/fat/\"\x97 \"*.mgl 2>/dev/null");
+					system("rm -f /media/fat/\"[CD] \"*.mgl 2>/dev/null");
 					printf("CD-ROM: Cleaned up selection and audio player MGL files\n");
 				}
 				
@@ -180,8 +180,9 @@ static void scheduler_co_cdrom(void)
 					
 					// Create a simple audio CD player MGL file
 					char audio_mgl_path[512];
-					snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/\x97 Audio Disc.mgl");
+					snprintf(audio_mgl_path, sizeof(audio_mgl_path), "/media/fat/[CD] Audio Disc.mgl");
 					
+					printf("CD-ROM: Attempting to create MGL at: %s\n", audio_mgl_path);
 					FILE* mgl = fopen(audio_mgl_path, "w");
 					if (mgl) {
 						fprintf(mgl, "<mistergamedescription>\n");
@@ -189,19 +190,31 @@ static void scheduler_co_cdrom(void)
 						fprintf(mgl, "    <file delay=\"1\" type=\"s\" index=\"0\" path=\"/dev/sr0\"/>\n");
 						fprintf(mgl, "</mistergamedescription>\n");
 						fclose(mgl);
-						printf("CD-ROM: Created audio player MGL: %s\n", audio_mgl_path);
+						printf("CD-ROM: Successfully created audio player MGL: %s\n", audio_mgl_path);
+						
+						// Verify file was created
+						if (access(audio_mgl_path, F_OK) == 0) {
+							printf("CD-ROM: Verified MGL file exists\n");
+						} else {
+							printf("CD-ROM: ERROR: MGL file does not exist after creation!\n");
+						}
 						
 						// Update current MGL path tracking
 						cmd_bridge_set_current_mgl_path(audio_mgl_path);
 						
 						// Refresh menu to show the new audio player option
+						printf("CD-ROM: Checking if menu is present...\n");
 						if (menu_present()) {
-							usleep(100000); // 100ms delay
+							printf("CD-ROM: Menu is present, triggering refresh\n");
+							usleep(200000); // Increased delay to 200ms
 							menu_key_set(102); // HOME key for refresh
-							printf("CD-ROM: Menu refreshed to show audio player\n");
+							printf("CD-ROM: Menu refresh triggered with HOME key\n");
+						} else {
+							printf("CD-ROM: Menu not present, skipping refresh\n");
 						}
 					} else {
-						printf("CD-ROM: Failed to create audio player MGL\n");
+						printf("CD-ROM: ERROR: Failed to create audio player MGL at: %s (errno: %d, %s)\n", 
+						       audio_mgl_path, errno, strerror(errno));
 					}
 				}
 				// If CD status changed from not present to present and it's not audio, delay auto-load

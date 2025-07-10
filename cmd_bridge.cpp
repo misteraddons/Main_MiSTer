@@ -44,7 +44,7 @@ void cmd_bridge_init()
     
     // Clean up any leftover MGL files from previous session
     printf("CMD: Cleaning up previous CD-ROM MGL files\n");
-    system("rm -f /media/fat/\"\x97 \"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
+    system("rm -f /media/fat/\"[CD] \"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
     cmd_bridge_clear_current_mgl_path();
     
     // Clear any existing registrations
@@ -345,8 +345,8 @@ cmd_result_t cmd_load_game(const char* args)
             // Keep spaces and parentheses for better readability
         }
         
-        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/\x97 %s.mgl", game_name);
-        printf("CMD: MGL path: %s\n", mgl_path);
+        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/[CD] %s.mgl", game_name);
+        printf("CMD: Attempting to create MGL at: %s\n", mgl_path);
         
         // Store MGL path for cleanup when disc is ejected
         strncpy(current_mgl_path, mgl_path, sizeof(current_mgl_path) - 1);
@@ -354,7 +354,8 @@ cmd_result_t cmd_load_game(const char* args)
         
         FILE* mgl = fopen(mgl_path, "w");
         if (!mgl) {
-            printf("CMD: ERROR - Failed to create MGL file at %s\n", mgl_path);
+            printf("CMD: ERROR - Failed to create MGL file at %s (errno: %d, %s)\n", 
+                   mgl_path, errno, strerror(errno));
             strcpy(result.message, "Failed to create MGL file");
             return result;
         }
@@ -1727,7 +1728,7 @@ static void show_game_selection_popup()
         // Create numbered selection MGL file
         char selection_mgl[512];
         snprintf(selection_mgl, sizeof(selection_mgl), 
-                 "/media/fat/\x97 %d-%s.mgl", 
+                 "/media/fat/[CD] %d-%s.mgl", 
                  i + 1, clean_title);
         
         // Create MGL content
@@ -1768,19 +1769,22 @@ static void refresh_menu_directory()
 {
 #ifndef TEST_BUILD
     // Check if menu is currently visible
+    printf("CMD: Checking if menu is present for refresh...\n");
     if (menu_present()) {
-        printf("CMD: Triggering menu refresh to show new MGL file\n");
+        printf("CMD: Menu is present, triggering refresh to show new MGL file\n");
         
         // Give file system a moment to sync the new MGL file
-        usleep(100000); // 100ms delay
+        printf("CMD: Waiting 200ms for filesystem sync...\n");
+        usleep(200000); // Increased to 200ms delay
         
         // Use HOME key to trigger menu refresh (this is the actual refresh key in MiSTer)
         // KEY_HOME is 102 in linux/input.h
+        printf("CMD: Sending HOME key (102) to refresh menu...\n");
         menu_key_set(102); // HOME key
         
-        printf("CMD: Menu refresh triggered with HOME key\n");
+        printf("CMD: Menu refresh completed with HOME key\n");
     } else {
-        printf("CMD: Menu not visible, skipping refresh\n");
+        printf("CMD: Menu not present, skipping refresh\n");
     }
 #else
     printf("CMD: Menu refresh not available in test build\n");
