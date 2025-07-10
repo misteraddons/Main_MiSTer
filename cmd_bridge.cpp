@@ -1374,11 +1374,14 @@ static void refresh_menu_directory()
     if (menu_present()) {
         printf("CMD: Triggering menu refresh to show new MGL file\n");
         
-        // Use F5 key (refresh) to trigger menu refresh
-        // F5 is KEY_F5 which is 63 in linux/input.h
-        menu_key_set(63); // F5 key
+        // Give file system a moment to sync the new MGL file
+        usleep(100000); // 100ms delay
         
-        printf("CMD: Menu refresh triggered\n");
+        // Use HOME key to trigger menu refresh (this is the actual refresh key in MiSTer)
+        // KEY_HOME is 102 in linux/input.h
+        menu_key_set(102); // HOME key
+        
+        printf("CMD: Menu refresh triggered with HOME key\n");
     } else {
         printf("CMD: Menu not visible, skipping refresh\n");
     }
