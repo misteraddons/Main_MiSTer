@@ -10,6 +10,7 @@
 #include <linux/cdrom.h>
 #include <time.h>
 #include "cfg.h"
+#include "fuzzy_match.h"
 
 #ifndef TEST_BUILD
 #include "menu.h"
@@ -744,14 +745,26 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
     return result;
 }
 
-// Search results storage for selection
+// Enhanced search results storage with fuzzy match scores
 #define MAX_SEARCH_RESULTS 50
-static char search_results[MAX_SEARCH_RESULTS][512];
+typedef struct {
+    char path[512];
+    char title[256];
+    int fuzzy_score;
+    int region_score;
+    int total_score;
+} search_result_entry_t;
+
+static search_result_entry_t search_results_enhanced[MAX_SEARCH_RESULTS];
+static char search_results[MAX_SEARCH_RESULTS][512]; // Keep for backward compatibility
 static int search_results_count = 0;
 static char last_search_type[64] = "";
 
-// Forward declaration for helper function
+// Forward declaration for helper functions
 static void store_search_results(const char* search_type);
+static void extract_game_title_from_path(const char* path, char* title, size_t title_size);
+static void sort_search_results_by_score();
+static void add_enhanced_search_result(const char* path, const char* search_term, const char* preferred_region);
 
 // Search command implementations
 #ifndef TEST_BUILD
@@ -952,10 +965,30 @@ cmd_result_t cmd_search_games(const char* args)
             }
         }
         
-        // Use simpler approach with find command to avoid ScanDirectory recursion issues
-        printf("CMD: Using find command approach for deep search\n");
+        // Use broader search to find more potential matches for fuzzy matching
+        printf("CMD: Using enhanced fuzzy search approach\n");
+        
+        // Extract base name from search term for broader initial search
+        char base_search[256];
+        extract_base_name(game_name, base_search, sizeof(base_search));
+        
+        // Also try searching with just the first word for very broad matching
+        char first_word[64] = "";
+        const char* space = strchr(base_search, ' ');
+        if (space) {
+            int word_len = space - base_search;
+            if (word_len < (int)sizeof(first_word) - 1) {
+                strncpy(first_word, base_search, word_len);
+                first_word[word_len] = '\0';
+            }
+        } else {
+            strncpy(first_word, base_search, sizeof(first_word) - 1);
+            first_word[sizeof(first_word) - 1] = '\0';
+        }
+        
         char find_cmd[1024];
-        snprintf(find_cmd, sizeof(find_cmd), "find /media/fat/%s -type f \\( -iname '*%s*.cue' -o -iname '*%s*.chd' \\) 2>/dev/null | head -20", core_path, game_name, game_name);
+        snprintf(find_cmd, sizeof(find_cmd), "find /media/fat/%s -type f \\( -iname '*%s*.cue' -o -iname '*%s*.chd' -o -iname '*%s*.cue' -o -iname '*%s*.chd' \\) 2>/dev/null | head -50", 
+                 core_path, game_name, game_name, first_word, first_word);
         
         FILE* fp = popen(find_cmd, "r");
         if (fp) {
@@ -964,20 +997,38 @@ cmd_result_t cmd_search_games(const char* args)
             search_results_count = 0;
             strcpy(last_search_type, "games");
             
+            printf("CMD: Fuzzy matching results for '%s' (preferred region: %s):\n", game_name, cfg.cdrom_preferred_region);
+            
             while (fgets(line, sizeof(line), fp) && search_results_count < MAX_SEARCH_RESULTS) {
                 // Remove newline
                 line[strcspn(line, "\n")] = 0;
                 if (strlen(line) == 0) continue;
                 
-                printf("CMD: Found file: %s\n", line);
+                // Add to enhanced search results with fuzzy matching
+                add_enhanced_search_result(line, game_name, cfg.cdrom_preferred_region);
                 
-                // Store this result
-                strncpy(search_results[search_results_count], line, sizeof(search_results[0]) - 1);
-                search_results[search_results_count][sizeof(search_results[0]) - 1] = '\0';
-                search_results_count++;
-                match_count++;
+                // Only count as a match if fuzzy score is reasonable (>= 30)
+                search_result_entry_t* entry = &search_results_enhanced[search_results_count - 1];
+                if (entry->fuzzy_score >= 30) {
+                    match_count++;
+                } else {
+                    // Remove this result if fuzzy score is too low
+                    search_results_count--;
+                }
             }
             pclose(fp);
+            
+            // Sort results by score
+            sort_search_results_by_score();
+            
+            // Display ranked results with scores
+            printf("CMD: Search results ranked by relevance:\n");
+            for (int i = 0; i < search_results_count; i++) {
+                search_result_entry_t* entry = &search_results_enhanced[i];
+                printf("CMD: %d. [Score:%d F:%d R:%d] %s -> %s\n", 
+                       i + 1, entry->total_score, entry->fuzzy_score, entry->region_score,
+                       entry->title, entry->path);
+            }
         } else {
             printf("CMD: Find command failed, falling back to basic search\n");
             
@@ -1364,6 +1415,103 @@ const char* cmd_bridge_get_current_mgl_path()
 void cmd_bridge_clear_current_mgl_path()
 {
     current_mgl_path[0] = '\0';
+}
+
+// Enhanced search helper functions
+static void extract_game_title_from_path(const char* path, char* title, size_t title_size)
+{
+    // Extract filename from path
+    const char* filename = strrchr(path, '/');
+    if (filename) {
+        filename++; // Skip the '/'
+    } else {
+        filename = path;
+    }
+    
+    // Copy filename and remove extension
+    strncpy(title, filename, title_size - 1);
+    title[title_size - 1] = '\0';
+    
+    // Remove file extension
+    char* ext = strrchr(title, '.');
+    if (ext) {
+        *ext = '\0';
+    }
+}
+
+static void sort_search_results_by_score()
+{
+    // Simple bubble sort by total score (descending)
+    for (int i = 0; i < search_results_count - 1; i++) {
+        for (int j = 0; j < search_results_count - i - 1; j++) {
+            if (search_results_enhanced[j].total_score < search_results_enhanced[j + 1].total_score) {
+                // Swap entries
+                search_result_entry_t temp = search_results_enhanced[j];
+                search_results_enhanced[j] = search_results_enhanced[j + 1];
+                search_results_enhanced[j + 1] = temp;
+            }
+        }
+    }
+    
+    // Update backward compatibility array
+    for (int i = 0; i < search_results_count; i++) {
+        strncpy(search_results[i], search_results_enhanced[i].path, sizeof(search_results[i]) - 1);
+        search_results[i][sizeof(search_results[i]) - 1] = '\0';
+    }
+}
+
+static void add_enhanced_search_result(const char* path, const char* search_term, const char* preferred_region)
+{
+    if (search_results_count >= MAX_SEARCH_RESULTS) return;
+    
+    search_result_entry_t* entry = &search_results_enhanced[search_results_count];
+    
+    // Store path
+    strncpy(entry->path, path, sizeof(entry->path) - 1);
+    entry->path[sizeof(entry->path) - 1] = '\0';
+    
+    // Extract title from path
+    extract_game_title_from_path(path, entry->title, sizeof(entry->title));
+    
+    // Calculate fuzzy match score
+    entry->fuzzy_score = fuzzy_match_score(entry->title, search_term);
+    
+    // Calculate region score by extracting region from title
+    char base_title[256];
+    extract_base_name(entry->title, base_title, sizeof(base_title));
+    
+    // Enhanced region extraction (look for known regions in parentheses)
+    entry->region_score = 50; // Default for unknown/no region
+    
+    const char* known_regions[] = {"USA", "US", "Europe", "EUR", "Japan", "JPN", "JP", "World", "Asia", NULL};
+    
+    // Check all parentheses for known regions
+    const char* search_pos = entry->title;
+    while ((search_pos = strchr(search_pos, '(')) != NULL) {
+        const char* region_end = strchr(search_pos, ')');
+        if (region_end) {
+            char region[64];
+            int region_len = region_end - search_pos - 1;
+            if (region_len > 0 && region_len < (int)sizeof(region) - 1) {
+                strncpy(region, search_pos + 1, region_len);
+                region[region_len] = '\0';
+                
+                // Check if this is a known region
+                for (int i = 0; known_regions[i]; i++) {
+                    if (strcasecmp(region, known_regions[i]) == 0) {
+                        entry->region_score = region_priority_score(region, preferred_region);
+                        break;
+                    }
+                }
+            }
+        }
+        search_pos++;
+    }
+    
+    // Calculate total score (weighted: 70% fuzzy match, 30% region preference)
+    entry->total_score = (entry->fuzzy_score * 7 + entry->region_score * 3) / 10;
+    
+    search_results_count++;
 }
 
 // Function to refresh the menu directory view after creating MGL
