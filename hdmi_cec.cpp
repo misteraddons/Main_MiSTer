@@ -32,8 +32,10 @@ static void cec_debug_message(const char* direction, const cec_message_t *msg);
 // Calculate CEC clock divider based on 12MHz crystal
 // CEC requires 750kHz clock from 12MHz input
 // Clock divider = Input Clock / Output Clock - 1
-// For 12MHz: ADV7513 uses 0x3C for proper CEC timing
-#define CEC_CLOCK_DIV_12MHZ 0x3C
+// For 12MHz: Divide by 16 to get 750kHz CEC clock
+// Clock divider value = 15 (0x0F) -> Division = 16
+// 12MHz / 16 = 750kHz
+#define CEC_CLOCK_DIV_12MHZ 0x0F
 
 static bool cec_write_register(uint8_t reg, uint8_t value)
 {
@@ -257,11 +259,18 @@ bool cec_init(bool enable)
         {0x76, 0x84, "CEC timing 36"},
     };
     
-    // First handle register 0x4E specially to preserve bits 1:0
+    // Handle register 0x4E - CEC Clock Divider and Power Mode
+    // Bits 7:2 = Clock divider (0x0F for divide-by-16)
+    // Bits 1:0 = Power mode:
+    //   00 = Completely Power Down
+    //   01 = Always Active
+    //   10 = Depend on HPD status
+    //   11 = Depend on HPD status
     uint8_t reg4E_current = cec_read_register(0x4E);
-    uint8_t reg4E_new = (reg4E_current & 0x03) | (0x0F << 2);  // Preserve bits 1:0, set bits 7:2 to 0x0F
-    printf("  CEC[0x4E]: Current=0x%02X, New=0x%02X (bits 7:2=0x0F, preserving bits 1:0)\n", 
-           reg4E_current, reg4E_new);
+    uint8_t cec_power_mode = 0x01;  // Always Active - most reliable for CEC
+    uint8_t reg4E_new = (cec_power_mode & 0x03) | (0x0F << 2);  // Power mode in bits 1:0, divider in bits 7:2
+    printf("  CEC[0x4E]: Current=0x%02X (power mode=%d), New=0x%02X (power=Always Active, divider=15)\n", 
+           reg4E_current, (reg4E_current & 0x03), reg4E_new);
     cec_write_register(0x4E, reg4E_new);
     uint8_t reg4E_verify = cec_read_register(0x4E);
     if (reg4E_verify != reg4E_new) {
