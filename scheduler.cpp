@@ -18,6 +18,7 @@
 #include "profiling.h"
 #include "cdrom.h"
 #include "cmd_bridge.h"
+#include "cfg.h"
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
@@ -164,7 +165,9 @@ static void scheduler_co_cdrom(void)
 				// If CD status changed from not present to present, delay auto-load
 				if (cd_present && !last_cd_present) {
 					printf("CD-ROM: Disc detected, scheduling auto-load...\n");
-					cdrom_autoload_delay = 100; // Longer delay to let disc fully settle
+					// Use configurable delay (convert seconds to ticks: seconds * 50 ticks/second)
+					// If delay is 0, use 1 tick minimum to ensure proper execution flow
+					cdrom_autoload_delay = cfg.cdrom_autoload_delay > 0 ? cfg.cdrom_autoload_delay * 50 : 1;
 				}
 				
 				last_cd_present = cd_present;

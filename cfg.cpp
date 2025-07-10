@@ -117,6 +117,9 @@ static const ini_var_t ini_vars[] =
 	{ "PLAYER_6_CONTROLLER", (void*)(&(cfg.player_controller[5])), STRINGARR, sizeof(cfg.player_controller[0]) / sizeof(cfg.player_controller[0][0]), sizeof(cfg.player_controller[0][0]) },
 	{ "DISABLE_AUTOFIRE", (void *)(&(cfg.disable_autofire)), UINT8, 0, 1 },
 	{ "CDROM_AUTOLOAD", (void *)(&(cfg.cdrom_autoload)), UINT8, 0, 1 },
+	{ "CDROM_AUTOLOAD_DELAY", (void *)(&(cfg.cdrom_autoload_delay)), UINT8, 0, 10 },
+	{ "CDROM_AUTO_SELECT", (void *)(&(cfg.cdrom_auto_select)), UINT8, 0, 1 },
+	{ "CDROM_PREFERRED_REGION", (void *)(&(cfg.cdrom_preferred_region)), STRING, 0, sizeof(cfg.cdrom_preferred_region) - 1 },
 	{ "VIDEO_BRIGHTNESS", (void *)(&(cfg.video_brightness)), UINT8, 0, 100 },
 	{ "VIDEO_CONTRAST", (void *)(&(cfg.video_contrast)), UINT8, 0, 100 },
 	{ "VIDEO_SATURATION", (void *)(&(cfg.video_saturation)), UINT8, 0, 100 },
@@ -588,6 +591,9 @@ void cfg_parse()
 	cfg.video_saturation = 100;
 	cfg.video_hue = 0;
 	cfg.cdrom_autoload = 0;
+	cfg.cdrom_autoload_delay = 0;
+	cfg.cdrom_auto_select = 0;
+	strcpy(cfg.cdrom_preferred_region, "USA");
 	strcpy(cfg.video_gain_offset, "1, 0, 1, 0, 1, 0");
 	strcpy(cfg.main, "MiSTer");
 	has_video_sections = false;

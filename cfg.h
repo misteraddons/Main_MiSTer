@@ -84,6 +84,8 @@ typedef struct {
 	uint16_t video_off;
 	uint8_t disable_autofire;
 	uint8_t cdrom_autoload;
+	uint8_t cdrom_autoload_delay;
+	uint8_t cdrom_auto_select;
 	uint8_t video_brightness;
 	uint8_t video_contrast;
 	uint8_t video_saturation;
@@ -98,6 +100,7 @@ typedef struct {
 	uint32_t controller_unique_mapping[256];
 	char osd_lock[25];
 	uint16_t osd_lock_time;
+	char cdrom_preferred_region[16];
 	char debug;
 	char main[1024];
 } cfg_t;
