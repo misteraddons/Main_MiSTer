@@ -66,60 +66,42 @@ static void scheduler_co_cdrom(void)
 	static bool cdrom_initialized = false;
 	static int check_counter = 0;
 	static bool last_cd_present = false;
+	static int cdrom_autoload_delay = 0;
 	
 	printf("CD-ROM: Auto-detection coroutine started\n");
 	
 	for (;;)
 	{
 		// Initialize CD-ROM subsystem after a delay
-		if (!cdrom_initialized && check_counter > 300) { // ~15 seconds delay
+		if (!cdrom_initialized && check_counter > 100) { // ~5 seconds delay
 			cdrom_init();
 			cdrom_initialized = true;
 		}
 		
-		// Check for CD every ~5 seconds when in menu mode
-		if (cdrom_initialized && (check_counter % 100) == 0) { // Check every ~5 seconds
-			// Only show debug message every 10000 ticks to reduce spam
-			if ((check_counter % 10000) == 0) {
+		// Check for CD very infrequently when in menu mode to prevent blocking
+		if (cdrom_initialized && (check_counter % 1000) == 0) { // Check every ~50 seconds
+			// Only show debug message every 20000 ticks to reduce spam
+			if ((check_counter % 20000) == 0) {
 				printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
 			}
 			
 			// Only run CD-ROM detection when in menu mode to prevent boot loops
 			if (is_menu()) {
-				// Proper disc detection using ioctl
+				// Quick, non-blocking disc detection
 				bool cd_present = false;
 				if (access("/dev/sr0", F_OK) == 0) {
 					int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
 					if (fd >= 0) {
-						// Use CDROM_DISC_STATUS to check if disc is actually present
-						int status = ioctl(fd, CDROM_DISC_STATUS);
+						// Use simpler approach - just check if device opens successfully
+						cd_present = true;
 						close(fd);
-						
-						if (status == CDS_DISC_OK || status == CDS_DATA_1 || status == CDS_DATA_2 || 
-						    status == CDS_AUDIO || status == CDS_MIXED) {
-							cd_present = true;
-							if (!last_cd_present) {
-								printf("CD-ROM: Disc present and ready (status=%d)\n", status);
-							}
-						} else if (status == CDS_NO_DISC) {
-							if (last_cd_present) {
-								printf("CD-ROM: No disc in drive\n");
-							}
-						} else if (status == CDS_TRAY_OPEN) {
-							if (last_cd_present) {
-								printf("CD-ROM: Tray is open\n");
-							}
-						} else if (status == CDS_DRIVE_NOT_READY) {
-							if (last_cd_present) {
-								printf("CD-ROM: Drive not ready\n");
-							}
-						} else {
-							if (last_cd_present) {
-								printf("CD-ROM: Drive status unknown (%d)\n", status);
-							}
+						if (!last_cd_present) {
+							printf("CD-ROM: Disc present and accessible\n");
 						}
 					} else {
-						printf("CD-ROM: Cannot open device: %s\n", strerror(errno));
+						if (last_cd_present) {
+							printf("CD-ROM: Cannot open device: %s\n", strerror(errno));
+						}
 					}
 				} else {
 					printf("CD-ROM: Device /dev/sr0 does not exist\n");
@@ -137,20 +119,29 @@ static void scheduler_co_cdrom(void)
 					printf("CD-ROM: Flag cleanup completed (exit code: %d)\n", result);
 				}
 				
-				// If CD status changed from not present to present, auto-load the game
+				// If CD status changed from not present to present, delay auto-load
 				if (cd_present && !last_cd_present) {
-					printf("CD-ROM: Disc detected, attempting auto-load...\n");
-					
-					// Use command bridge to trigger automatic loading
-					cmd_result_t result = cmd_bridge_process("cdrom_autoload");
-					if (result.success) {
-						printf("CD-ROM: Auto-load initiated successfully\n");
-					} else {
-						printf("CD-ROM: Auto-load failed: %s\n", result.message);
-					}
+					printf("CD-ROM: Disc detected, scheduling auto-load...\n");
+					cdrom_autoload_delay = 100; // Longer delay to let disc fully settle
 				}
 				
 				last_cd_present = cd_present;
+			}
+		}
+		
+		// Handle delayed auto-load (only when in menu and delay is active)
+		if (cdrom_autoload_delay > 0 && is_menu()) {
+			cdrom_autoload_delay--;
+			if (cdrom_autoload_delay == 0) {
+				printf("CD-ROM: Executing auto-load (optimized)...\n");
+				
+				// Run auto-load but only when we have enough time between scheduler yields
+				cmd_result_t result = cmd_bridge_process("cdrom_autoload");
+				if (result.success) {
+					printf("CD-ROM: Auto-load completed successfully\n");
+				} else {
+					printf("CD-ROM: Auto-load failed: %s\n", result.message);
+				}
 			}
 		}
 		

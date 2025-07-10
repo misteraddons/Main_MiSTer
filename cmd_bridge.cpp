@@ -381,16 +381,8 @@ cmd_result_t cmd_load_game(const char* args)
             printf("CMD: Also copied MGL to autorun location: %s\n", autorun_path);
         }
         
-        // Load the MGL file using load_core command
-        char cmd[512];
-        snprintf(cmd, sizeof(cmd), "load_core %s", mgl_path);
-        printf("CMD: Sending load_core command for MGL: %s\n", cmd);
-        
-        bool send_result = cmd_bridge_send_to_mister(cmd);
-        printf("CMD: cmd_bridge_send_to_mister returned: %s\n", send_result ? "true" : "false");
-        
-        // Try direct MGL loading using MiSTer's internal xml_load function
-        printf("CMD: Trying direct MGL loading using xml_load function\n");
+        // Load the MGL file using direct xml_load function
+        printf("CMD: Loading MGL file using xml_load function\n");
         
 #ifndef TEST_BUILD
         int xml_result = xml_load(mgl_path);
@@ -402,15 +394,17 @@ cmd_result_t cmd_load_game(const char* args)
             xml_result = xml_load(autorun_path);
             printf("CMD: xml_load (autorun) returned: %d\n", xml_result);
         }
+        
+        if (xml_result == 0) {
 #else
         printf("CMD: xml_load not available in test build\n");
+        bool xml_result = false;
+        if (false) {
 #endif
-        
-        if (send_result) {
             result.success = true;
             snprintf(result.message, sizeof(result.message), "Loading %s game: %s", system, args);
             result.result_code = 0;
-            printf("CMD: MiSTer_cmd command sent successfully\n");
+            printf("CMD: MGL loaded successfully\n");
             
             // Give MiSTer time to process the command and load the core
             printf("CMD: Waiting 5 seconds for MiSTer to process MGL and load core...\n");
