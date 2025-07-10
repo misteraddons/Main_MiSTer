@@ -78,9 +78,11 @@ int main(int argc, char *argv[])
 	cmd_bridge_init();
 
 #ifdef USE_SCHEDULER
+	printf("Using scheduler mode - CD-ROM auto-detection disabled\n");
 	scheduler_init();
 	scheduler_run();
 #else
+	printf("Using main loop mode - CD-ROM auto-detection enabled\n");
 	// Initialize CD-ROM processing in background
 	static bool cdrom_initialized = false;
 	static int boot_delay_counter = 0;
@@ -109,8 +111,10 @@ int main(int argc, char *argv[])
 		}
 		
 		
-		// CD-ROM background detection - check every ~30 seconds when in menu
-		if (cdrom_initialized && (boot_delay_counter % 2400) == 0) { // Check every ~30 seconds
+		// CD-ROM background detection - check every ~5 seconds when in menu (for testing)
+		if (cdrom_initialized && (boot_delay_counter % 400) == 0) { // Check every ~5 seconds
+			printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", boot_delay_counter, is_menu());
+			
 			// Only run CD-ROM detection when in menu mode to prevent boot loops
 			if (!is_menu()) {
 				continue;
@@ -124,8 +128,15 @@ int main(int argc, char *argv[])
 				if (fd >= 0) {
 					close(fd);
 					cd_present = true;
+					printf("CD-ROM: Device accessible\n");
+				} else {
+					printf("CD-ROM: Device exists but not accessible\n");
 				}
+			} else {
+				printf("CD-ROM: Device /dev/sr0 does not exist\n");
 			}
+			
+			printf("CD-ROM: cd_present=%d, last_cd_present=%d\n", cd_present, last_cd_present);
 			
 			// If CD status changed from not present to present, auto-load the game
 			if (cd_present && !last_cd_present) {

@@ -6,7 +6,9 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <string.h>
+#include <sys/ioctl.h>
+#include <linux/cdrom.h>
+#include <time.h>
 
 #ifndef TEST_BUILD
 #include "menu.h"
@@ -653,20 +655,37 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
     
     printf("CMD: Game identified: %s\n", game_info.title);
     
-    // Check if we've already processed this game
+    // Use the disc ID that was already extracted during game identification
+    char actual_disc_id[64] = "";
+    if (strlen(game_info.id) > 0) {
+        strncpy(actual_disc_id, game_info.id, sizeof(actual_disc_id) - 1);
+        actual_disc_id[sizeof(actual_disc_id) - 1] = '\0';
+        printf("CMD: Using disc ID from game identification: %s\n", actual_disc_id);
+    } else {
+        // Fallback to game title if no disc ID available
+        snprintf(actual_disc_id, sizeof(actual_disc_id), "%s", game_info.title);
+        printf("CMD: No disc ID available, using game title for flag: %s\n", actual_disc_id);
+    }
+    
+    // Use persistent location that survives MiSTer restarts
     char flag_file[512];
-    snprintf(flag_file, sizeof(flag_file), "/tmp/cdrom_processed_%s_%s", detected_system, game_info.title);
+    snprintf(flag_file, sizeof(flag_file), "/tmp/cdrom_processed_%s_%s", detected_system, actual_disc_id);
+    
+    printf("CMD: Checking if disc %s already processed (flag: %s)\n", actual_disc_id, flag_file);
     
     if (access(flag_file, F_OK) == 0) {
         strcpy(result.message, "Game already processed, skipping auto-load");
         return result;
     }
     
-    // Create flag file to prevent reprocessing
+    // Note: Flag cleanup is now handled when disc is ejected (cd_present=0) in scheduler
+    
+    // Create flag file to prevent reprocessing this specific disc
     FILE* flag = fopen(flag_file, "w");
     if (flag) {
-        fprintf(flag, "%s\n", game_info.title);
+        fprintf(flag, "%s|%s|%ld\n", game_info.title, actual_disc_id, time(NULL));
         fclose(flag);
+        printf("CMD: Created flag file for disc %s\n", actual_disc_id);
     }
     
     // Search for the game

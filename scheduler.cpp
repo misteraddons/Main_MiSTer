@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -78,7 +79,10 @@ static void scheduler_co_cdrom(void)
 		
 		// Check for CD every ~5 seconds when in menu mode
 		if (cdrom_initialized && (check_counter % 100) == 0) { // Check every ~5 seconds
-			printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
+			// Only show debug message every 10000 ticks to reduce spam
+			if ((check_counter % 10000) == 0) {
+				printf("CD-ROM: Checking for disc... (counter=%d, in_menu=%d)\n", check_counter, is_menu());
+			}
 			
 			// Only run CD-ROM detection when in menu mode to prevent boot loops
 			if (is_menu()) {
@@ -94,15 +98,25 @@ static void scheduler_co_cdrom(void)
 						if (status == CDS_DISC_OK || status == CDS_DATA_1 || status == CDS_DATA_2 || 
 						    status == CDS_AUDIO || status == CDS_MIXED) {
 							cd_present = true;
-							printf("CD-ROM: Disc present and ready (status=%d)\n", status);
+							if (!last_cd_present) {
+								printf("CD-ROM: Disc present and ready (status=%d)\n", status);
+							}
 						} else if (status == CDS_NO_DISC) {
-							printf("CD-ROM: No disc in drive\n");
+							if (last_cd_present) {
+								printf("CD-ROM: No disc in drive\n");
+							}
 						} else if (status == CDS_TRAY_OPEN) {
-							printf("CD-ROM: Tray is open\n");
+							if (last_cd_present) {
+								printf("CD-ROM: Tray is open\n");
+							}
 						} else if (status == CDS_DRIVE_NOT_READY) {
-							printf("CD-ROM: Drive not ready\n");
+							if (last_cd_present) {
+								printf("CD-ROM: Drive not ready\n");
+							}
 						} else {
-							printf("CD-ROM: Drive status unknown (%d)\n", status);
+							if (last_cd_present) {
+								printf("CD-ROM: Drive status unknown (%d)\n", status);
+							}
 						}
 					} else {
 						printf("CD-ROM: Cannot open device: %s\n", strerror(errno));
@@ -111,11 +125,21 @@ static void scheduler_co_cdrom(void)
 					printf("CD-ROM: Device /dev/sr0 does not exist\n");
 				}
 				
-				printf("CD-ROM: cd_present=%d, last_cd_present=%d\n", cd_present, last_cd_present);
+				// Only print status when state changes
+				if (cd_present != last_cd_present) {
+					printf("CD-ROM: cd_present=%d, last_cd_present=%d\n", cd_present, last_cd_present);
+				}
+				
+				// If CD status changed from present to not present, clean up flags
+				if (!cd_present && last_cd_present) {
+					printf("CD-ROM: Disc ejected, cleaning up processed game flags\n");
+					int result = system("rm -f /tmp/cdrom_processed_* 2>/dev/null");
+					printf("CD-ROM: Flag cleanup completed (exit code: %d)\n", result);
+				}
 				
 				// If CD status changed from not present to present, auto-load the game
 				if (cd_present && !last_cd_present) {
-					printf("CD-ROM: Device accessible, attempting auto-load...\n");
+					printf("CD-ROM: Disc detected, attempting auto-load...\n");
 					
 					// Use command bridge to trigger automatic loading
 					cmd_result_t result = cmd_bridge_process("cdrom_autoload");
