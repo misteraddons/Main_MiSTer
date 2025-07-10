@@ -1719,9 +1719,11 @@ static void show_game_selection_popup()
     // Create a visible file listing on screen for manual selection
     // This creates MGL files for each option that appear in the file browser
     printf("CMD: Creating numbered MGL files for manual selection\n");
+    printf("CMD: search_results_count=%d, will create up to 9 MGL files\n", search_results_count);
     
     for (int i = 0; i < search_results_count && i < 9; i++) { // Limit to 9 to avoid clutter
         search_result_entry_t* entry = &search_results_enhanced[i];
+        printf("CMD: Processing selection %d/%d: %s\n", i + 1, search_results_count, entry->title);
         
         // Extract just the filename for cleaner display
         char clean_title[256];
@@ -1733,6 +1735,8 @@ static void show_game_selection_popup()
                  "/media/fat/\x97 %d-%s.mgl", 
                  i + 1, clean_title);
         
+        printf("CMD: Attempting to create selection MGL: %s\n", selection_mgl);
+        
         // Create MGL content
         FILE* mgl = fopen(selection_mgl, "w");
         if (mgl) {
@@ -1742,7 +1746,17 @@ static void show_game_selection_popup()
             fprintf(mgl, "</mistergamedescription>\n");
             fclose(mgl);
             
-            printf("CMD: Created selection MGL: %s\n", selection_mgl);
+            printf("CMD: Successfully created selection MGL: %s\n", selection_mgl);
+            
+            // Verify file was created
+            if (access(selection_mgl, F_OK) == 0) {
+                printf("CMD: Verified selection MGL file exists\n");
+            } else {
+                printf("CMD: ERROR: Selection MGL file does not exist after creation!\n");
+            }
+        } else {
+            printf("CMD: ERROR: Failed to create selection MGL at: %s (errno: %d, %s)\n", 
+                   selection_mgl, errno, strerror(errno));
         }
     }
     
