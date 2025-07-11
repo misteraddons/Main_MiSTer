@@ -37,9 +37,11 @@ void cdrom_cleanup();
 // GameID integration
 bool gameid_setup_environment();
 bool gameid_identify_disc(const char* device_path, const char* system, CDRomGameInfo* result);
+bool gameid_identify_disc_with_known_system(const char* device_path, const char* system, CDRomGameInfo* result);
 
 // Game identification functions
 bool extract_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
+bool extract_disc_id_with_system(const char* device_path, const char* system, char* disc_id, size_t disc_id_size);
 bool extract_segacd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
 bool extract_pcecd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);
 bool extract_neogeocd_disc_id(const char* device_path, char* disc_id, size_t disc_id_size);

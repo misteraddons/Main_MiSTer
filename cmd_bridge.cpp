@@ -15,6 +15,7 @@
 #ifndef TEST_BUILD
 #include "menu.h"
 #include "file_io.h"
+#include "osd.h"
 #include "support/arcade/mra_loader.h"
 #include "cdrom.h"
 
@@ -30,6 +31,7 @@ static char audio_cd_mgl_path[512] = "";
 static char cached_disc_id[64] = "";
 static char cached_game_title[256] = "";
 static char cached_system[32] = "";
+static char cached_region[64] = "";
 static time_t disc_cache_time = 0;
 
 // Command registry
@@ -49,13 +51,20 @@ void cmd_bridge_init()
     
     printf("CMD: Initializing command bridge system\n");
     
-    // Clean up any leftover MGL files from previous session
-    printf("CMD: Cleaning up previous CD-ROM MGL files\n");
-    printf("CMD: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, /media/fat/[0-9]*.mgl, and /media/fat/Audio*.mgl\n");
-    int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
-    printf("CMD: Cleanup command result: %d\n", cleanup_result);
-    cmd_bridge_clear_current_mgl_path();
-    cmd_bridge_clear_audio_cd_mgl_path();
+    // Check if there's already a CD present before cleaning up
+    bool cd_already_present = (access("/tmp/cd_present", F_OK) == 0);
+    
+    if (!cd_already_present) {
+        // Only clean up CD-ROM MGL files if no CD is currently present
+        printf("CMD: No CD detected, cleaning up previous CD-ROM MGL files\n");
+        printf("CMD: Running cleanup command: rm -f /media/fat/[CD]*.mgl, /media/fat/CD*.mgl, /media/fat/[0-9]*.mgl, and /media/fat/Audio*.mgl\n");
+        int cleanup_result = system("rm -f \"/media/fat/[CD]\"*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
+        printf("CMD: Cleanup command result: %d\n", cleanup_result);
+        cmd_bridge_clear_current_mgl_path();
+        cmd_bridge_clear_audio_cd_mgl_path();
+    } else {
+        printf("CMD: CD already present, preserving existing MGL files\n");
+    }
     
     // Clear any existing registrations
     num_registered_commands = 0;
@@ -355,7 +364,7 @@ cmd_result_t cmd_load_game(const char* args)
             // Keep spaces and parentheses for better readability
         }
         
-        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/\x97 %s.mgl", game_name);
+        snprintf(mgl_path, sizeof(mgl_path), "/media/fat/[CD] %s.mgl", game_name);
         printf("CMD: Attempting to create MGL at: %s\n", mgl_path);
         
         // Store MGL path for cleanup when disc is ejected
@@ -374,7 +383,20 @@ cmd_result_t cmd_load_game(const char* args)
         
         // Write MGL content based on system
         fprintf(mgl, "<mistergamedescription>\n");
-        fprintf(mgl, "    <rbf>_Console/%s</rbf>\n", system);
+        
+        // Map system names to their corresponding core names
+        const char* core_name = system;
+        if (strcmp(system, "PSX") == 0) {
+            core_name = "PSX";
+        } else if (strcmp(system, "SegaCD") == 0) {
+            core_name = "MegaCD";  // SegaCD detection maps to MegaCD core
+        } else if (strcmp(system, "PCECD") == 0) {
+            core_name = "TGFX16-CD";  // PC Engine CD maps to TurboGrafx16-CD core
+        } else if (strcmp(system, "NeoGeoCD") == 0) {
+            core_name = "NeoGeo";
+        }
+        
+        fprintf(mgl, "    <rbf>_Console/%s</rbf>\n", core_name);
         
         if (strcmp(system, "Saturn") == 0) {
             // Saturn uses index 0 for CD mounting with 1 second delay
@@ -1229,15 +1251,43 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
         return result;
     }
     
-    // Check if we have recent cached identification (within 60 seconds)
+    // Check if we have recent cached identification (within 60 seconds) OR
+    // if we have existing MGL files indicating the disc is already processed
     time_t current_time = time(NULL);
-    bool use_cache = (current_time - disc_cache_time < 60 && strlen(cached_disc_id) > 0);
+    bool has_recent_cache = (current_time - disc_cache_time < 60 && strlen(cached_disc_id) > 0);
+    
+    // Check if we have MGL files that indicate this disc is already processed
+    bool has_mgl_files = false;
+    if (access("/tmp/cd_present", F_OK) == 0) {
+        // Check for existing CD-ROM MGL files (same logic as scheduler)
+        int mgl_check = system("ls /media/fat/[0-9]-*.mgl /media/fat/*Audio*.mgl /media/fat/CD*.mgl \"/media/fat/[CD]\"*.mgl 2>/dev/null | wc -l | grep -v '^0$' >/dev/null 2>&1");
+        has_mgl_files = (mgl_check == 0);
+        if (has_mgl_files) {
+            printf("CMD: Found existing MGL files - disc already processed\n");
+        }
+    }
+    
+    // If we have MGL files but no cache, we should still skip the expensive scanning
+    // The existence of numbered MGL files is proof this disc was already processed
+    bool skip_expensive_scan = has_recent_cache || has_mgl_files;
+    bool use_cache = has_recent_cache || (has_mgl_files && strlen(cached_disc_id) > 0);
     
     CDRomGameInfo game_info;
     const char* detected_system;
     
-    if (use_cache) {
-        printf("CMD: Using cached disc identification: %s (%s)\n", cached_game_title, cached_system);
+    if (skip_expensive_scan && !use_cache) {
+        // We have MGL files but no cache data - something is inconsistent
+        // Skip auto-load since user can manually select from existing MGLs
+        printf("CMD: MGL files exist but no cache data - skipping auto-load (user can select manually)\n");
+        strcpy(result.message, "Multiple game options available - please select manually");
+        result.success = true;
+        return result;
+    } else if (use_cache) {
+        if (has_recent_cache) {
+            printf("CMD: Using cached disc identification: %s (%s)\n", cached_game_title, cached_system);
+        } else {
+            printf("CMD: Using cached disc identification (MGL files exist): %s (%s)\n", cached_game_title, cached_system);
+        }
         strncpy(game_info.id, cached_disc_id, sizeof(game_info.id) - 1);
         strncpy(game_info.title, cached_game_title, sizeof(game_info.title) - 1);
         detected_system = cached_system;
@@ -1247,7 +1297,7 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
         // Initialize CD-ROM subsystem if not already done
         cdrom_init();
         
-        // Try to identify the game
+        // Do a single comprehensive disc scan that gets both system type and game info
         detected_system = cdrom_get_system_from_detection();
         
         if (!detected_system) {
@@ -1255,29 +1305,32 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
             return result;
         }
         
-        // Cache the results
-        strncpy(cached_system, detected_system, sizeof(cached_system) - 1);
-        cached_system[sizeof(cached_system) - 1] = '\0';
-        disc_cache_time = current_time;
-        printf("CMD: Cached system detection: %s\n", detected_system);
-    }
-    
-    printf("CMD: Detected system: %s\n", detected_system);
-    
-    if (!use_cache) {
-        // Only identify game if not using cache
-        if (!cdrom_identify_game("/dev/sr0", detected_system, &game_info)) {
+        printf("CMD: Detected system: %s\n", detected_system);
+        
+        // Now identify the specific game using the detected system
+        // Note: We avoid double scanning by using the optimized function
+        // which skips redundant system detection since we already know it
+        if (!gameid_identify_disc_with_known_system("/dev/sr0", detected_system, &game_info)) {
             strcpy(result.message, "Could not identify game on disc");
             return result;
         }
         
-        // Update cache with game info
+        // Update cache with both system and game info
+        strncpy(cached_system, detected_system, sizeof(cached_system) - 1);
+        cached_system[sizeof(cached_system) - 1] = '\0';
         strncpy(cached_disc_id, game_info.id, sizeof(cached_disc_id) - 1);
         cached_disc_id[sizeof(cached_disc_id) - 1] = '\0';
         strncpy(cached_game_title, game_info.title, sizeof(cached_game_title) - 1);
         cached_game_title[sizeof(cached_game_title) - 1] = '\0';
+        strncpy(cached_region, game_info.region, sizeof(cached_region) - 1);
+        cached_region[sizeof(cached_region) - 1] = '\0';
+        disc_cache_time = current_time;
+        
+        printf("CMD: Cached system detection: %s\n", detected_system);
         printf("CMD: Cached game identification: %s (%s)\n", game_info.title, game_info.id);
     }
+    
+    printf("CMD: Detected system: %s\n", detected_system);
     
     printf("CMD: Game identified: %s\n", game_info.title);
     
@@ -1370,8 +1423,10 @@ static char last_search_type[64] = "";
 static void store_search_results(const char* search_type);
 static void extract_game_title_from_path(const char* path, char* title, size_t title_size);
 static void sort_search_results_by_score();
+static void deduplicate_search_results();
+static void cluster_search_results_by_score();
 static void add_enhanced_search_result(const char* path, const char* search_term, const char* preferred_region);
-static void show_game_selection_popup();
+static void show_game_selection_popup(const char* system);
 
 // Search command implementations
 #ifndef TEST_BUILD
@@ -1579,34 +1634,44 @@ cmd_result_t cmd_search_games(const char* args)
         char base_search[256];
         extract_base_name(game_name, base_search, sizeof(base_search));
         
-        // Also try searching with just the first word for very broad matching
-        char first_word[64] = "";
-        const char* space = strchr(base_search, ' ');
-        if (space) {
-            int word_len = space - base_search;
-            if (word_len < (int)sizeof(first_word) - 1 && word_len > 0) {
-                strncpy(first_word, base_search, word_len);
-                first_word[word_len] = '\0';
-            } else {
-                // Fallback to full base_search if word_len is invalid
-                strncpy(first_word, base_search, sizeof(first_word) - 1);
-                first_word[sizeof(first_word) - 1] = '\0';
+        // Create base name + series number search term (e.g., "Virtua Fighter 2")
+        char base_name[128] = "";
+        char base_game_name[128] = "";
+        char series_number[16] = "";
+        
+        // Extract base game name and series number from the original search term
+        extract_base_game_name(game_name, base_game_name, sizeof(base_game_name));
+        extract_series_number(game_name, series_number, sizeof(series_number));
+        
+        // Combine base name with series number for more precise searching
+        if (strlen(base_game_name) > 0) {
+            strncpy(base_name, base_game_name, sizeof(base_name) - 1);
+            base_name[sizeof(base_name) - 1] = '\0';
+            
+            if (strlen(series_number) > 0) {
+                // Add space and series number
+                int len = strlen(base_name);
+                if (len < (int)sizeof(base_name) - 10) { // Leave room for " " + series + null
+                    strcat(base_name, " ");
+                    strcat(base_name, series_number);
+                }
             }
         } else {
-            strncpy(first_word, base_search, sizeof(first_word) - 1);
-            first_word[sizeof(first_word) - 1] = '\0';
+            // Fallback to full base_search
+            strncpy(base_name, base_search, sizeof(base_name) - 1);
+            base_name[sizeof(base_name) - 1] = '\0';
         }
         
-        // Ensure first_word is not empty - fallback to original game_name
-        if (strlen(first_word) == 0) {
-            strncpy(first_word, game_name, sizeof(first_word) - 1);
-            first_word[sizeof(first_word) - 1] = '\0';
+        // Ensure base_name is not empty - fallback to original game_name
+        if (strlen(base_name) == 0) {
+            strncpy(base_name, game_name, sizeof(base_name) - 1);
+            base_name[sizeof(base_name) - 1] = '\0';
         }
         
         char find_cmd[1024];
         // Enhanced search with multiple strategies and increased depth
         // 1. Exact game name match
-        // 2. Base name match (first word)  
+        // 2. Base name + series number match (e.g., "Virtua Fighter 2")
         // 3. Space-tolerant match (replace spaces with *)
         char space_tolerant[256];
         strncpy(space_tolerant, base_search, sizeof(space_tolerant) - 1);
@@ -1624,17 +1689,34 @@ cmd_result_t cmd_search_games(const char* args)
             space_tolerant[sizeof(space_tolerant) - 1] = '\0';
         }
         
-        snprintf(find_cmd, sizeof(find_cmd), 
-                 "find %s -maxdepth 5 -type f \\( "
-                 "-iname '*%s*.cue' -o -iname '*%s*.chd' -o "     // Exact name
-                 "-iname '*%s*.cue' -o -iname '*%s*.chd' -o "     // First word
-                 "-iname '*%s*.cue' -o -iname '*%s*.chd' "        // Space-tolerant
-                 "\\) 2>/dev/null | head -100", 
-                 core_path, 
-                 game_name, game_name,           // Exact name patterns
-                 first_word, first_word,         // First word patterns
-                 space_tolerant, space_tolerant  // Space-tolerant patterns
-        );
+        
+        // Start timing the find command
+        struct timespec start_time, end_time;
+        clock_gettime(CLOCK_MONOTONIC, &start_time);
+        
+        // Simplified find command - only search for .cue files (much faster)
+        // CHD files are single-file format and less common
+        if (strcmp(base_name, game_name) == 0) {
+            // If base_name equals game_name, only search once
+            snprintf(find_cmd, sizeof(find_cmd), 
+                     "find %s -maxdepth 3 -type f "
+                     "-iname '*%s*.cue' "
+                     "2>/dev/null | head -50", 
+                     core_path, 
+                     game_name
+            );
+        } else {
+            // Search for both exact name and base name
+            snprintf(find_cmd, sizeof(find_cmd), 
+                     "find %s -maxdepth 3 -type f \\( "
+                     "-iname '*%s*.cue' -o "
+                     "-iname '*%s*.cue' "
+                     "\\) 2>/dev/null | head -50", 
+                     core_path, 
+                     game_name,
+                     base_name
+            );
+        }
         
         printf("CMD: Enhanced search command: %s\n", find_cmd);
         
@@ -1645,7 +1727,24 @@ cmd_result_t cmd_search_games(const char* args)
             search_results_count = 0;
             strcpy(last_search_type, "games");
             
-            printf("CMD: Fuzzy matching results for '%s' (preferred region: %s):\n", game_name, cfg.cdrom_preferred_region);
+            // Determine effective region preference: use disc region if we have one and it's not overridden
+            const char* effective_region = cfg.cdrom_preferred_region;
+            
+            // If we have a detected disc region and no explicit user preference, use the disc region
+            if (strlen(cached_region) > 0 && 
+                (strcmp(cfg.cdrom_preferred_region, "USA") == 0)) { // USA is the default value
+                
+                effective_region = cached_region;
+                printf("CMD: Using disc region '%s' (no custom preference set)\n", effective_region);
+            } else if (strlen(cached_region) > 0) {
+                printf("CMD: Using configured region preference '%s' (disc region: %s)\n", 
+                       effective_region, cached_region);
+            } else {
+                printf("CMD: Using configured region preference '%s' (no disc region detected)\n", 
+                       effective_region);
+            }
+            
+            printf("CMD: Fuzzy matching results for '%s' (preferred region: %s):\n", game_name, effective_region);
             
             while (fgets(line, sizeof(line), fp) && search_results_count < MAX_SEARCH_RESULTS) {
                 // Remove newline
@@ -1653,7 +1752,7 @@ cmd_result_t cmd_search_games(const char* args)
                 if (strlen(line) == 0) continue;
                 
                 // Add to enhanced search results with fuzzy matching
-                add_enhanced_search_result(line, game_name, cfg.cdrom_preferred_region);
+                add_enhanced_search_result(line, game_name, effective_region);
                 
                 // Only count as a match if fuzzy score is reasonable (>= 30)
                 search_result_entry_t* entry = &search_results_enhanced[search_results_count - 1];
@@ -1666,8 +1765,62 @@ cmd_result_t cmd_search_games(const char* args)
             }
             pclose(fp);
             
+            // End timing and report
+            clock_gettime(CLOCK_MONOTONIC, &end_time);
+            double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                           (end_time.tv_nsec - start_time.tv_nsec) / 1000000000.0;
+            printf("CMD: Find command completed in %.3f seconds, found %d results\n", elapsed, search_results_count);
+            
+            // If no .cue files found, quickly try .chd as fallback
+            if (search_results_count == 0) {
+                printf("CMD: No .cue files found, trying .chd fallback...\n");
+                clock_gettime(CLOCK_MONOTONIC, &start_time);
+                
+                char chd_cmd[1024];
+                if (strcmp(base_name, game_name) == 0) {
+                    snprintf(chd_cmd, sizeof(chd_cmd), 
+                             "find %s -maxdepth 3 -type f "
+                             "-iname '*%s*.chd' "
+                             "2>/dev/null | head -50", 
+                             core_path, game_name);
+                } else {
+                    snprintf(chd_cmd, sizeof(chd_cmd), 
+                             "find %s -maxdepth 3 -type f \\( "
+                             "-iname '*%s*.chd' -o "
+                             "-iname '*%s*.chd' "
+                             "\\) 2>/dev/null | head -50", 
+                             core_path, game_name, base_name);
+                }
+                
+                FILE* chd_fp = popen(chd_cmd, "r");
+                if (chd_fp) {
+                    char line[512];
+                    while (fgets(line, sizeof(line), chd_fp) && search_results_count < MAX_SEARCH_RESULTS) {
+                        line[strcspn(line, "\n")] = 0;
+                        if (strlen(line) == 0) continue;
+                        add_enhanced_search_result(line, game_name, effective_region);
+                        search_result_entry_t* entry = &search_results_enhanced[search_results_count - 1];
+                        if (entry->fuzzy_score < 30) {
+                            search_results_count--;
+                        }
+                    }
+                    pclose(chd_fp);
+                    
+                    clock_gettime(CLOCK_MONOTONIC, &end_time);
+                    elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                             (end_time.tv_nsec - start_time.tv_nsec) / 1000000000.0;
+                    printf("CMD: CHD fallback completed in %.3f seconds, found %d additional results\n", elapsed, search_results_count);
+                }
+            }
+            
+            // Deduplicate before sorting
+            deduplicate_search_results();
+            
             // Sort results by score
             sort_search_results_by_score();
+            
+            // Cluster results and filter to top cluster
+            cluster_search_results_by_score();
             
             // Display ranked results with scores
             printf("CMD: Search results ranked by relevance:\n");
@@ -1683,7 +1836,7 @@ cmd_result_t cmd_search_games(const char* args)
                    search_results_count, cfg.cdrom_auto_select);
             if (search_results_count > 1 && cfg.cdrom_auto_select == 0) {
                 printf("CMD: Conditions met, showing selection popup\n");
-                show_game_selection_popup();
+                show_game_selection_popup(core_name);
             } else {
                 printf("CMD: Conditions not met for popup\n");
             }
@@ -2111,6 +2264,17 @@ void cmd_bridge_set_audio_cd_mgl_path(const char* path)
     }
 }
 
+// Disc cache management
+void cmd_bridge_clear_disc_cache()
+{
+    printf("CMD: Clearing disc identification cache\n");
+    cached_disc_id[0] = '\0';
+    cached_game_title[0] = '\0';
+    cached_system[0] = '\0';
+    cached_region[0] = '\0';
+    disc_cache_time = 0;
+}
+
 // Enhanced search helper functions
 static void extract_game_title_from_path(const char* path, char* title, size_t title_size)
 {
@@ -2154,6 +2318,94 @@ static void sort_search_results_by_score()
     }
 }
 
+static void deduplicate_search_results()
+{
+    if (search_results_count <= 1) return;
+    
+    int unique_count = 0;
+    
+    for (int i = 0; i < search_results_count; i++) {
+        bool is_duplicate = false;
+        
+        // Extract filename from current entry
+        char current_filename[256];
+        extract_game_title_from_path(search_results_enhanced[i].path, current_filename, sizeof(current_filename));
+        
+        // Check against already accepted entries
+        for (int j = 0; j < unique_count; j++) {
+            char existing_filename[256];
+            extract_game_title_from_path(search_results_enhanced[j].path, existing_filename, sizeof(existing_filename));
+            
+            // If filenames are identical, check if current entry has better score
+            if (strcmp(current_filename, existing_filename) == 0) {
+                if (search_results_enhanced[i].total_score > search_results_enhanced[j].total_score) {
+                    // Replace with better scored entry
+                    search_results_enhanced[j] = search_results_enhanced[i];
+                    printf("CMD: Replaced duplicate '%s' with better scored version\n", existing_filename);
+                } else {
+                    printf("CMD: Skipped duplicate '%s' (lower score)\n", current_filename);
+                }
+                is_duplicate = true;
+                break;
+            }
+        }
+        
+        // If not a duplicate, add to unique list
+        if (!is_duplicate) {
+            if (unique_count != i) {
+                search_results_enhanced[unique_count] = search_results_enhanced[i];
+            }
+            unique_count++;
+        }
+    }
+    
+    // Update count
+    if (unique_count != search_results_count) {
+        printf("CMD: Deduplicated results: %d -> %d entries\n", search_results_count, unique_count);
+        search_results_count = unique_count;
+    }
+}
+
+static void cluster_search_results_by_score()
+{
+    if (search_results_count <= 1) return;
+    
+    // Find the highest score
+    int highest_score = search_results_enhanced[0].total_score;
+    
+    // Define cluster gap threshold
+    const int CLUSTER_GAP = 10;
+    
+    // Find how many results belong to the top cluster (within 10 points of highest score)
+    int top_cluster_count = 0;
+    int filtered_count = 0;
+    
+    for (int i = 0; i < search_results_count; i++) {
+        if (search_results_enhanced[i].total_score >= highest_score - CLUSTER_GAP) {
+            top_cluster_count++;
+        }
+    }
+    
+    // Show which results are being filtered out
+    if (top_cluster_count < search_results_count) {
+        printf("CMD: Filtering results by score clustering (gap=%d):\n", CLUSTER_GAP);
+        printf("CMD: Top cluster (keeping): %d results with scores %d-%d\n", 
+               top_cluster_count, highest_score - CLUSTER_GAP + 1, highest_score);
+        
+        printf("CMD: Filtered out %d lower-scoring results:\n", search_results_count - top_cluster_count);
+        for (int i = top_cluster_count; i < search_results_count; i++) {
+            search_result_entry_t* entry = &search_results_enhanced[i];
+            printf("CMD:   - [Score:%d] %s\n", entry->total_score, entry->title);
+        }
+        
+        // Update count to only include top cluster
+        search_results_count = top_cluster_count;
+        printf("CMD: Final result count after clustering: %d\n", search_results_count);
+    } else {
+        printf("CMD: No clustering applied - all results within %d points of top score\n", CLUSTER_GAP);
+    }
+}
+
 static void add_enhanced_search_result(const char* path, const char* search_term, const char* preferred_region)
 {
     if (search_results_count >= MAX_SEARCH_RESULTS) return;
@@ -2167,15 +2419,25 @@ static void add_enhanced_search_result(const char* path, const char* search_term
     // Extract title from path
     extract_game_title_from_path(path, entry->title, sizeof(entry->title));
     
-    // Calculate fuzzy match score
-    entry->fuzzy_score = fuzzy_match_score(entry->title, search_term);
+    // Calculate simplified weighted score: Base_name = 85%, Region = 10%, Version = 5%
+    // Base name now includes series (everything up to region)
+    char game_base_name[256];
+    char search_base_name[256];
+    
+    // Extract base names (including series, up to region)
+    extract_base_name(entry->title, game_base_name, sizeof(game_base_name));
+    extract_base_name(search_term, search_base_name, sizeof(search_base_name));
+    
+    printf("CMD: Extract debug - search_term:'%s' -> search_base_name:'%s'\n", search_term, search_base_name);
+    
+    // Calculate base name similarity (most important component)
+    int base_score = fuzzy_match_score(game_base_name, search_base_name);
+    
+    printf("CMD: Debug - Game:'%s' Base:'%s'(%d) vs Search:'%s'\n",
+           entry->title, game_base_name, base_score, search_base_name);
     
     // Calculate region score by extracting region from title
-    char base_title[256];
-    extract_base_name(entry->title, base_title, sizeof(base_title));
-    
-    // Enhanced region extraction (look for known regions in parentheses)
-    entry->region_score = 50; // Default for unknown/no region
+    int region_score = 50; // Default for unknown/no region
     
     const char* known_regions[] = {"USA", "US", "Europe", "EUR", "Japan", "JPN", "JP", "World", "Asia", NULL};
     
@@ -2193,7 +2455,7 @@ static void add_enhanced_search_result(const char* path, const char* search_term
                 // Check if this is a known region
                 for (int i = 0; known_regions[i]; i++) {
                     if (strcasecmp(region, known_regions[i]) == 0) {
-                        entry->region_score = region_priority_score(region, preferred_region);
+                        region_score = region_priority_score(region, preferred_region);
                         break;
                     }
                 }
@@ -2202,14 +2464,35 @@ static void add_enhanced_search_result(const char* path, const char* search_term
         search_pos++;
     }
     
-    // Calculate total score (weighted: 70% fuzzy match, 30% region preference)
-    entry->total_score = (entry->fuzzy_score * 7 + entry->region_score * 3) / 10;
+    // Calculate version score (check for version details after region)
+    int version_score = 100; // Default high score if no version differences
+    
+    // Simple version matching: if titles are identical after base+region, bonus points
+    // This handles cases like "Game (USA) (Rev A)" vs "Game (USA) (Rev B)"
+    if (base_score > 90 && region_score > 50) {
+        // For very similar base names and regions, check if full titles match
+        int full_score = fuzzy_match_score(entry->title, search_term);
+        if (full_score > base_score) {
+            version_score = 100; // Exact version match
+        } else {
+            version_score = 80;  // Different version
+        }
+    }
+    
+    // Store region score for display
+    entry->region_score = region_score;
+    
+    // Fuzzy score: 85% base + 15% version (no region to avoid double-counting)
+    entry->fuzzy_score = (base_score * 85 + version_score * 15) / 100;
+    
+    // Total score: 80% fuzzy + 20% region (region applied separately)
+    entry->total_score = (entry->fuzzy_score * 80 + region_score * 20) / 100;
     
     search_results_count++;
 }
 
 // Show OSD selection popup for multiple game matches
-static void show_game_selection_popup()
+static void show_game_selection_popup(const char* system)
 {
 #ifndef TEST_BUILD
     if (search_results_count <= 1) return;
@@ -2248,7 +2531,19 @@ static void show_game_selection_popup()
         FILE* mgl = fopen(selection_mgl, "w");
         if (mgl) {
             fprintf(mgl, "<mistergamedescription>\n");
-            fprintf(mgl, "    <rbf>_Console/MegaCD</rbf>\n");
+            // Map system names to their corresponding core names
+            const char* core_name = system;
+            if (strcmp(system, "PSX") == 0) {
+                core_name = "PSX";
+            } else if (strcmp(system, "SegaCD") == 0) {
+                core_name = "MegaCD";  // SegaCD detection maps to MegaCD core
+            } else if (strcmp(system, "PCECD") == 0) {
+                core_name = "TGFX16-CD";  // PC Engine CD maps to TurboGrafx16-CD core
+            } else if (strcmp(system, "NeoGeoCD") == 0) {
+                core_name = "NeoGeo";
+            }
+            
+            fprintf(mgl, "    <rbf>_Console/%s</rbf>\n", core_name);
             fprintf(mgl, "    <file delay=\"1\" type=\"s\" index=\"0\" path=\"%s\"/>\n", entry->path);
             fprintf(mgl, "</mistergamedescription>\n");
             fclose(mgl);
@@ -2297,8 +2592,8 @@ static void refresh_menu_directory()
         printf("CMD: Menu is present, triggering refresh to show new MGL file\n");
         
         // Give file system a moment to sync the new MGL file
-        printf("CMD: Waiting 200ms for filesystem sync...\n");
-        usleep(200000); // Increased to 200ms delay
+        printf("CMD: Waiting for filesystem sync and menu stability...\n");
+        usleep(500000); // 0.5 second delay to prevent input freeze
         
         // Use HOME key to trigger menu refresh (this is the actual refresh key in MiSTer)
         // KEY_HOME is 102 in linux/input.h

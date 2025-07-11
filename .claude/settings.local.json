@@ -8,7 +8,13 @@
       "Bash(./extract_track10:*)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(true)",
-      "Bash(awk:*)"
+      "Bash(awk:*)",
+      "Bash(make:*)",
+      "Bash(git add:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:docs.kernel.org)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

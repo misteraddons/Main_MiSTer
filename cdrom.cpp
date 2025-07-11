@@ -275,12 +275,7 @@ bool detect_disc_format_and_system(const char* device_path, DiscInfo* disc_info)
         return true;
     }
     
-    if (detect_pcecd_magic_word(device_path)) {
-        printf("CD-ROM: Detected PCE-CD system via magic word\n");
-        strcpy(disc_info->system, "PCECD");
-        disc_info->detected = true;
-        return true;
-    }
+    // PC Engine CD detection moved to after filesystem check since it relies on track analysis
     
     if (detect_neogeocd_magic_word(device_path)) {
         printf("CD-ROM: Detected Neo Geo CD system via magic word\n");
@@ -419,8 +414,17 @@ bool detect_disc_format_and_system(const char* device_path, DiscInfo* disc_info)
         strcpy(disc_info->system, "NeoGeoCD");
         disc_info->detected = true;
     } else {
-        strcpy(disc_info->system, "Unknown");
-        disc_info->detected = false;
+        // If no specific indicators found, check PC Engine track pattern as last resort
+        printf("CD-ROM: No specific system indicators found, checking track patterns\n");
+        
+        if (detect_pcecd_magic_word(device_path)) {
+            printf("CD-ROM: Detected PCE-CD system via track analysis\n");
+            strcpy(disc_info->system, "PCECD");
+            disc_info->detected = true;
+        } else {
+            strcpy(disc_info->system, "Unknown");
+            disc_info->detected = false;
+        }
     }
     
     // Unmount
@@ -572,25 +576,8 @@ bool detect_pcecd_magic_word(const char* device_path)
                    lba, minutes, seconds, frames);
         }
         
-        // PC Engine CDs typically have multiple tracks (usually 10+)
-        // and start with track 1 (audio warning track)
-        if (num_tracks >= 5 && toc_header.cdth_trk0 == 1) {
-            
-            // PC Engine CD pattern: audio track 1 + data tracks + multiple tracks
-            if (has_audio && has_data && num_tracks >= 5) {
-                printf("CD-ROM: Mixed audio/data disc with %d tracks - likely PC Engine CD\n", num_tracks);
-                close(fd);
-                return true;
-            }
-            
-            // Even if we can't determine track types, multiple tracks starting at 1 
-            // with an audio CD structure could be PC Engine
-            if (num_tracks >= 8) {
-                printf("CD-ROM: Multi-track audio disc (%d tracks) - possibly PC Engine CD\n", num_tracks);
-                close(fd);
-                return true;
-            }
-        }
+        // Store track info for later analysis after filesystem check
+        // Don't jump to conclusions based on track count alone
     }
     
     close(fd);
@@ -1326,15 +1313,23 @@ bool extract_disc_id(const char* device_path, char* disc_id, size_t disc_id_size
     }
     
     // Step 2: Extract ID based on detected system
-    if (strcmp(disc_info.system, "PSX") == 0) {
+    return extract_disc_id_with_system(device_path, disc_info.system, disc_id, disc_id_size);
+}
+
+bool extract_disc_id_with_system(const char* device_path, const char* system, char* disc_id, size_t disc_id_size)
+{
+    printf("CD-ROM: Extracting disc ID for system: %s\n", system);
+    
+    // Extract ID based on provided system type (no additional scanning needed)
+    if (strcmp(system, "PSX") == 0) {
         return extract_psx_disc_id(device_path, disc_id, disc_id_size);
-    } else if (strcmp(disc_info.system, "Saturn") == 0) {
+    } else if (strcmp(system, "Saturn") == 0) {
         return extract_saturn_disc_id(device_path, disc_id, disc_id_size);
-    } else if (strcmp(disc_info.system, "SegaCD") == 0) {
+    } else if (strcmp(system, "SegaCD") == 0) {
         return extract_segacd_disc_id(device_path, disc_id, disc_id_size);
-    } else if (strcmp(disc_info.system, "PCECD") == 0) {
+    } else if (strcmp(system, "PCECD") == 0) {
         return extract_pcecd_disc_id(device_path, disc_id, disc_id_size);
-    } else if (strcmp(disc_info.system, "NeoGeoCD") == 0) {
+    } else if (strcmp(system, "NeoGeoCD") == 0) {
         return extract_neogeocd_disc_id(device_path, disc_id, disc_id_size);
     } else {
         printf("CD-ROM: Unknown system type, cannot extract ID\n");
@@ -1559,7 +1554,7 @@ bool gameid_identify_disc(const char* device_path, const char* system, CDRomGame
     // Clear result structure
     memset(result, 0, sizeof(CDRomGameInfo));
     
-    // Extract disc ID from the CD-ROM first
+    // Extract disc ID from the CD-ROM first (this may do disc scanning)
     char disc_id[32] = "";
     if (!extract_disc_id(device_path, disc_id, sizeof(disc_id))) {
         printf("CD-ROM: Failed to extract disc ID from %s\n", device_path);
@@ -1596,8 +1591,59 @@ bool gameid_identify_disc(const char* device_path, const char* system, CDRomGame
         strncpy(result->system, system, sizeof(result->system) - 1);
         strncpy(result->title, "Unknown Game", sizeof(result->title) - 1);
         strncpy(result->id, disc_id, sizeof(result->id) - 1);
+        strncpy(result->region, "Unknown", sizeof(result->region) - 1);
         result->valid = false;
-        return false;
+        return true; // Still return true to get the extracted ID
+    }
+}
+
+bool gameid_identify_disc_with_known_system(const char* device_path, const char* system, CDRomGameInfo* result)
+{
+    if (!result) return false;
+    
+    // Clear result structure
+    memset(result, 0, sizeof(CDRomGameInfo));
+    
+    // Extract disc ID using the known system type (avoids double scanning)
+    char disc_id[32] = "";
+    if (!extract_disc_id_with_system(device_path, system, disc_id, sizeof(disc_id))) {
+        printf("CD-ROM: Failed to extract disc ID from %s\n", device_path);
+        strncpy(disc_id, "UNKNOWN", sizeof(disc_id) - 1);
+    }
+    
+    printf("CD-ROM: Extracted disc ID: %s\n", disc_id);
+    
+    // Check if GameDB file exists for this system
+    char db_path[512];
+    snprintf(db_path, sizeof(db_path), "/media/fat/GameDB/%s.data.json", system);
+    
+    if (!FileExists(db_path))
+    {
+        printf("CD-ROM: GameDB file not found: %s\n", db_path);
+        // Still return some basic info even without database
+        strncpy(result->system, system, sizeof(result->system) - 1);
+        strncpy(result->title, disc_id, sizeof(result->title) - 1);
+        strncpy(result->id, disc_id, sizeof(result->id) - 1);
+        strncpy(result->region, "Unknown", sizeof(result->region) - 1);
+        result->valid = false;
+        return true; // Return true so we still get the extracted ID
+    }
+    
+    // Search GameDB for this disc ID
+    if (search_gamedb_for_disc(db_path, disc_id, result)) {
+        result->valid = true;
+        strncpy(result->system, system, sizeof(result->system) - 1);
+        printf("CD-ROM: Game identified: %s (%s)\n", result->title, result->region);
+        return true;
+    } else {
+        printf("CD-ROM: Game not found in database\n");
+        // Set fallback information
+        strncpy(result->system, system, sizeof(result->system) - 1);
+        strncpy(result->title, "Unknown Game", sizeof(result->title) - 1);
+        strncpy(result->id, disc_id, sizeof(result->id) - 1);
+        strncpy(result->region, "Unknown", sizeof(result->region) - 1);
+        result->valid = false;
+        return true; // Still return true to get the extracted ID
     }
 }
 

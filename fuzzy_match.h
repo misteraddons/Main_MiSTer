@@ -28,4 +28,10 @@ void extract_base_name(const char* title, char* base_name, size_t size);
 // Higher score = better match for user's preferred region
 int region_priority_score(const char* region, const char* preferred_region);
 
+// Extract base game name without series numbers or indicators
+void extract_base_game_name(const char* title, char* base_name, size_t size);
+
+// Extract series number from title (converts roman numerals to digits)
+void extract_series_number(const char* title, char* series, size_t size);
+
 #endif // FUZZY_MATCH_H

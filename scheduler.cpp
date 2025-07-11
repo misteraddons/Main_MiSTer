@@ -175,6 +175,7 @@ static void scheduler_co_cdrom(void)
 	static bool last_audio_cd = false;
 	static int cdrom_autoload_delay = 0;
 	static int cdrom_fd = -1;
+	static int ejection_cooldown = 0;
 	
 	printf("CD-ROM: Auto-detection coroutine started\n");
 	
@@ -202,10 +203,101 @@ static void scheduler_co_cdrom(void)
 			if (is_menu()) {
 				bool cd_present = false;
 				bool audio_cd = false;
+				bool need_rescan = false;
 				
-				// Fork a background process to handle all CD-ROM I/O operations
-				// This completely isolates blocking operations from the main process
-				pid_t pid = fork();
+				// Check if we have a persistent CD flag (survives MiSTer.ini reloads)
+				bool persistent_flag_exists = (access("/tmp/cd_present", F_OK) == 0);
+				
+				// Determine if we need to rescan (expensive fork operation)
+				if (persistent_flag_exists) {
+					// Fast path: read cached status from flag
+					FILE* persistent_flag = fopen("/tmp/cd_present", "r");
+					if (persistent_flag) {
+						int cached_status = 0;
+						int cached_audio = 0;
+						if (fscanf(persistent_flag, "%d %d", &cached_status, &cached_audio) >= 1) {
+							cd_present = (cached_status == 1);
+							audio_cd = (cached_audio == 1);
+							printf("CD-ROM: Using cached status from /tmp/cd_present (present=%d, audio=%d)\n", 
+							       cd_present, audio_cd);
+							
+							// Additional optimization: if CD is present and we have MGL files,
+							// skip full rescanning but still verify disc is actually present
+							if (cd_present) {
+								// First, do a quick verification that the disc is still actually present
+								// This is lightweight compared to full identification
+								bool disc_still_present = false;
+								int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+								if (fd >= 0) {
+									int status = ioctl(fd, CDROM_DISC_STATUS);
+									disc_still_present = (status == CDS_DISC_OK || status == CDS_DATA_1 || 
+									                     status == CDS_DATA_2 || status == CDS_AUDIO || status == CDS_MIXED);
+									close(fd);
+								}
+								
+								if (!disc_still_present) {
+									printf("CD-ROM: Disc ejected (verification failed) - need to update status\n");
+									cd_present = false;
+									audio_cd = false;
+									need_rescan = false; // No need to scan if disc is gone
+									
+									// Remove persistent flag immediately when disc is ejected
+									if (access("/tmp/cd_present", F_OK) == 0) {
+										unlink("/tmp/cd_present");
+										printf("CD-ROM: Removed persistent flag (disc ejected)\n");
+									}
+									
+									// Clear cached disc identification data immediately
+									cmd_bridge_clear_disc_cache();
+									
+									// Set ejection cooldown to prevent immediate rescanning
+									// Must last longer than 2 CD-ROM check intervals (400000+ cycles)
+									// This ensures it survives through multiple check cycles
+									ejection_cooldown = 500000; // ~500000 cycles to ensure no false re-detection
+									printf("CD-ROM: DEBUG: Set ejection_cooldown to %d (will last past 2+ checks)\n", ejection_cooldown);
+								} else {
+									// Disc is still present, check if we have MGL files (any CD-ROM related MGL)
+									int mgl_check = system("ls /media/fat/[0-9]-*.mgl /media/fat/*Audio*.mgl /media/fat/CD*.mgl \"/media/fat/[CD]\"*.mgl 2>/dev/null | wc -l | grep -v '^0$' >/dev/null 2>&1");
+									if (mgl_check == 0) {
+										printf("CD-ROM: CD present and MGL files exist - skipping rescan\n");
+										need_rescan = false;
+									} else {
+										printf("CD-ROM: CD present but no MGL files found - need to process\n");
+										need_rescan = true;
+									}
+								}
+							} else {
+								need_rescan = false; // CD not present, use cached status
+							}
+						} else {
+							need_rescan = true; // Flag file corrupted
+						}
+						fclose(persistent_flag);
+					} else {
+						need_rescan = true; // Flag file disappeared
+					}
+				} else {
+					// Check ejection cooldown before rescanning
+					printf("CD-ROM: DEBUG: No persistent flag exists, cooldown=%d\n", ejection_cooldown);
+					if (ejection_cooldown > 0) {
+						printf("CD-ROM: Ejection cooldown active (%d cycles remaining) - skipping rescan\n", ejection_cooldown);
+						cd_present = false;
+						audio_cd = false;
+						need_rescan = false;
+					} else {
+						printf("CD-ROM: DEBUG: No cooldown, will rescan\n");
+						need_rescan = true; // No flag file, need to scan
+					}
+				}
+				
+				// Only fork and scan if necessary AND not in cooldown
+				printf("CD-ROM: DEBUG: Before rescan check: need_rescan=%d, cooldown=%d\n", need_rescan, ejection_cooldown);
+				if (need_rescan && ejection_cooldown == 0) {
+					printf("CD-ROM: Rescanning disc (flag missing or corrupted)");
+					
+					// Fork a background process to handle all CD-ROM I/O operations
+					// This completely isolates blocking operations from the main process
+					pid_t pid = fork();
 				if (pid == 0) {
 					// Child process - handle all CD-ROM I/O here
 					bool child_cd_present = false;
@@ -247,8 +339,34 @@ static void scheduler_co_cdrom(void)
 						}
 						fclose(flag);
 					}
-				} else {
-					printf("CD-ROM: Failed to fork CD-ROM detection process\n");
+					} else {
+						printf("CD-ROM: Failed to fork CD-ROM detection process\n");
+					}
+					
+					// Update persistent flag after rescan
+					if (cd_present) {
+						// Only create/update persistent flag if we're not in ejection cooldown
+						// This prevents false re-detection immediately after ejection
+						if (ejection_cooldown == 0) {
+							// Create/update persistent flag
+							FILE* persistent_flag = fopen("/tmp/cd_present", "w");
+							if (persistent_flag) {
+								fprintf(persistent_flag, "%d %d\n", cd_present ? 1 : 0, audio_cd ? 1 : 0);
+								fclose(persistent_flag);
+								printf("CD-ROM: Updated persistent flag at /tmp/cd_present\n");
+							}
+						} else {
+							printf("CD-ROM: Skipping flag creation due to ejection cooldown\n");
+							cd_present = false; // Override detection during cooldown
+							audio_cd = false;
+						}
+					} else {
+						// Remove persistent flag if no disc
+						if (access("/tmp/cd_present", F_OK) == 0) {
+							unlink("/tmp/cd_present");
+							printf("CD-ROM: Removed persistent flag (no disc)\n");
+						}
+					}
 				}
 				
 				// Only print status when state changes
@@ -259,6 +377,9 @@ static void scheduler_co_cdrom(void)
 				// If CD status changed from present to not present, clean up MGL files
 				if (!cd_present && last_cd_present) {
 					printf("CD-ROM: Disc ejected, cleaning up MGL files\n");
+					
+					// Clear cached disc identification data
+					cmd_bridge_clear_disc_cache();
 					
 					// Get the current MGL file path and delete it
 					const char* mgl_path = cmd_bridge_get_current_mgl_path();
@@ -273,10 +394,38 @@ static void scheduler_co_cdrom(void)
 					}
 					
 					// Also clean up numbered selection MGL files and audio CD player files
-					printf("CD-ROM: Running cleanup command: rm -f /media/fat/\\x97*.mgl, /media/fat/CD*.mgl, /media/fat/[0-9]*.mgl, and /media/fat/Audio*.mgl\n");
-					int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null");
+					// Note: We need to track artist/album MGLs separately since they don't follow a pattern
+					printf("CD-ROM: Checking for MGL files before cleanup...\n");
+					system("ls -la /media/fat/*.mgl 2>/dev/null | grep -E '\\[CD\\]|^[0-9]|Audio' || echo 'No CD-related MGL files found'");
+					
+					printf("CD-ROM: Running cleanup command for CD-related MGL files\n");
+					int cleanup_result = system("rm -f \"/media/fat/[CD]\"*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl /media/fat/[0-9]-*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null");
 					printf("CD-ROM: Cleanup command result: %d\n", cleanup_result);
-					printf("CD-ROM: Cleaned up selection and audio player MGL files\n");
+					
+					// Also remove the last created audio CD MGL if it was an artist/album named file
+					// This is stored when we create it
+					const char* audio_mgl_path = cmd_bridge_get_audio_cd_mgl_path();
+					if (audio_mgl_path && strlen(audio_mgl_path) > 0) {
+						if (unlink(audio_mgl_path) == 0) {
+							printf("CD-ROM: Deleted audio CD MGL file: %s\n", audio_mgl_path);
+						}
+						cmd_bridge_clear_audio_cd_mgl_path();
+					}
+					
+					printf("CD-ROM: Cleaned up all CD-related MGL files\n");
+					
+					// Wait longer for filesystem to process deletions before refreshing
+					printf("CD-ROM: Waiting 500ms for filesystem to process deletions...\n");
+					usleep(500000); // Extended delay for file deletions to complete
+					
+					// Force OSD refresh to update file list after cleanup
+					printf("CD-ROM: Triggering OSD refresh after cleanup\n");
+					if (menu_present()) {
+						printf("CD-ROM: Menu is present, refreshing OSD...\n");
+						usleep(500000); // 0.5 second delay to prevent input freeze
+						menu_key_set(102); // HOME key for refresh
+						printf("CD-ROM: OSD refresh completed\n");
+					}
 				}
 				
 				// Handle audio CD detection
@@ -345,6 +494,8 @@ static void scheduler_co_cdrom(void)
 					printf("CD-ROM: Attempting to create MGL at: %s\n", audio_mgl_path);
 					FILE* mgl = fopen(audio_mgl_path, "w");
 					if (mgl) {
+						// Track this MGL for cleanup
+						cmd_bridge_set_audio_cd_mgl_path(audio_mgl_path);
 						fprintf(mgl, "<mistergamedescription>\n");
 						fprintf(mgl, "    <rbf>_Utility/CD_Audio_Player</rbf>\n");
 						fprintf(mgl, "    <file delay=\"1\" type=\"s\" index=\"0\" path=\"/dev/sr0\"/>\n");
@@ -366,7 +517,7 @@ static void scheduler_co_cdrom(void)
 						printf("CD-ROM: Checking if menu is present...\n");
 						if (menu_present()) {
 							printf("CD-ROM: Menu is present, triggering refresh\n");
-							usleep(200000); // Increased delay to 200ms
+							usleep(500000); // 0.5 second delay to prevent input freeze
 							menu_key_set(102); // HOME key for refresh
 							printf("CD-ROM: Menu refresh triggered with HOME key\n");
 						} else {
@@ -378,7 +529,8 @@ static void scheduler_co_cdrom(void)
 					}
 				}
 				// If CD status changed from not present to present and it's not audio, delay auto-load
-				else if (cd_present && !audio_cd && !last_cd_present) {
+				// But don't trigger during ejection cooldown to prevent false autoloads
+				else if (cd_present && !audio_cd && !last_cd_present && ejection_cooldown == 0) {
 					printf("CD-ROM: Data disc detected, scheduling auto-load...\n");
 					// Use configurable delay (convert seconds to ticks: seconds * 50 ticks/second)
 					// If delay is 0, use 1 tick minimum to ensure proper execution flow
@@ -403,6 +555,14 @@ static void scheduler_co_cdrom(void)
 				} else {
 					printf("CD-ROM: Auto-load failed: %s\n", result.message);
 				}
+			}
+		}
+		
+		// Decrement ejection cooldown each cycle
+		if (ejection_cooldown > 0) {
+			ejection_cooldown--;
+			if (ejection_cooldown % 100000 == 0) {  // Log every 100000 cycles
+				printf("CD-ROM: DEBUG: Ejection cooldown decremented to %d\n", ejection_cooldown);
 			}
 		}
 		

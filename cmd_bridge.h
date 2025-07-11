@@ -54,4 +54,12 @@ const char* cmd_bridge_get_current_mgl_path();
 void cmd_bridge_clear_current_mgl_path();
 void cmd_bridge_set_current_mgl_path(const char* path);
 
+// Audio CD MGL path management
+const char* cmd_bridge_get_audio_cd_mgl_path();
+void cmd_bridge_clear_audio_cd_mgl_path();
+void cmd_bridge_set_audio_cd_mgl_path(const char* path);
+
+// Disc cache management
+void cmd_bridge_clear_disc_cache();
+
 #endif // CMD_BRIDGE_H
