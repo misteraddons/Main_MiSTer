@@ -24,6 +24,13 @@
 
 // Global variable to track current MGL file for cleanup
 static char current_mgl_path[512] = "";
+static char audio_cd_mgl_path[512] = "";
+
+// Cache disc identification to avoid double scanning
+static char cached_disc_id[64] = "";
+static char cached_game_title[256] = "";
+static char cached_system[32] = "";
+static time_t disc_cache_time = 0;
 
 // Command registry
 #define MAX_COMMANDS 50
@@ -48,6 +55,7 @@ void cmd_bridge_init()
     int cleanup_result = system("rm -f /media/fat/\x97*.mgl /media/fat/CD*.mgl /media/fat/[0-9]*.mgl \"/media/fat/Audio\"*.mgl 2>/dev/null"); // Clean CD-ROM generated MGL files
     printf("CMD: Cleanup command result: %d\n", cleanup_result);
     cmd_bridge_clear_current_mgl_path();
+    cmd_bridge_clear_audio_cd_mgl_path();
     
     // Clear any existing registrations
     num_registered_commands = 0;
@@ -813,6 +821,401 @@ static cmd_result_t cmd_cdaudio_info(const char* args)
     return result;
 }
 
+// CD track ripping to WAV format
+static cmd_result_t cmd_cd_rip_track(const char* args)
+{
+    cmd_result_t result = { false, "CD track rip failed", -1 };
+    
+    if (!args || strlen(args) == 0) {
+        strcpy(result.message, "Usage: cd_rip_track [track_number] [output_file]");
+        return result;
+    }
+    
+    // Parse arguments
+    int track = 0;
+    char output_file[512] = "";
+    if (sscanf(args, "%d %s", &track, output_file) != 2) {
+        strcpy(result.message, "Invalid arguments. Usage: cd_rip_track [track] [output_file]");
+        return result;
+    }
+    
+    printf("CMD: Ripping audio track %d to %s\n", track, output_file);
+    
+    // Check if CD-ROM device is available
+    if (access("/dev/sr0", F_OK) != 0) {
+        strcpy(result.message, "CD-ROM device not found");
+        return result;
+    }
+    
+    int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        strcpy(result.message, "Cannot open CD-ROM device");
+        return result;
+    }
+    
+    // Get TOC to find track boundaries
+    struct cdrom_tochdr tochdr;
+    if (ioctl(fd, CDROMREADTOCHDR, &tochdr) != 0) {
+        close(fd);
+        strcpy(result.message, "Cannot read CD table of contents");
+        return result;
+    }
+    
+    if (track < tochdr.cdth_trk0 || track > tochdr.cdth_trk1) {
+        close(fd);
+        snprintf(result.message, sizeof(result.message), "Track %d not found (available: %d-%d)", 
+                 track, tochdr.cdth_trk0, tochdr.cdth_trk1);
+        return result;
+    }
+    
+    // Get track start and end positions
+    struct cdrom_tocentry track_entry, next_track_entry;
+    track_entry.cdte_track = track;
+    track_entry.cdte_format = CDROM_LBA;
+    
+    if (ioctl(fd, CDROMREADTOCENTRY, &track_entry) != 0) {
+        close(fd);
+        strcpy(result.message, "Cannot read track information");
+        return result;
+    }
+    
+    // Check if it's an audio track
+    if (track_entry.cdte_ctrl & CDROM_DATA_TRACK) {
+        close(fd);
+        strcpy(result.message, "Cannot rip data track - audio tracks only");
+        return result;
+    }
+    
+    int start_lba = track_entry.cdte_addr.lba;
+    int end_lba;
+    
+    // Get end position from next track or lead-out
+    if (track < tochdr.cdth_trk1) {
+        next_track_entry.cdte_track = track + 1;
+        next_track_entry.cdte_format = CDROM_LBA;
+        if (ioctl(fd, CDROMREADTOCENTRY, &next_track_entry) == 0) {
+            end_lba = next_track_entry.cdte_addr.lba;
+        } else {
+            close(fd);
+            strcpy(result.message, "Cannot determine track end position");
+            return result;
+        }
+    } else {
+        // Last track - use lead-out
+        next_track_entry.cdte_track = CDROM_LEADOUT;
+        next_track_entry.cdte_format = CDROM_LBA;
+        if (ioctl(fd, CDROMREADTOCENTRY, &next_track_entry) == 0) {
+            end_lba = next_track_entry.cdte_addr.lba;
+        } else {
+            close(fd);
+            strcpy(result.message, "Cannot determine disc end position");
+            return result;
+        }
+    }
+    
+    int track_sectors = end_lba - start_lba;
+    printf("CMD: Track %d: LBA %d-%d (%d sectors, %.1f seconds)\n", 
+           track, start_lba, end_lba, track_sectors, track_sectors / 75.0);
+    
+    // Create output file with WAV header
+    FILE* wav_file = fopen(output_file, "wb");
+    if (!wav_file) {
+        close(fd);
+        strcpy(result.message, "Cannot create output file");
+        return result;
+    }
+    
+    // Write WAV header (44 bytes)
+    uint32_t data_size = track_sectors * 2352; // Raw CD audio frame size
+    uint32_t file_size = data_size + 36;
+    
+    fwrite("RIFF", 1, 4, wav_file);
+    fwrite(&file_size, 4, 1, wav_file);
+    fwrite("WAVE", 1, 4, wav_file);
+    fwrite("fmt ", 1, 4, wav_file);
+    
+    uint32_t fmt_size = 16;
+    uint16_t audio_format = 1; // PCM
+    uint16_t num_channels = 2; // Stereo
+    uint32_t sample_rate = 44100;
+    uint32_t byte_rate = 44100 * 2 * 2; // 44.1kHz * 2 channels * 2 bytes
+    uint16_t block_align = 4; // 2 channels * 2 bytes
+    uint16_t bits_per_sample = 16;
+    
+    fwrite(&fmt_size, 4, 1, wav_file);
+    fwrite(&audio_format, 2, 1, wav_file);
+    fwrite(&num_channels, 2, 1, wav_file);
+    fwrite(&sample_rate, 4, 1, wav_file);
+    fwrite(&byte_rate, 4, 1, wav_file);
+    fwrite(&block_align, 2, 1, wav_file);
+    fwrite(&bits_per_sample, 2, 1, wav_file);
+    
+    fwrite("data", 1, 4, wav_file);
+    fwrite(&data_size, 4, 1, wav_file);
+    
+    // Extract audio data sector by sector
+    struct cdrom_read_audio audio_read;
+    unsigned char audio_buffer[2352]; // Raw CD-DA frame
+    int sectors_read = 0;
+    
+    printf("CMD: Extracting %d sectors...\n", track_sectors);
+    
+    for (int lba = start_lba; lba < end_lba; lba++) {
+        audio_read.addr.lba = lba;
+        audio_read.addr_format = CDROM_LBA;
+        audio_read.nframes = 1;
+        audio_read.buf = audio_buffer;
+        
+        if (ioctl(fd, CDROMREADAUDIO, &audio_read) == 0) {
+            // Write audio data (skip sync/header/subchannel, keep only audio)
+            fwrite(audio_buffer, 1, 2352, wav_file);
+            sectors_read++;
+        } else {
+            printf("CMD: Warning - failed to read sector %d, inserting silence\n", lba);
+            // Insert silence for damaged sectors
+            memset(audio_buffer, 0, 2352);
+            fwrite(audio_buffer, 1, 2352, wav_file);
+        }
+        
+        // Progress indicator
+        if ((sectors_read % 1000) == 0) {
+            printf("CMD: Progress: %d/%d sectors (%.1f%%)\n", 
+                   sectors_read, track_sectors, (float)sectors_read / track_sectors * 100.0);
+        }
+    }
+    
+    fclose(wav_file);
+    close(fd);
+    
+    printf("CMD: Successfully ripped track %d to %s (%d sectors)\n", track, output_file, sectors_read);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), "Track %d ripped to %s (%d sectors)", 
+             track, output_file, sectors_read);
+    result.result_code = sectors_read;
+    
+    return result;
+}
+
+// Create CUE/BIN file from entire disc
+static cmd_result_t cmd_cd_create_cue(const char* args)
+{
+    cmd_result_t result = { false, "CD CUE creation failed", -1 };
+    
+    if (!args || strlen(args) == 0) {
+        strcpy(result.message, "Usage: cd_create_cue [output_name]");
+        return result;
+    }
+    
+    char output_name[512];
+    strncpy(output_name, args, sizeof(output_name) - 1);
+    output_name[sizeof(output_name) - 1] = '\0';
+    
+    printf("CMD: Creating CUE/BIN files: %s\n", output_name);
+    
+    // Check if CD-ROM device is available
+    if (access("/dev/sr0", F_OK) != 0) {
+        strcpy(result.message, "CD-ROM device not found");
+        return result;
+    }
+    
+    int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        strcpy(result.message, "Cannot open CD-ROM device");
+        return result;
+    }
+    
+    // Get full TOC
+    struct cdrom_tochdr tochdr;
+    if (ioctl(fd, CDROMREADTOCHDR, &tochdr) != 0) {
+        close(fd);
+        strcpy(result.message, "Cannot read CD table of contents");
+        return result;
+    }
+    
+    // Create BIN and CUE filenames
+    char bin_filename[512], cue_filename[512];
+    snprintf(bin_filename, sizeof(bin_filename), "%s.bin", output_name);
+    snprintf(cue_filename, sizeof(cue_filename), "%s.cue", output_name);
+    
+    // Create CUE file
+    FILE* cue_file = fopen(cue_filename, "w");
+    if (!cue_file) {
+        close(fd);
+        strcpy(result.message, "Cannot create CUE file");
+        return result;
+    }
+    
+    fprintf(cue_file, "FILE \"%s\" BINARY\n", bin_filename);
+    
+    // Get lead-out position for total disc size
+    struct cdrom_tocentry leadout;
+    leadout.cdte_track = CDROM_LEADOUT;
+    leadout.cdte_format = CDROM_LBA;
+    if (ioctl(fd, CDROMREADTOCENTRY, &leadout) != 0) {
+        fclose(cue_file);
+        close(fd);
+        strcpy(result.message, "Cannot read lead-out position");
+        return result;
+    }
+    
+    int total_sectors = leadout.cdte_addr.lba;
+    printf("CMD: Total disc size: %d sectors (%.1f MB)\n", 
+           total_sectors, total_sectors * 2352.0 / 1024.0 / 1024.0);
+    
+    // Write track information to CUE file
+    for (int track = tochdr.cdth_trk0; track <= tochdr.cdth_trk1; track++) {
+        struct cdrom_tocentry track_entry;
+        track_entry.cdte_track = track;
+        track_entry.cdte_format = CDROM_LBA;
+        
+        if (ioctl(fd, CDROMREADTOCENTRY, &track_entry) == 0) {
+            int lba = track_entry.cdte_addr.lba;
+            int minutes = lba / (75 * 60);
+            int seconds = (lba / 75) % 60;
+            int frames = lba % 75;
+            
+            if (track_entry.cdte_ctrl & CDROM_DATA_TRACK) {
+                fprintf(cue_file, "  TRACK %02d MODE1/2352\n", track);
+            } else {
+                fprintf(cue_file, "  TRACK %02d AUDIO\n", track);
+            }
+            fprintf(cue_file, "    INDEX 01 %02d:%02d:%02d\n", minutes, seconds, frames);
+        }
+    }
+    
+    fclose(cue_file);
+    printf("CMD: CUE file created: %s\n", cue_filename);
+    
+    // Create BIN file with raw disc image
+    FILE* bin_file = fopen(bin_filename, "wb");
+    if (!bin_file) {
+        close(fd);
+        strcpy(result.message, "Cannot create BIN file");
+        return result;
+    }
+    
+    // Read entire disc sector by sector
+    struct cdrom_read_audio raw_read;
+    unsigned char sector_buffer[2352];
+    int sectors_written = 0;
+    
+    printf("CMD: Reading %d sectors to BIN file...\n", total_sectors);
+    
+    for (int lba = 0; lba < total_sectors; lba++) {
+        raw_read.addr.lba = lba;
+        raw_read.addr_format = CDROM_LBA;
+        raw_read.nframes = 1;
+        raw_read.buf = sector_buffer;
+        
+        if (ioctl(fd, CDROMREADRAW, &raw_read) == 0) {
+            fwrite(sector_buffer, 1, 2352, bin_file);
+            sectors_written++;
+        } else {
+            // Try alternative reading method for data sectors
+            if (ioctl(fd, CDROMREADAUDIO, &raw_read) == 0) {
+                fwrite(sector_buffer, 1, 2352, bin_file);
+                sectors_written++;
+            } else {
+                printf("CMD: Warning - failed to read sector %d\n", lba);
+                memset(sector_buffer, 0, 2352);
+                fwrite(sector_buffer, 1, 2352, bin_file);
+            }
+        }
+        
+        // Progress indicator
+        if ((sectors_written % 5000) == 0) {
+            printf("CMD: Progress: %d/%d sectors (%.1f%%)\n", 
+                   sectors_written, total_sectors, (float)sectors_written / total_sectors * 100.0);
+        }
+    }
+    
+    fclose(bin_file);
+    close(fd);
+    
+    printf("CMD: Successfully created CUE/BIN files: %s (%d sectors)\n", output_name, sectors_written);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), "Created %s.cue/.bin (%d sectors)", 
+             output_name, sectors_written);
+    result.result_code = sectors_written;
+    
+    return result;
+}
+
+// Read raw sectors from disc
+static cmd_result_t cmd_cd_read_raw(const char* args)
+{
+    cmd_result_t result = { false, "Raw sector read failed", -1 };
+    
+    if (!args || strlen(args) == 0) {
+        strcpy(result.message, "Usage: cd_read_raw [start_lba] [count] [output_file]");
+        return result;
+    }
+    
+    // Parse arguments
+    int start_lba = 0, count = 0;
+    char output_file[512] = "";
+    if (sscanf(args, "%d %d %s", &start_lba, &count, output_file) != 3) {
+        strcpy(result.message, "Invalid arguments. Usage: cd_read_raw [start_lba] [count] [output_file]");
+        return result;
+    }
+    
+    printf("CMD: Reading %d raw sectors starting from LBA %d to %s\n", count, start_lba, output_file);
+    
+    // Check if CD-ROM device is available
+    if (access("/dev/sr0", F_OK) != 0) {
+        strcpy(result.message, "CD-ROM device not found");
+        return result;
+    }
+    
+    int fd = open("/dev/sr0", O_RDONLY | O_NONBLOCK);
+    if (fd < 0) {
+        strcpy(result.message, "Cannot open CD-ROM device");
+        return result;
+    }
+    
+    // Create output file
+    FILE* raw_file = fopen(output_file, "wb");
+    if (!raw_file) {
+        close(fd);
+        strcpy(result.message, "Cannot create output file");
+        return result;
+    }
+    
+    // Read sectors
+    struct cdrom_read_audio raw_read;
+    unsigned char sector_buffer[2352];
+    int sectors_read = 0;
+    
+    for (int lba = start_lba; lba < start_lba + count; lba++) {
+        raw_read.addr.lba = lba;
+        raw_read.addr_format = CDROM_LBA;
+        raw_read.nframes = 1;
+        raw_read.buf = sector_buffer;
+        
+        if (ioctl(fd, CDROMREADRAW, &raw_read) == 0 || ioctl(fd, CDROMREADAUDIO, &raw_read) == 0) {
+            fwrite(sector_buffer, 1, 2352, raw_file);
+            sectors_read++;
+        } else {
+            printf("CMD: Warning - failed to read sector %d\n", lba);
+            memset(sector_buffer, 0, 2352);
+            fwrite(sector_buffer, 1, 2352, raw_file);
+        }
+    }
+    
+    fclose(raw_file);
+    close(fd);
+    
+    printf("CMD: Successfully read %d raw sectors to %s\n", sectors_read, output_file);
+    
+    result.success = true;
+    snprintf(result.message, sizeof(result.message), "Read %d sectors to %s", sectors_read, output_file);
+    result.result_code = sectors_read;
+    
+    return result;
+}
+
 // CD-ROM auto-load command
 static cmd_result_t cmd_cdrom_autoload(const char* args)
 {
@@ -826,23 +1229,54 @@ static cmd_result_t cmd_cdrom_autoload(const char* args)
         return result;
     }
     
-    // Initialize CD-ROM subsystem if not already done
-    cdrom_init();
+    // Check if we have recent cached identification (within 60 seconds)
+    time_t current_time = time(NULL);
+    bool use_cache = (current_time - disc_cache_time < 60 && strlen(cached_disc_id) > 0);
     
-    // Try to identify the game
     CDRomGameInfo game_info;
-    const char* detected_system = cdrom_get_system_from_detection();
+    const char* detected_system;
     
-    if (!detected_system) {
-        strcpy(result.message, "Could not detect disc system type");
-        return result;
+    if (use_cache) {
+        printf("CMD: Using cached disc identification: %s (%s)\n", cached_game_title, cached_system);
+        strncpy(game_info.id, cached_disc_id, sizeof(game_info.id) - 1);
+        strncpy(game_info.title, cached_game_title, sizeof(game_info.title) - 1);
+        detected_system = cached_system;
+    } else {
+        printf("CMD: Performing disc identification (cache miss or expired)\n");
+        
+        // Initialize CD-ROM subsystem if not already done
+        cdrom_init();
+        
+        // Try to identify the game
+        detected_system = cdrom_get_system_from_detection();
+        
+        if (!detected_system) {
+            strcpy(result.message, "Could not detect disc system type");
+            return result;
+        }
+        
+        // Cache the results
+        strncpy(cached_system, detected_system, sizeof(cached_system) - 1);
+        cached_system[sizeof(cached_system) - 1] = '\0';
+        disc_cache_time = current_time;
+        printf("CMD: Cached system detection: %s\n", detected_system);
     }
     
     printf("CMD: Detected system: %s\n", detected_system);
     
-    if (!cdrom_identify_game("/dev/sr0", detected_system, &game_info)) {
-        strcpy(result.message, "Could not identify game on disc");
-        return result;
+    if (!use_cache) {
+        // Only identify game if not using cache
+        if (!cdrom_identify_game("/dev/sr0", detected_system, &game_info)) {
+            strcpy(result.message, "Could not identify game on disc");
+            return result;
+        }
+        
+        // Update cache with game info
+        strncpy(cached_disc_id, game_info.id, sizeof(cached_disc_id) - 1);
+        cached_disc_id[sizeof(cached_disc_id) - 1] = '\0';
+        strncpy(cached_game_title, game_info.title, sizeof(cached_game_title) - 1);
+        cached_game_title[sizeof(cached_game_title) - 1] = '\0';
+        printf("CMD: Cached game identification: %s (%s)\n", game_info.title, game_info.id);
     }
     
     printf("CMD: Game identified: %s\n", game_info.title);
@@ -1119,7 +1553,7 @@ cmd_result_t cmd_search_games(const char* args)
         
         // Search in specific core directory
         char core_path[512];
-        snprintf(core_path, sizeof(core_path), "%s/%s", games_base, dir_name);
+        snprintf(core_path, sizeof(core_path), "/media/fat/%s/%s", games_base, dir_name);
         
         printf("CMD: Mapped system '%s' to directory '%s'\n", core_name, dir_name);
         
@@ -1150,18 +1584,59 @@ cmd_result_t cmd_search_games(const char* args)
         const char* space = strchr(base_search, ' ');
         if (space) {
             int word_len = space - base_search;
-            if (word_len < (int)sizeof(first_word) - 1) {
+            if (word_len < (int)sizeof(first_word) - 1 && word_len > 0) {
                 strncpy(first_word, base_search, word_len);
                 first_word[word_len] = '\0';
+            } else {
+                // Fallback to full base_search if word_len is invalid
+                strncpy(first_word, base_search, sizeof(first_word) - 1);
+                first_word[sizeof(first_word) - 1] = '\0';
             }
         } else {
             strncpy(first_word, base_search, sizeof(first_word) - 1);
             first_word[sizeof(first_word) - 1] = '\0';
         }
         
+        // Ensure first_word is not empty - fallback to original game_name
+        if (strlen(first_word) == 0) {
+            strncpy(first_word, game_name, sizeof(first_word) - 1);
+            first_word[sizeof(first_word) - 1] = '\0';
+        }
+        
         char find_cmd[1024];
-        snprintf(find_cmd, sizeof(find_cmd), "find /media/fat/%s -type f \\( -iname '*%s*.cue' -o -iname '*%s*.chd' -o -iname '*%s*.cue' -o -iname '*%s*.chd' \\) 2>/dev/null | head -50", 
-                 core_path, game_name, game_name, first_word, first_word);
+        // Enhanced search with multiple strategies and increased depth
+        // 1. Exact game name match
+        // 2. Base name match (first word)  
+        // 3. Space-tolerant match (replace spaces with *)
+        char space_tolerant[256];
+        strncpy(space_tolerant, base_search, sizeof(space_tolerant) - 1);
+        space_tolerant[sizeof(space_tolerant) - 1] = '\0';
+        // Replace spaces with * for broader matching
+        for (int i = 0; space_tolerant[i]; i++) {
+            if (space_tolerant[i] == ' ') {
+                space_tolerant[i] = '*';
+            }
+        }
+        
+        // Ensure space_tolerant is not empty - fallback to original game_name
+        if (strlen(space_tolerant) == 0) {
+            strncpy(space_tolerant, game_name, sizeof(space_tolerant) - 1);
+            space_tolerant[sizeof(space_tolerant) - 1] = '\0';
+        }
+        
+        snprintf(find_cmd, sizeof(find_cmd), 
+                 "find %s -maxdepth 5 -type f \\( "
+                 "-iname '*%s*.cue' -o -iname '*%s*.chd' -o "     // Exact name
+                 "-iname '*%s*.cue' -o -iname '*%s*.chd' -o "     // First word
+                 "-iname '*%s*.cue' -o -iname '*%s*.chd' "        // Space-tolerant
+                 "\\) 2>/dev/null | head -100", 
+                 core_path, 
+                 game_name, game_name,           // Exact name patterns
+                 first_word, first_word,         // First word patterns
+                 space_tolerant, space_tolerant  // Space-tolerant patterns
+        );
+        
+        printf("CMD: Enhanced search command: %s\n", find_cmd);
         
         FILE* fp = popen(find_cmd, "r");
         if (fp) {
@@ -1591,6 +2066,9 @@ static void register_builtin_commands()
     cmd_bridge_register("cdaudio_stop", cmd_cdaudio_stop, "Stop CD audio playback");
     cmd_bridge_register("cdaudio_pause", cmd_cdaudio_pause, "Pause/resume CD audio playback");
     cmd_bridge_register("cdaudio_info", cmd_cdaudio_info, "Show CD audio disc information");
+    cmd_bridge_register("cd_rip_track", cmd_cd_rip_track, "Extract audio track to WAV (cd_rip_track [track] [output_file])");
+    cmd_bridge_register("cd_create_cue", cmd_cd_create_cue, "Create CUE/BIN file from disc (cd_create_cue [output_name])");
+    cmd_bridge_register("cd_read_raw", cmd_cd_read_raw, "Read raw sectors from disc (cd_read_raw [start_lba] [count] [output_file])");
 }
 
 // Utility functions to manage current MGL path
@@ -1610,6 +2088,26 @@ void cmd_bridge_set_current_mgl_path(const char* path)
         strcpy(current_mgl_path, path);
     } else {
         current_mgl_path[0] = '\0';
+    }
+}
+
+// Audio CD MGL path management
+const char* cmd_bridge_get_audio_cd_mgl_path()
+{
+    return audio_cd_mgl_path;
+}
+
+void cmd_bridge_clear_audio_cd_mgl_path()
+{
+    audio_cd_mgl_path[0] = '\0';
+}
+
+void cmd_bridge_set_audio_cd_mgl_path(const char* path)
+{
+    if (path && strlen(path) < sizeof(audio_cd_mgl_path)) {
+        strcpy(audio_cd_mgl_path, path);
+    } else {
+        audio_cd_mgl_path[0] = '\0';
     }
 }
 

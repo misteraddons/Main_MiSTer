@@ -154,17 +154,110 @@ int fuzzy_match_score(const char* title1, const char* title2) {
         return 100;
     }
     
-    // Calculate Levenshtein distance
+    // Hierarchical scoring system:
+    // 1. First words (base title) - 60%
+    // 2. Series number match - 25% 
+    // 3. Overall similarity - 15%
+    
+    int base_score = 0;
+    int series_score = 0;
+    int similarity_score = 0;
+    
+    // Extract base titles (everything before first number or parenthesis)
+    char base1[256], base2[256];
+    extract_base_game_name(norm1, base1, sizeof(base1));
+    extract_base_game_name(norm2, base2, sizeof(base2));
+    
+    // Score base title match (highest priority)
+    if (strcmp(base1, base2) == 0) {
+        base_score = 100; // Perfect base match
+    } else {
+        // Penalize heavily if base titles don't match
+        int base_distance = levenshtein_distance(base1, base2);
+        int base_max_len = strlen(base1) > strlen(base2) ? strlen(base1) : strlen(base2);
+        if (base_max_len > 0) {
+            base_score = 100 - (base_distance * 100 / base_max_len);
+            if (base_score < 0) base_score = 0;
+            // Additional penalty for different base titles
+            if (base_score < 90) base_score = base_score / 2;
+        }
+    }
+    
+    // Score series number match (second priority)
+    char series1[10], series2[10];
+    extract_series_number(norm1, series1, sizeof(series1));
+    extract_series_number(norm2, series2, sizeof(series2));
+    
+    if (strlen(series1) == 0 && strlen(series2) == 0) {
+        series_score = 100; // Both have no series number
+    } else if (strcmp(series1, series2) == 0) {
+        series_score = 100; // Same series number
+    } else {
+        series_score = 0; // Different series numbers = major penalty
+    }
+    
+    // Overall similarity score (lowest priority)
     int distance = levenshtein_distance(norm1, norm2);
     int max_len = strlen(norm1) > strlen(norm2) ? strlen(norm1) : strlen(norm2);
+    if (max_len > 0) {
+        similarity_score = 100 - (distance * 100 / max_len);
+        if (similarity_score < 0) similarity_score = 0;
+    }
     
-    if (max_len == 0) return 0;
+    // Weighted combination: 60% base + 25% series + 15% similarity
+    int final_score = (base_score * 60 + series_score * 25 + similarity_score * 15) / 100;
     
-    // Convert distance to score (0-100)
-    int score = 100 - (distance * 100 / max_len);
-    if (score < 0) score = 0;
+    return final_score;
+}
+
+// Extract base game name (everything before numbers or series indicators)
+void extract_base_game_name(const char* title, char* base_name, size_t size) {
+    const char* src = title;
+    char* dst = base_name;
+    size_t remaining = size - 1;
     
-    return score;
+    while (*src && remaining > 0) {
+        // Stop at first digit or common series indicators
+        if (isdigit(*src)) break;
+        if (strncmp(src, " ii", 3) == 0 || strncmp(src, " iii", 4) == 0 || 
+            strncmp(src, " iv", 3) == 0 || strncmp(src, " v", 2) == 0) break;
+        
+        *dst++ = *src++;
+        remaining--;
+    }
+    
+    // Trim trailing spaces
+    while (dst > base_name && *(dst-1) == ' ') dst--;
+    *dst = '\0';
+}
+
+// Extract series number from title
+void extract_series_number(const char* title, char* series, size_t size) {
+    series[0] = '\0';
+    
+    const char* p = title;
+    while (*p) {
+        // Look for standalone digits
+        if (isdigit(*p) && (p == title || *(p-1) == ' ')) {
+            if (p[1] == '\0' || p[1] == ' ' || p[1] == '(' || p[1] == '[') {
+                snprintf(series, size, "%c", *p);
+                return;
+            }
+        }
+        
+        // Look for Roman numerals
+        if (strncmp(p, " ii", 3) == 0) { strcpy(series, "2"); return; }
+        if (strncmp(p, " iii", 4) == 0) { strcpy(series, "3"); return; }
+        if (strncmp(p, " iv", 3) == 0) { strcpy(series, "4"); return; }
+        if (strncmp(p, " v", 2) == 0 && (p[2] == '\0' || p[2] == ' ')) { strcpy(series, "5"); return; }
+        if (strncmp(p, " vi", 3) == 0) { strcpy(series, "6"); return; }
+        if (strncmp(p, " vii", 4) == 0) { strcpy(series, "7"); return; }
+        if (strncmp(p, " viii", 5) == 0) { strcpy(series, "8"); return; }
+        if (strncmp(p, " ix", 3) == 0) { strcpy(series, "9"); return; }
+        if (strncmp(p, " x", 2) == 0 && (p[2] == '\0' || p[2] == ' ')) { strcpy(series, "10"); return; }
+        
+        p++;
+    }
 }
 
 // Check if titles match with threshold
@@ -174,7 +267,7 @@ bool fuzzy_match(const char* title1, const char* title2, int threshold) {
 
 // Extract base game name without region/version
 void extract_base_name(const char* title, char* base_name, size_t size) {
-    const char* end = title;
+    const char* end = title + strlen(title); // Default to end of string
     
     // Find the start of region/version info (usually in parentheses)
     const char* paren = strchr(title, '(');
@@ -193,10 +286,12 @@ void extract_base_name(const char* title, char* base_name, size_t size) {
     
     // Copy base name
     int len = end - title;
+    printf("DEBUG: extract_base_name input='%s', end-title=%d, size=%zu\n", title, len, size);
     if (len >= (int)size) len = size - 1;
     
     strncpy(base_name, title, len);
     base_name[len] = '\0';
+    printf("DEBUG: extract_base_name output='%s', final_len=%d\n", base_name, len);
     
     // Trim trailing spaces
     while (len > 0 && base_name[len-1] == ' ') {
