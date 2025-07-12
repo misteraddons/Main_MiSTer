@@ -1224,8 +1224,9 @@ struct DirentComp
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
 		
 		// Put virtual favorites folder right after ".." but before other directories
-		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
-		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
+		// TEMPORARILY DISABLED
+		//if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
+		//if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1715,8 +1716,9 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			closedir(d);
 		}
 
-		// Add virtual favorites folder if we're in a games directory with favorites
+		// Add virtual favorites folder if we're in a games directory or _Arcade directory with favorites
 		char *games_pos = strstr(scanned_path, "games/");
+		char *arcade_pos = strstr(scanned_path, "_Arcade");
 		if (games_pos)
 		{
 			char *core_name = games_pos + 6; // skip "games/"
@@ -1738,8 +1740,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					direntext_t favorites_dir;
 					memset(&favorites_dir, 0, sizeof(favorites_dir));
 					favorites_dir.de.d_type = DT_DIR;
-					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
-					strcpy(favorites_dir.altname, "\x97 Favorites");
+					strcpy(favorites_dir.de.d_name, "Favorites"); // Test without heart symbol
+					strcpy(favorites_dir.altname, "Favorites");
 					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
 					DirItem.push_back(favorites_dir);
 				}
@@ -1762,6 +1764,26 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				}
 			}
 		}
+		// DISABLE _Arcade virtual favorites folder for now
+		/*
+		else if (arcade_pos && strcmp(scanned_path, "_Arcade") == 0)
+		{
+			// We're in _Arcade directory specifically (not a subdirectory), check for favorites
+			char favorites_path[1024];
+			snprintf(favorites_path, sizeof(favorites_path), "%s/_Arcade/favorites.txt", getRootDir());
+			if (FileExists(favorites_path, 0))
+			{
+				// Add virtual favorites folder
+				direntext_t favorites_dir;
+				memset(&favorites_dir, 0, sizeof(favorites_dir));
+				favorites_dir.de.d_type = DT_DIR;
+				strcpy(favorites_dir.de.d_name, "Favorites"); // Test without heart symbol  
+				strcpy(favorites_dir.altname, "Favorites");
+				favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+				DirItem.push_back(favorites_dir);
+			}
+		}
+		*/
 
 		printf("Got %d dir entries\n", flist_nDirEntries());
 		if (!flist_nDirEntries()) return 0;
@@ -2072,7 +2094,16 @@ static char current_favorites_dir[1024] = "";
 static int FavoritesLoad(const char *directory)
 {
 	char favorites_path[1024];
-	snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/_Arcade/favorites.txt");
+	}
+	else
+	{
+		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	}
 	
 	favorites_count = 0;
 	memset(favorites_cache, 0, sizeof(favorites_cache));
@@ -2092,7 +2123,8 @@ static int FavoritesLoad(const char *directory)
 			{
 				// New format: extract just the full path part
 				char *full_path = pipe_pos + 1;
-				if (strstr(full_path, "/media/fat/games/") == full_path)
+				if (strstr(full_path, "/media/fat/games/") == full_path || 
+				    strstr(full_path, "/media/fat/_Arcade/") == full_path)
 				{
 					strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
 					favorites_count++;
@@ -2105,7 +2137,8 @@ static int FavoritesLoad(const char *directory)
 			else
 			{
 				// Old format: just path
-				if (strstr(line, "/media/fat/games/") == line) // Should start with /media/fat/games/
+				if (strstr(line, "/media/fat/games/") == line || 
+				    strstr(line, "/media/fat/_Arcade/") == line) // Should start with valid path prefix
 				{
 					strncpy(favorites_cache[favorites_count], line, sizeof(favorites_cache[0]) - 1);
 					favorites_count++;
@@ -2124,7 +2157,16 @@ static int FavoritesLoad(const char *directory)
 static void FavoritesSave(const char *directory)
 {
 	char favorites_path[1024];
-	snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/_Arcade/favorites.txt");
+	}
+	else
+	{
+		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	}
 	
 	// If no favorites, delete the file
 	if (favorites_count == 0)
@@ -2270,36 +2312,49 @@ int ScanVirtualFavorites(const char *core_path)
 	
 	// Extract core name from path first
 	const char *games_pos = strstr(core_path, "games/");
-	if (!games_pos) return 0;
+	const char *arcade_pos = strstr(core_path, "_Arcade");
+	if (!games_pos && !arcade_pos) return 0;
 	
-	const char *core_name = games_pos + 6;
 	char core_dir[256];
-	const char *slash_pos = strchr(core_name, '/');
-	
-	// Store the parent path (core directory) so ".." navigation returns to the correct directory
 	static char parent_path[1024];
-	if (slash_pos)
+	
+	if (games_pos)
 	{
-		// We're in a subdirectory, extract up to the core directory
-		int path_len = (games_pos + 6 + (slash_pos - core_name)) - core_path;
-		strncpy(parent_path, core_path, path_len);
-		parent_path[path_len] = 0;
+		// Handle games directory
+		const char *core_name = games_pos + 6;
+		const char *slash_pos = strchr(core_name, '/');
+		
+		// Store the parent path (core directory) so ".." navigation returns to the correct directory
+		if (slash_pos)
+		{
+			// We're in a subdirectory, extract up to the core directory
+			int path_len = (games_pos + 6 + (slash_pos - core_name)) - core_path;
+			strncpy(parent_path, core_path, path_len);
+			parent_path[path_len] = 0;
+		}
+		else
+		{
+			// We're at the core root
+			strncpy(parent_path, core_path, sizeof(parent_path) - 1);
+			parent_path[sizeof(parent_path) - 1] = 0;
+		}
+		if (slash_pos)
+		{
+			int core_len = slash_pos - core_name;
+			strncpy(core_dir, core_name, core_len);
+			core_dir[core_len] = 0;
+		}
+		else
+		{
+			strcpy(core_dir, core_name);
+		}
 	}
-	else
+	else if (arcade_pos)
 	{
-		// We're at the core root
+		// Handle _Arcade directory
+		strcpy(core_dir, "_Arcade");
 		strncpy(parent_path, core_path, sizeof(parent_path) - 1);
 		parent_path[sizeof(parent_path) - 1] = 0;
-	}
-	if (slash_pos)
-	{
-		int core_len = slash_pos - core_name;
-		strncpy(core_dir, core_name, core_len);
-		core_dir[core_len] = 0;
-	}
-	else
-	{
-		strcpy(core_dir, core_name);
 	}
 	
 	int count = FavoritesLoad(core_dir);
@@ -2329,11 +2384,10 @@ int ScanVirtualFavorites(const char *core_path)
 			continue;
 		}
 		
-		// Extract clean filename from full path (no path components or extension)
-		char clean_filename[256];
-		
 		// Extract filename from full path
 		char *filename = strrchr(favorites_cache[i], '/');
+		char clean_filename[256];
+		
 		if (filename) 
 		{
 			filename++; // skip the '/'

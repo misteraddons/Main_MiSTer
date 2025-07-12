@@ -2386,7 +2386,6 @@ void HandleUI(void)
 
 	case MENU_GENERIC_FILE_SELECTED:
 		{
-			printf("MENU_GENERIC_FILE_SELECTED called, mgl->done=%d\n", mgl->done);
 			if (!mgl->done)
 			{
 				// Check if this is a virtual favorites entry
@@ -2407,7 +2406,7 @@ void HandleUI(void)
 			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
 			{
 				strcpy(selPath, flist_SelectedItem()->altname);
-				}
+			}
 			
 			MenuHide();
 			printf("File selected: %s\n", selPath);
@@ -5016,14 +5015,12 @@ void HandleUI(void)
 				favorites_start_pressed = true;
 				favorites_triggered = false;
 				favorites_start_timer = GetTimer(1500); // 1.5 second timer
-				printf("START pressed, timer started\n");
 			}
 			else if (!start_current && favorites_start_pressed)
 			{
 				// START released, clear everything
 				favorites_start_pressed = false;
 				favorites_triggered = false;
-				printf("START released\n");
 			}
 			else if (start_current && favorites_start_pressed && !favorites_triggered)
 			{
@@ -5032,13 +5029,12 @@ void HandleUI(void)
 				{
 					// Held for 2+ seconds, toggle favorite
 					favorites_triggered = true; // Mark as triggered so we don't repeat
-					printf("START held for 1.5+ seconds, toggling favorite\n");
-					if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
+						if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
 					{
 						char *current_path = flist_Path();
 						printf("Current path: %s\n", current_path);
 						char *games_pos = strstr(current_path, "games/");
-						printf("Games pos: %p\n", games_pos);
+						char *arcade_pos = strstr(current_path, "_Arcade");
 						if (games_pos)
 						{
 							char *core_name = games_pos + 6; // skip "games/"
@@ -5052,9 +5048,6 @@ void HandleUI(void)
 								strncpy(core_dir, core_name, core_len);
 								core_dir[core_len] = 0;
 								
-								printf("Extracted core_dir: '%s'\n", core_dir);
-								printf("Selected file: '%s'\n", flist_SelectedItem()->altname);
-								printf("Calling FavoritesToggle...\n");
 								FavoritesToggle(core_dir, flist_SelectedItem()->altname);
 								
 								// If we're in virtual favorites, just update the display
@@ -5070,19 +5063,16 @@ void HandleUI(void)
 								}
 								menustate = MENU_FILE_SELECT1;
 							}
-							else
-							{
-								printf("No slash found after core name\n");
-							}
 						}
-						else
+						else if (arcade_pos)
 						{
-							printf("'/games/' not found in path\n");
+							// We're in _Arcade directory - use d_name to include .mra extension
+							FavoritesToggle("_Arcade", flist_SelectedItem()->de.d_name);
+							
+							// Just refresh the display to update hearts
+							PrintDirectory(1);
+							menustate = MENU_FILE_SELECT1;
 						}
-					}
-					else
-					{
-						printf("No entries or selected item is directory\n");
 					}
 				}
 			}
@@ -7277,6 +7267,7 @@ void PrintDirectory(int expand)
 				// Check if file is favorited (including virtual favorites)
 				char *current_path = flist_Path();
 				char *games_pos = strstr(current_path, "games/");
+				char *arcade_pos = strstr(current_path, "_Arcade");
 				if (games_pos)
 				{
 					char *core_name = games_pos + 6; // skip "games/"
@@ -7305,6 +7296,27 @@ void PrintDirectory(int expand)
 						{
 							s[0] = '\x97'; // Heart character
 						}
+					}
+				}
+				else if (arcade_pos)
+				{
+					// We're in _Arcade directory
+					bool is_favorited = false;
+					
+					if (flist_DirItem(k)->flags == 0x8001)
+					{
+						// For virtual favorites, check the stored full path directly
+						is_favorited = FavoritesIsFullPath("_Arcade", flist_DirItem(k)->altname);
+					}
+					else
+					{
+						// Regular file check - use d_name to match saved format with extension
+						is_favorited = FavoritesIsFile("_Arcade", flist_DirItem(k)->de.d_name);
+					}
+					
+					if (is_favorited)
+					{
+						s[0] = '\x97'; // Heart character
 					}
 				}
 			}
