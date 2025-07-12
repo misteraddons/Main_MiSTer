@@ -5895,6 +5895,22 @@ int input_poll(int getchar)
 
 int is_key_pressed(int key)
 {
+	// Throttle expensive ioctl calls to reduce input lag
+	// Cache results for frequently checked keys
+	static uint32_t last_check_time = 0;
+	static int cached_key = -1;
+	static int cached_result = 0;
+	
+	uint32_t current_time = GetTimer(0);
+	if (current_time - last_check_time < 50 && cached_key == key)
+	{
+		return cached_result;
+	}
+	
+	last_check_time = current_time;
+	cached_key = key;
+	cached_result = 0;
+
 	unsigned char bits[(KEY_MAX + 7) / 8];
 	for (int i = 0; i < NUMDEV; i++)
 	{
@@ -5910,6 +5926,7 @@ int is_key_pressed(int key)
 					{
 						if (bits[key / 8] & (1 << (key % 8)))
 						{
+							cached_result = 1;
 							return 1;
 						}
 					}
