@@ -5921,6 +5921,30 @@ int is_key_pressed(int key)
 	return 0;
 }
 
+int is_start_button_pressed()
+{
+	for (int i = 0; i < NUMDEV; i++)
+	{
+		if (pool[i].fd > 0 && input[i].num == 1)
+		{
+			unsigned char bits[64];
+			memset(bits, 0, sizeof(bits));
+			if (ioctl(pool[i].fd, EVIOCGKEY(sizeof(bits)), &bits) >= 0)
+			{
+				uint32_t start_code = input[i].mmap[SYS_BTN_START] & 0xFFFF;
+				if (start_code > 0 && start_code < 512)
+				{
+					if (bits[start_code / 8] & (1 << (start_code % 8)))
+					{
+						return 1;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 void input_notify_mode()
 {
 	//reset mouse parameters on any mode switch

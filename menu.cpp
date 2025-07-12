@@ -211,6 +211,11 @@ static uint32_t menu_save_timer = 0;
 static uint32_t load_addr = 0;
 static int32_t  bt_timer = 0;
 
+// Favorites system variables
+static uint32_t favorites_start_timer = 0;
+static bool favorites_start_pressed = false;
+static bool favorites_triggered = false;
+
 static bool osd_unlocked = 1;
 static char osd_code_entry[32];
 static uint32_t osd_lock_timer = 0;
@@ -2381,12 +2386,29 @@ void HandleUI(void)
 
 	case MENU_GENERIC_FILE_SELECTED:
 		{
+			printf("MENU_GENERIC_FILE_SELECTED called, mgl->done=%d\n", mgl->done);
 			if (!mgl->done)
 			{
-				if(mgl->item[mgl->current].path[0] == '/') snprintf(selPath, sizeof(selPath), "%s", mgl->item[mgl->current].path);
-				else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), mgl->item[mgl->current].path);
+				// Check if this is a virtual favorites entry
+				if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+				{
+					// Use the stored full path from virtual favorites
+					snprintf(selPath, sizeof(selPath), "%s", flist_SelectedItem()->altname);
+				}
+				else
+				{
+					// Normal MGL path construction
+					if(mgl->item[mgl->current].path[0] == '/') snprintf(selPath, sizeof(selPath), "%s", mgl->item[mgl->current].path);
+					else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), mgl->item[mgl->current].path);
+				}
 			}
 
+			// Handle virtual favorites when mgl->done=1
+			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+			{
+				strcpy(selPath, flist_SelectedItem()->altname);
+				}
+			
 			MenuHide();
 			printf("File selected: %s\n", selPath);
 			memcpy(Selected_F[ioctl_index & 15], selPath, sizeof(Selected_F[ioctl_index & 15]));
@@ -4985,6 +5007,87 @@ void HandleUI(void)
 	case MENU_FILE_SELECT2:
 		menumask = 0;
 
+		// Handle favorites START button hold logic
+		{
+			bool start_current = is_start_button_pressed();
+			if (start_current && !favorites_start_pressed)
+			{
+				// START just pressed, start timer
+				favorites_start_pressed = true;
+				favorites_triggered = false;
+				favorites_start_timer = GetTimer(1500); // 1.5 second timer
+				printf("START pressed, timer started\n");
+			}
+			else if (!start_current && favorites_start_pressed)
+			{
+				// START released, clear everything
+				favorites_start_pressed = false;
+				favorites_triggered = false;
+				printf("START released\n");
+			}
+			else if (start_current && favorites_start_pressed && !favorites_triggered)
+			{
+				// Still holding, check if timer expired
+				if (CheckTimer(favorites_start_timer))
+				{
+					// Held for 2+ seconds, toggle favorite
+					favorites_triggered = true; // Mark as triggered so we don't repeat
+					printf("START held for 1.5+ seconds, toggling favorite\n");
+					if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
+					{
+						char *current_path = flist_Path();
+						printf("Current path: %s\n", current_path);
+						char *games_pos = strstr(current_path, "games/");
+						printf("Games pos: %p\n", games_pos);
+						if (games_pos)
+						{
+							char *core_name = games_pos + 6; // skip "games/"
+							printf("Core name start: %s\n", core_name);
+							char *slash_pos = strchr(core_name, '/');
+							printf("Slash pos: %p\n", slash_pos);
+							if (slash_pos)
+							{
+								char core_dir[256];
+								int core_len = slash_pos - core_name;
+								strncpy(core_dir, core_name, core_len);
+								core_dir[core_len] = 0;
+								
+								printf("Extracted core_dir: '%s'\n", core_dir);
+								printf("Selected file: '%s'\n", flist_SelectedItem()->altname);
+								printf("Calling FavoritesToggle...\n");
+								FavoritesToggle(core_dir, flist_SelectedItem()->altname);
+								
+								// If we're in virtual favorites, just update the display
+								if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+								{
+									// Just refresh the display to remove the heart
+									PrintDirectory(1);
+								}
+								else
+								{
+									// Just refresh the display to update hearts
+									PrintDirectory(1);
+								}
+								menustate = MENU_FILE_SELECT1;
+							}
+							else
+							{
+								printf("No slash found after core name\n");
+							}
+						}
+						else
+						{
+							printf("'/games/' not found in path\n");
+						}
+					}
+					else
+					{
+						printf("No entries or selected item is directory\n");
+					}
+				}
+			}
+		}
+
 		if (c == KEY_BACKSPACE && (fs_Options & (SCANO_UMOUNT | SCANO_CLEAR)) && !strlen(filter))
 		{
 			for (int i = 0; i < OsdGetSize(); i++) OsdWrite(i, "", 0, 0);
@@ -5017,12 +5120,23 @@ void HandleUI(void)
 			if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
 			{
 				SelectedDir[0] = 0;
-				if (strlen(selPath))
+				
+				// Check if this is a virtual favorites entry (using special flag)
+				if (flist_SelectedItem()->flags == 0x8001)
 				{
-					strcpy(SelectedDir, selPath);
-					strcat(selPath, "/");
+					// Use the stored full path from virtual favorites
+					strcpy(selPath, flist_SelectedItem()->altname);
 				}
-				strcat(selPath, flist_SelectedItem()->de.d_name);
+				else
+				{
+					// Normal file selection
+					if (strlen(selPath))
+					{
+						strcpy(SelectedDir, selPath);
+						strcat(selPath, "/");
+					}
+					strcat(selPath, flist_SelectedItem()->de.d_name);
+				}
 			}
 
 			if (!strcasecmp(fs_pFileExt, "RBF")) selPath[0] = 0;
@@ -5142,8 +5256,32 @@ void HandleUI(void)
 
 				if (type == DT_DIR)
 				{
-					changeDir(name);
-					menustate = MENU_FILE_SELECT1;
+					// Check if this is the virtual favorites folder
+					if (!strcmp(name, "\x97 Favorites"))
+					{
+						// Handle virtual favorites folder - show favorites as files
+							if (ScanVirtualFavorites(flist_Path()) > 0)
+						{
+							menustate = MENU_FILE_SELECT1;
+						}
+						else
+						{
+								menustate = MENU_FILE_SELECT1;
+						}
+					}
+					else if (!strcmp(name, "..") && flist_SelectedItem() && flist_SelectedItem()->altname && flist_SelectedItem()->altname[0] && strcmp(flist_SelectedItem()->altname, "..") != 0)
+					{
+						// Special handling for ".." in virtual favorites (altname contains parent path)
+						// Use the stored parent path from the ".." entry's altname
+						strcpy(selPath, flist_SelectedItem()->altname);
+						ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+						menustate = MENU_FILE_SELECT1;
+					}
+					else
+					{
+						changeDir(name);
+						menustate = MENU_FILE_SELECT1;
+					}
 				}
 				else
 				{
@@ -7018,13 +7156,25 @@ void ScrollLongName(void)
 	int off = 0;
 	int max_len;
 
-	int len = strlen(flist_SelectedItem()->altname); // get name length
+	// Use clean filename stored after path in altname for virtual favorites
+	char *scroll_name;
+	if (flist_SelectedItem()->flags == 0x8001)
+	{
+		// Find the clean filename stored after the null terminator (extension already removed)
+		scroll_name = flist_SelectedItem()->altname + strlen(flist_SelectedItem()->altname) + 1;
+	}
+	else
+	{
+		scroll_name = flist_SelectedItem()->altname;
+	}
+						
+	int len = strlen(scroll_name); // get name length
 
 	max_len = 30; // number of file name characters to display (one more required for scrolling)
 	if (flist_SelectedItem()->de.d_type == DT_DIR)
 	{
 		max_len = 23; // number of directory name characters to display
-		if ((fs_Options & SCANO_CORES) && (flist_SelectedItem()->altname[0] == '_'))
+		if ((fs_Options & SCANO_CORES) && (scroll_name[0] == '_'))
 		{
 			off = 1;
 			len--;
@@ -7033,7 +7183,7 @@ void ScrollLongName(void)
 
 	if (flist_SelectedItem()->de.d_type != DT_DIR) // if a file
 	{
-		if (!cfg.rbf_hide_datecode && flist_SelectedItem()->datecode[0])
+		if (!cfg.rbf_hide_datecode && flist_SelectedItem()->datecode[0] && (flist_SelectedItem()->flags != 0x8001))
 		{
 			max_len = 20; // __.__.__ remove that from the end
 		}
@@ -7043,7 +7193,8 @@ void ScrollLongName(void)
 		}
 	}
 
-	ScrollText(flist_iSelectedEntry() - flist_iFirstEntry(), flist_SelectedItem()->altname + off, 0, len, max_len, 1);
+	
+	ScrollText(flist_iSelectedEntry() - flist_iFirstEntry(), scroll_name + off, 0, len, max_len, 1);
 }
 
 // print directory contents
@@ -7058,7 +7209,8 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen(flist_DirItem(k)->altname) > 28 && !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0])
+			&& strlen((flist_DirItem(k)->flags == 0x8001) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
+			&& !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0] && (flist_DirItem(k)->flags != 0x8001))
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
 			//make room for last expanded line
@@ -7079,34 +7231,112 @@ void PrintDirectory(int expand)
 
 		if (k < flist_nDirEntries())
 		{
-			len = strlen(flist_DirItem(k)->altname); // get name length
-			if (len > 28)
+			// For virtual favorites, use clean filename stored after the path in altname
+			char *display_name;
+			if (flist_DirItem(k)->flags == 0x8001)
 			{
-				len2 = len - 27;
-				if (len2 > 27) len2 = 27;
-				if (!expand) len2 = 0;
-
-				len = 27; // trim display length if longer than 30 characters
-				s[28] = 22;
+				// Find the clean filename stored after the null terminator (extension already removed)
+				display_name = flist_DirItem(k)->altname + strlen(flist_DirItem(k)->altname) + 1;
 			}
-
-			if((flist_DirItem(k)->de.d_type == DT_DIR) && (fs_Options & SCANO_CORES) && (flist_DirItem(k)->altname[0] == '_'))
+			else if (flist_DirItem(k)->de.d_type == DT_DIR && !strcmp(flist_DirItem(k)->de.d_name, ".."))
 			{
-				strncpy(s + 1, flist_DirItem(k)->altname+1, len-1);
-			}
-			else if (flist_DirItem(k)->flags & DT_EXT_ZIP)
-			{
-				strncpy(s + 1, flist_DirItem(k)->altname, len-4); // strip .zip extension, see below
+				// Special case for ".." entries - always use d_name
+				display_name = flist_DirItem(k)->de.d_name;
 			}
 			else
 			{
-				strncpy(s + 1, flist_DirItem(k)->altname, len); // display only name
+				display_name = flist_DirItem(k)->altname;
+			}
+			
+			len = strlen(display_name); // get name length
+			
+			// For virtual favorites, use full available space (28 characters including heart)
+			int max_display_len = 27;
+			
+			if (len > max_display_len)
+			{
+				len2 = len - max_display_len;
+				if (len2 > 27) len2 = 27;
+				if (!expand) len2 = 0;
+
+				len = max_display_len; // trim display length
+				// For virtual favorites, always show right arrow at position 28
+				if (flist_DirItem(k)->flags == 0x8001)
+				{
+					s[28] = 22; // right arrow at position 28 (27 chars + heart)
+				}
+				else
+				{
+					s[max_display_len + 1] = 22; // scroll indicator for regular files
+				}
+			}
+
+			// Check if this file is favorited (for game files, not directories)
+			if (flist_DirItem(k)->de.d_type != DT_DIR)
+			{
+				// Check if file is favorited (including virtual favorites)
+				char *current_path = flist_Path();
+				char *games_pos = strstr(current_path, "games/");
+				if (games_pos)
+				{
+					char *core_name = games_pos + 6; // skip "games/"
+					char *slash_pos = strchr(core_name, '/');
+					if (slash_pos)
+					{
+						char core_dir[256];
+						int core_len = slash_pos - core_name;
+						strncpy(core_dir, core_name, core_len);
+						core_dir[core_len] = 0;
+						
+						bool is_favorited = false;
+						
+						if (flist_DirItem(k)->flags == 0x8001)
+						{
+							// For virtual favorites, check the stored full path directly
+							is_favorited = FavoritesIsFullPath(core_dir, flist_DirItem(k)->altname);
+						}
+						else
+						{
+							// Regular file check
+							is_favorited = FavoritesIsFile(core_dir, flist_DirItem(k)->altname);
+						}
+						
+						if (is_favorited)
+						{
+							s[0] = '\x97'; // Heart character
+						}
+					}
+				}
+			}
+
+			if((flist_DirItem(k)->de.d_type == DT_DIR) && (fs_Options & SCANO_CORES) && (display_name[0] == '_'))
+			{
+				strncpy(s + 1, display_name+1, len-1);
+			}
+			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001))
+			{
+				strncpy(s + 1, display_name, len-4); // strip .zip extension, see below
+			}
+			else
+			{
+				// For virtual favorites, ensure we copy the full name
+				if (flist_DirItem(k)->flags == 0x8001)
+				{
+					// Copy only up to 27 characters to not overwrite the arrow at position 28
+					int copy_len = strlen(display_name);
+					if (copy_len > 27) copy_len = 27;
+					strncpy(s + 1, display_name, copy_len);
+				}
+				else
+				{
+					strncpy(s + 1, display_name, len); // display only name
+				}
 			}
 
 			char *datecode = flist_DirItem(k)->datecode;
 			if (flist_DirItem(k)->de.d_type == DT_DIR) // mark directory with suffix
 			{
-				if (!strcmp(flist_DirItem(k)->altname, ".."))
+				if (!strcmp(display_name, ".."))
 				{
 					strcpy(&s[19], " <UP-DIR>");
 				}
@@ -7119,7 +7349,7 @@ void PrintDirectory(int expand)
 				}
 				len2 = 0;
 			}
-			else if (!cfg.rbf_hide_datecode && datecode[0])
+			else if (!cfg.rbf_hide_datecode && datecode[0] && (flist_DirItem(k)->flags != 0x8001))
 			{
 				int n = 19;
 				s[n++] = ' ';
@@ -7159,13 +7389,26 @@ void PrintDirectory(int expand)
 		}
 
 		int sel = (i == (flist_iSelectedEntry() - flist_iFirstEntry()));
+		
+		
 		OsdWriteOffset(i, s, sel, 0, 0, leftchar);
 		i++;
 
 		if (sel && len2)
 		{
-			len = strlen(flist_DirItem(k)->altname);
-			strcpy(s+1, flist_DirItem(k)->altname + len - len2);
+			// For virtual favorites, use clean filename stored after the path in altname
+			if (flist_DirItem(k)->flags == 0x8001)
+			{
+				// Find the clean filename stored after the null terminator
+				char *clean_name = flist_DirItem(k)->altname + strlen(flist_DirItem(k)->altname) + 1;
+				len = strlen(clean_name);
+				strcpy(s+1, clean_name + len - len2);
+			}
+			else
+			{
+				len = strlen(flist_DirItem(k)->altname);
+				strcpy(s+1, flist_DirItem(k)->altname + len - len2);
+			}
 			OsdWriteOffset(i, s, sel, 0, 0, leftchar);
 			i++;
 		}

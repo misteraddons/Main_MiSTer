@@ -1222,6 +1222,10 @@ struct DirentComp
 
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "..")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
+		
+		// Put virtual favorites folder right after ".." but before other directories
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1711,6 +1715,54 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			closedir(d);
 		}
 
+		// Add virtual favorites folder if we're in a games directory with favorites
+		char *games_pos = strstr(scanned_path, "games/");
+		if (games_pos)
+		{
+			char *core_name = games_pos + 6; // skip "games/"
+			char *slash_pos = strchr(core_name, '/');
+			if (slash_pos)
+			{
+				// We're in a subdirectory of a core, extract core name
+				char core_dir[256];
+				int core_len = slash_pos - core_name;
+				strncpy(core_dir, core_name, core_len);
+				core_dir[core_len] = 0;
+				
+				// Check if favorites.txt exists for this core
+				char favorites_path[1024];
+				snprintf(favorites_path, sizeof(favorites_path), "%s/games/%s/favorites.txt", getRootDir(), core_dir);
+				if (FileExists(favorites_path, 0))
+				{
+					// Add virtual favorites folder
+					direntext_t favorites_dir;
+					memset(&favorites_dir, 0, sizeof(favorites_dir));
+					favorites_dir.de.d_type = DT_DIR;
+					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+					strcpy(favorites_dir.altname, "\x97 Favorites");
+					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+					DirItem.push_back(favorites_dir);
+				}
+			}
+			else if (strchr(core_name, '/') == NULL)
+			{
+				// We're directly in a core directory (games/N64/), check for favorites
+				char favorites_path[1024];
+				snprintf(favorites_path, sizeof(favorites_path), "%s/games/%s/favorites.txt", getRootDir(), core_name);
+				if (FileExists(favorites_path, 0))
+				{
+					// Add virtual favorites folder
+					direntext_t favorites_dir;
+					memset(&favorites_dir, 0, sizeof(favorites_dir));
+					favorites_dir.de.d_type = DT_DIR;
+					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+					strcpy(favorites_dir.altname, "\x97 Favorites");
+					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+					DirItem.push_back(favorites_dir);
+				}
+			}
+		}
+
 		printf("Got %d dir entries\n", flist_nDirEntries());
 		if (!flist_nDirEntries()) return 0;
 
@@ -2010,4 +2062,321 @@ const char *FileReadLine(fileTextReader *reader)
 		}
 	}
 	return nullptr;
+}
+
+// Favorites system implementation
+static char favorites_cache[256][1024]; // Full paths
+static int favorites_count = 0;
+static char current_favorites_dir[1024] = "";
+
+static int FavoritesLoad(const char *directory)
+{
+	char favorites_path[1024];
+	snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	
+	favorites_count = 0;
+	memset(favorites_cache, 0, sizeof(favorites_cache));
+	
+	FILE *file = fopen(favorites_path, "r");
+	if (!file) return 0;
+	
+	char line[1024];
+	while (fgets(line, sizeof(line), file) && favorites_count < 256)
+	{
+		line[strcspn(line, "\r\n")] = 0;
+		if (strlen(line) > 0)
+		{
+			// Check if this is new format (filename|full_path) and extract just the path
+			char *pipe_pos = strchr(line, '|');
+			if (pipe_pos)
+			{
+				// New format: extract just the full path part
+				char *full_path = pipe_pos + 1;
+				if (strstr(full_path, "/media/fat/games/") == full_path)
+				{
+					strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
+					favorites_count++;
+				}
+				else
+				{
+					printf("Skipping invalid favorite path: %s\n", full_path);
+				}
+			}
+			else
+			{
+				// Old format: just path
+				if (strstr(line, "/media/fat/games/") == line) // Should start with /media/fat/games/
+				{
+					strncpy(favorites_cache[favorites_count], line, sizeof(favorites_cache[0]) - 1);
+					favorites_count++;
+				}
+				else
+				{
+					printf("Skipping invalid favorite path: %s\n", line);
+				}
+			}
+		}
+	}
+	fclose(file);
+	return favorites_count;
+}
+
+static void FavoritesSave(const char *directory)
+{
+	char favorites_path[1024];
+	snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+	
+	// If no favorites, delete the file
+	if (favorites_count == 0)
+	{
+		remove(favorites_path);
+		return;
+	}
+	
+	FILE *file = fopen(favorites_path, "w");
+	if (!file) 
+	{
+		printf("ERROR: Could not open favorites file for writing: %s\n", favorites_path);
+		return;
+	}
+	
+	for (int i = 0; i < favorites_count; i++)
+	{
+		fprintf(file, "%s\n", favorites_cache[i]);
+	}
+	fclose(file);
+	printf("Favorites file saved successfully\n");
+}
+
+bool FavoritesIsFile(const char *directory, const char *filename)
+{
+	if (strcmp(current_favorites_dir, directory) != 0)
+	{
+		strcpy(current_favorites_dir, directory);
+		FavoritesLoad(directory);
+	}
+	
+	// Use current path context to construct the full path
+	char full_path[1024];
+	char *current_path = flist_Path();
+	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	
+	for (int i = 0; i < favorites_count; i++)
+	{
+		if (strcmp(favorites_cache[i], full_path) == 0)
+			return true;
+	}
+	return false;
+}
+
+bool FavoritesIsFullPath(const char *directory, const char *full_path)
+{
+	if (strcmp(current_favorites_dir, directory) != 0)
+	{
+		strcpy(current_favorites_dir, directory);
+		FavoritesLoad(directory);
+	}
+	
+	for (int i = 0; i < favorites_count; i++)
+	{
+		if (strcmp(favorites_cache[i], full_path) == 0)
+			return true;
+	}
+	return false;
+}
+
+void FavoritesToggle(const char *directory, const char *filename)
+{
+	
+	if (strcmp(current_favorites_dir, directory) != 0)
+	{
+		strcpy(current_favorites_dir, directory);
+		FavoritesLoad(directory);
+	}
+	
+	char full_path[1024];
+	
+	// Check if we're in the virtual favorites folder
+	if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+	{
+		// In virtual favorites, use the stored full path from altname
+		strncpy(full_path, filename, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	}
+	else
+	{
+		// Use the current file list path to construct the complete path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	}
+	
+	int found_index = -1;
+	for (int i = 0; i < favorites_count; i++)
+	{
+		if (strcmp(favorites_cache[i], full_path) == 0)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index >= 0)
+	{
+		printf("Removed from favorites\n");
+		for (int i = found_index; i < favorites_count - 1; i++)
+		{
+			strcpy(favorites_cache[i], favorites_cache[i + 1]);
+		}
+		favorites_count--;
+	}
+	else
+	{
+		printf("Added to favorites\n");
+		if (favorites_count < 256)
+		{
+			strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
+			favorites_count++;
+		}
+	}
+	
+	// Sort favorites alphabetically by filename
+	for (int i = 0; i < favorites_count - 1; i++)
+	{
+		for (int j = i + 1; j < favorites_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(favorites_cache[i], '/');
+			char *filename_j = strrchr(favorites_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = favorites_cache[i];
+			if (filename_j) filename_j++; else filename_j = favorites_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, favorites_cache[i]);
+				strcpy(favorites_cache[i], favorites_cache[j]);
+				strcpy(favorites_cache[j], temp_path);
+			}
+		}
+	}
+	
+	FavoritesSave(directory);
+}
+
+int ScanVirtualFavorites(const char *core_path)
+{
+	
+	// Extract core name from path first
+	const char *games_pos = strstr(core_path, "games/");
+	if (!games_pos) return 0;
+	
+	const char *core_name = games_pos + 6;
+	char core_dir[256];
+	const char *slash_pos = strchr(core_name, '/');
+	
+	// Store the parent path (core directory) so ".." navigation returns to the correct directory
+	static char parent_path[1024];
+	if (slash_pos)
+	{
+		// We're in a subdirectory, extract up to the core directory
+		int path_len = (games_pos + 6 + (slash_pos - core_name)) - core_path;
+		strncpy(parent_path, core_path, path_len);
+		parent_path[path_len] = 0;
+	}
+	else
+	{
+		// We're at the core root
+		strncpy(parent_path, core_path, sizeof(parent_path) - 1);
+		parent_path[sizeof(parent_path) - 1] = 0;
+	}
+	if (slash_pos)
+	{
+		int core_len = slash_pos - core_name;
+		strncpy(core_dir, core_name, core_len);
+		core_dir[core_len] = 0;
+	}
+	else
+	{
+		strcpy(core_dir, core_name);
+	}
+	
+	int count = FavoritesLoad(core_dir);
+	if (count == 0) return 0;
+	
+	DirItem.clear();
+	DirNames.clear();
+	iSelectedEntry = 0;
+	iFirstEntry = 0;
+	
+	// Update scanned_path to include the virtual favorites folder
+	snprintf(scanned_path, sizeof(scanned_path), "%s/0 Favorites", parent_path);
+	
+	// Add ".." up navigation entry at the top
+	direntext_t up_dir;
+	memset(&up_dir, 0, sizeof(up_dir));
+	up_dir.de.d_type = DT_DIR;
+	strcpy(up_dir.de.d_name, "..");
+	strcpy(up_dir.altname, parent_path);  // Store parent path for navigation
+	DirItem.push_back(up_dir);
+	
+	for (int i = 0; i < favorites_count; i++)
+	{
+		// Use the exact path as stored - don't try to reconstruct it
+		if (!FileExists(favorites_cache[i], 1)) 
+		{
+			continue;
+		}
+		
+		// Extract clean filename from full path (no path components or extension)
+		char clean_filename[256];
+		
+		// Extract filename from full path
+		char *filename = strrchr(favorites_cache[i], '/');
+		if (filename) 
+		{
+			filename++; // skip the '/'
+			strncpy(clean_filename, filename, sizeof(clean_filename) - 1);
+		}
+		else
+		{
+			strncpy(clean_filename, favorites_cache[i], sizeof(clean_filename) - 1);
+		}
+		clean_filename[sizeof(clean_filename) - 1] = 0;
+		
+		// Remove file extension for display
+		char *last_dot = strrchr(clean_filename, '.');
+		if (last_dot) *last_dot = 0;
+		
+		// Create directory entry with the actual stored path
+		direntext_t item;
+		memset(&item, 0, sizeof(item));
+		item.de.d_type = DT_REG;
+		// For virtual favorites, we'll use a special approach:
+		// Store the full path in altname for launching
+		// Store the clean filename in d_name (but it might be truncated)
+		// We'll add a display_name field for the full clean name
+		strncpy(item.altname, favorites_cache[i], sizeof(item.altname) - 1);
+		item.altname[sizeof(item.altname) - 1] = 0;
+		
+		// Try to store full clean name in d_name, but it might get truncated
+		strncpy(item.de.d_name, clean_filename, sizeof(item.de.d_name) - 1);
+		item.de.d_name[sizeof(item.de.d_name) - 1] = 0;
+		
+		// Store clean filename at the end of altname after a null separator for display
+		// Format: full_path\0clean_filename
+		int path_len = strlen(item.altname);
+		if (path_len + 1 + strlen(clean_filename) < sizeof(item.altname) - 1)
+		{
+			strcpy(item.altname + path_len + 1, clean_filename);
+		}
+		
+		// Mark this as a virtual favorites entry by setting a special flag
+		item.flags = 0x8001; // Special flag to identify virtual favorites files
+		
+		DirItem.push_back(item);
+	}
+	
+	return DirItem.size();
 }
