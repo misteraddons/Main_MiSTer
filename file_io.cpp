@@ -2240,8 +2240,8 @@ void FavoritesToggle(const char *directory, const char *filename)
 	// Check if we're in the virtual favorites folder
 	if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
 	{
-		// In virtual favorites, use the stored full path from altname
-		strncpy(full_path, filename, sizeof(full_path) - 1);
+		// In virtual favorites, use the stored full path from altname (not the filename parameter)
+		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
 		full_path[sizeof(full_path) - 1] = 0;
 	}
 	else
