@@ -2232,6 +2232,9 @@ void FavoritesToggle(const char *directory, const char *filename)
 		FavoritesLoad(directory);
 	}
 	
+	// Track previous favorites count to detect transitions
+	int previous_favorites_count = favorites_count;
+	
 	char full_path[1024];
 	
 	// Check if we're in the virtual favorites folder
@@ -2296,6 +2299,68 @@ void FavoritesToggle(const char *directory, const char *filename)
 				strcpy(temp_path, favorites_cache[i]);
 				strcpy(favorites_cache[i], favorites_cache[j]);
 				strcpy(favorites_cache[j], temp_path);
+			}
+		}
+	}
+	
+	// Handle dynamic virtual folder addition/removal for _Arcade directory and games directories
+	if (strcmp(directory, "_Arcade") == 0 || strstr(directory, "games/") != NULL)
+	{
+		// Check if we're transitioning between having/not having favorites
+		bool had_favorites = (previous_favorites_count > 0);
+		bool has_favorites = (favorites_count > 0);
+		
+		if (had_favorites != has_favorites)
+		{
+			// We need to dynamically add or remove the virtual folder
+			printf("Dynamic virtual folder update: had=%d, has=%d\n", had_favorites, has_favorites);
+			
+			if (has_favorites && !had_favorites)
+			{
+				// Add virtual favorites folder dynamically
+				printf("Adding virtual favorites folder dynamically\n");
+				
+				// Check if it doesn't already exist in DirItem
+				bool folder_exists = false;
+				for (int i = 0; i < (int)DirItem.size(); i++)
+				{
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x97 Favorites") == 0)
+					{
+						folder_exists = true;
+						break;
+					}
+				}
+				
+				if (!folder_exists)
+				{
+					direntext_t favorites_dir;
+					memset(&favorites_dir, 0, sizeof(favorites_dir));
+					favorites_dir.de.d_type = DT_DIR;
+					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+					strcpy(favorites_dir.altname, "\x97 Favorites");
+					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+					DirItem.push_back(favorites_dir);
+					
+					// Re-sort the directory to maintain proper ordering
+					std::sort(DirItem.begin(), DirItem.end(), DirentComp());
+					printf("Virtual favorites folder added and directory re-sorted\n");
+				}
+			}
+			else if (!has_favorites && had_favorites)
+			{
+				// Remove virtual favorites folder dynamically
+				printf("Removing virtual favorites folder dynamically\n");
+				
+				// Find and remove the virtual folder
+				for (int i = 0; i < (int)DirItem.size(); i++)
+				{
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x97 Favorites") == 0)
+					{
+						DirItem.erase(DirItem.begin() + i);
+						printf("Virtual favorites folder removed\n");
+						break;
+					}
+				}
 			}
 		}
 	}
