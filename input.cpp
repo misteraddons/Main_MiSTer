@@ -5923,6 +5923,20 @@ int is_key_pressed(int key)
 
 int is_start_button_pressed()
 {
+	// Throttle the expensive ioctl calls to reduce input lag
+	// Only check every 50ms (roughly every 3 frames at 60fps)
+	static uint32_t last_check_time = 0;
+	static int cached_result = 0;
+	
+	uint32_t current_time = GetTimer(0);
+	if (current_time - last_check_time < 50) 
+	{
+		return cached_result;
+	}
+	
+	last_check_time = current_time;
+	cached_result = 0;
+	
 	for (int i = 0; i < NUMDEV; i++)
 	{
 		if (pool[i].fd > 0 && input[i].num == 1)
@@ -5936,6 +5950,7 @@ int is_start_button_pressed()
 				{
 					if (bits[start_code / 8] & (1 << (start_code % 8)))
 					{
+						cached_result = 1;
 						return 1;
 					}
 				}

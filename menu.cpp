@@ -5023,7 +5023,7 @@ void HandleUI(void)
 				// START just pressed, start timer
 				favorites_start_pressed = true;
 				favorites_triggered = false;
-				favorites_start_timer = GetTimer(1500); // 1.5 second timer
+				favorites_start_timer = GetTimer(1000); // 1 second timer
 			}
 			else if (!start_current && favorites_start_pressed)
 			{
