@@ -158,4 +158,12 @@ bool FavoritesIsFullPath(const char *directory, const char *full_path);
 void FavoritesToggle(const char *directory, const char *filename);
 int ScanVirtualFavorites(const char *core_path);
 
+// Broken heart feedback system
+extern char broken_heart_paths[256][1024];
+extern int broken_heart_count;
+void AddBrokenHeart(const char *path);
+void RemoveBrokenHeart(const char *path);
+bool IsBrokenHeart(const char *path);
+void ClearAllBrokenHearts();
+
 #endif

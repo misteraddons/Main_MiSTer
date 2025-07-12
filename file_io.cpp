@@ -23,6 +23,7 @@
 #include "osd.h"
 #include "fpga_io.h"
 #include "menu.h"
+#include "hardware.h"
 #include "errno.h"
 #include "DiskImage.h"
 #include "user_io.h"
@@ -2087,6 +2088,10 @@ static char favorites_cache[256][1024]; // Full paths
 static int favorites_count = 0;
 static char current_favorites_dir[1024] = "";
 
+// Broken heart feedback system
+char broken_heart_paths[256][1024];
+int broken_heart_count = 0;
+
 static int FavoritesLoad(const char *directory)
 {
 	char favorites_path[1024];
@@ -2264,6 +2269,10 @@ void FavoritesToggle(const char *directory, const char *filename)
 	if (found_index >= 0)
 	{
 		printf("Removed from favorites\n");
+		
+		// Add to broken heart list (shows broken heart until re-favorited)
+		AddBrokenHeart(full_path);
+		
 		for (int i = found_index; i < favorites_count - 1; i++)
 		{
 			strcpy(favorites_cache[i], favorites_cache[i + 1]);
@@ -2273,6 +2282,10 @@ void FavoritesToggle(const char *directory, const char *filename)
 	else
 	{
 		printf("Added to favorites\n");
+		
+		// Remove from broken heart list (will show regular heart now)
+		RemoveBrokenHeart(full_path);
+		
 		if (favorites_count < 256)
 		{
 			strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
@@ -2366,6 +2379,60 @@ void FavoritesToggle(const char *directory, const char *filename)
 	}
 	
 	FavoritesSave(directory);
+}
+
+void AddBrokenHeart(const char *path)
+{
+	// Check if already in list
+	for (int i = 0; i < broken_heart_count; i++)
+	{
+		if (strcmp(broken_heart_paths[i], path) == 0)
+		{
+			return; // Already in list
+		}
+	}
+	
+	// Add to list if space available
+	if (broken_heart_count < 256)
+	{
+		strncpy(broken_heart_paths[broken_heart_count], path, sizeof(broken_heart_paths[0]) - 1);
+		broken_heart_paths[broken_heart_count][sizeof(broken_heart_paths[0]) - 1] = 0;
+		broken_heart_count++;
+	}
+}
+
+void RemoveBrokenHeart(const char *path)
+{
+	for (int i = 0; i < broken_heart_count; i++)
+	{
+		if (strcmp(broken_heart_paths[i], path) == 0)
+		{
+			// Shift remaining entries down
+			for (int j = i; j < broken_heart_count - 1; j++)
+			{
+				strcpy(broken_heart_paths[j], broken_heart_paths[j + 1]);
+			}
+			broken_heart_count--;
+			return;
+		}
+	}
+}
+
+bool IsBrokenHeart(const char *path)
+{
+	for (int i = 0; i < broken_heart_count; i++)
+	{
+		if (strcmp(broken_heart_paths[i], path) == 0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void ClearAllBrokenHearts()
+{
+	broken_heart_count = 0;
 }
 
 int ScanVirtualFavorites(const char *core_path)

@@ -335,6 +335,9 @@ static char selPath[1024] = {};
 
 static int changeDir(char *dir)
 {
+	// Clear all broken hearts when navigating out of folder
+	ClearAllBrokenHearts();
+	
 	char curdir[128];
 	memset(curdir, 0, sizeof(curdir));
 	if(!dir || !strcmp(dir, ".."))
@@ -7303,9 +7306,32 @@ void PrintDirectory(int expand)
 							is_favorited = FavoritesIsFile(core_dir, flist_DirItem(k)->altname);
 						}
 						
-						if (is_favorited)
+						// Check if we should show broken heart for this specific file
+						bool show_broken_heart = false;
+						char current_file_path[1024];
+						
+						// Handle both normal game files and virtual favorites
+						if (flist_DirItem(k)->flags == 0x8001)
 						{
-							s[0] = '\x97'; // Heart character
+							// Virtual favorites - use the stored full path directly
+							strncpy(current_file_path, flist_DirItem(k)->altname, sizeof(current_file_path) - 1);
+							current_file_path[sizeof(current_file_path) - 1] = 0;
+						}
+						else
+						{
+							// Normal game files
+							snprintf(current_file_path, sizeof(current_file_path), "/media/fat/%s/%s", current_path, flist_DirItem(k)->altname);
+						}
+						
+						show_broken_heart = IsBrokenHeart(current_file_path);
+						
+						if (show_broken_heart)
+						{
+							s[0] = '\x99'; // Broken heart character (takes priority)
+						}
+						else if (is_favorited)
+						{
+							s[0] = '\x97'; // Regular heart character
 						}
 					}
 				}
@@ -7325,9 +7351,32 @@ void PrintDirectory(int expand)
 						is_favorited = FavoritesIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 					}
 					
-					if (is_favorited)
+					// Check if we should show broken heart for this specific file
+					bool show_broken_heart = false;
+					char current_file_path[1024];
+					
+					// Handle both normal _Arcade files and virtual favorites
+					if (flist_DirItem(k)->flags == 0x8001)
 					{
-						s[0] = '\x97'; // Heart character
+						// Virtual favorites - use the stored full path directly
+						strncpy(current_file_path, flist_DirItem(k)->altname, sizeof(current_file_path) - 1);
+						current_file_path[sizeof(current_file_path) - 1] = 0;
+					}
+					else
+					{
+						// Normal _Arcade files
+						snprintf(current_file_path, sizeof(current_file_path), "/media/fat/_Arcade/%s", flist_DirItem(k)->de.d_name);
+					}
+					
+					show_broken_heart = IsBrokenHeart(current_file_path);
+					
+					if (show_broken_heart)
+					{
+						s[0] = '\x99'; // Broken heart character (takes priority)
+					}
+					else if (is_favorited)
+					{
+						s[0] = '\x97'; // Regular heart character
 					}
 				}
 			}
