@@ -1224,9 +1224,8 @@ struct DirentComp
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
 		
 		// Put virtual favorites folder right after ".." but before other directories
-		// TEMPORARILY DISABLED
-		//if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
-		//if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1764,9 +1763,7 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				}
 			}
 		}
-		// DISABLE _Arcade virtual favorites folder for now
-		/*
-		else if (arcade_pos && strcmp(scanned_path, "_Arcade") == 0)
+		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
 		{
 			// We're in _Arcade directory specifically (not a subdirectory), check for favorites
 			char favorites_path[1024];
@@ -1777,13 +1774,12 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				direntext_t favorites_dir;
 				memset(&favorites_dir, 0, sizeof(favorites_dir));
 				favorites_dir.de.d_type = DT_DIR;
-				strcpy(favorites_dir.de.d_name, "Favorites"); // Test without heart symbol  
-				strcpy(favorites_dir.altname, "Favorites");
+				strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+				strcpy(favorites_dir.altname, "\x97 Favorites");
 				favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
 				DirItem.push_back(favorites_dir);
 			}
 		}
-		*/
 
 		printf("Got %d dir entries\n", flist_nDirEntries());
 		if (!flist_nDirEntries()) return 0;

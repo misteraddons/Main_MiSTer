@@ -2412,6 +2412,15 @@ void HandleUI(void)
 			printf("File selected: %s\n", selPath);
 			memcpy(Selected_F[ioctl_index & 15], selPath, sizeof(Selected_F[ioctl_index & 15]));
 
+		// Special handling for .mra files from virtual favorites
+		if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001 && isXmlName(selPath) == 1)
+		{
+			printf("Loading MRA from virtual favorites: %s\n", selPath);
+			xml_load(selPath);
+			menustate = MENU_NONE1;
+			break;
+		}
+
 			if (mgl->done && selPath[0]) recent_update(SelectedDir, Selected_F[ioctl_index & 15], SelectedLabel, ioctl_index);
 
 			if (store_name)
@@ -5250,7 +5259,9 @@ void HandleUI(void)
 					if (!strcmp(name, "\x97 Favorites"))
 					{
 						// Handle virtual favorites folder - show favorites as files
-							if (ScanVirtualFavorites(flist_Path()) > 0)
+						// Override fs_MenuSelect to ensure virtual favorites use MENU_GENERIC_FILE_SELECTED
+						fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
+						if (ScanVirtualFavorites(flist_Path()) > 0)
 						{
 							menustate = MENU_FILE_SELECT1;
 						}
