@@ -2406,26 +2406,34 @@ void FavoritesToggle(const char *directory, const char *filename)
 		}
 		else
 		{
-			// If this file is currently in try list, remove it from try first
-			// Check both regular try and virtual try context
+			// Check for mutual exclusivity with try and delete
 			bool is_in_try = false;
+			bool is_delete = false;
 		
-		// Check if we're in a virtual try folder
-		if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8002)
-		{
-			// We're in virtual try - the item is definitely in try
-			is_in_try = true;
-		}
-		else
-		{
-			// Regular context - check using TryIsFile
-			is_in_try = TryIsFile(directory, filename);
-		}
+			// Check if we're in any virtual folder (favorites or try)
+			if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+			{
+				// In virtual folders, check actual state using full path
+				is_in_try = TryIsFullPath(directory, flist_SelectedItem()->altname);
+				is_delete = DeleteIsFullPath(directory, flist_SelectedItem()->altname);
+			}
+			else
+			{
+				// Regular context - check using file-based methods
+				is_in_try = TryIsFile(directory, filename);
+				is_delete = DeleteIsFile(directory, filename);
+			}
 		
 			if (is_in_try)
 			{
 				printf("Removing from try to add to favorites\n");
 				TryRemove(directory, filename); // This will only remove from try
+			}
+			
+			if (is_delete)
+			{
+				printf("Removing from delete to add to favorites\n");
+				DeleteToggle(directory, filename); // This will remove from delete
 			}
 		}
 		
@@ -2964,26 +2972,34 @@ void TryToggle(const char *directory, const char *filename)
 		}
 		else
 		{
-			// If this file is currently favorited, remove it from favorites first
-			// Check both regular favorites and virtual favorites context
+			// Check for mutual exclusivity with favorites and delete
 			bool is_favorited = false;
+			bool is_delete = false;
 		
-		// Check if we're in any virtual folder (favorites or try)
-		if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-		{
-			// In virtual folders, check actual favorites state using full path
-			is_favorited = FavoritesIsFullPath(directory, flist_SelectedItem()->altname);
-		}
-		else
-		{
-			// Regular context - check using FavoritesIsFile
-			is_favorited = FavoritesIsFile(directory, filename);
-		}
+			// Check if we're in any virtual folder (favorites or try)
+			if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+			{
+				// In virtual folders, check actual state using full path
+				is_favorited = FavoritesIsFullPath(directory, flist_SelectedItem()->altname);
+				is_delete = DeleteIsFullPath(directory, flist_SelectedItem()->altname);
+			}
+			else
+			{
+				// Regular context - check using file-based methods
+				is_favorited = FavoritesIsFile(directory, filename);
+				is_delete = DeleteIsFile(directory, filename);
+			}
 		
 			if (is_favorited)
 			{
 				printf("Removing from favorites to add to try\n");
 				FavoritesToggle(directory, filename); // This will remove from favorites
+			}
+			
+			if (is_delete)
+			{
+				printf("Removing from delete to add to try\n");
+				DeleteToggle(directory, filename); // This will remove from delete
 			}
 		}
 		
