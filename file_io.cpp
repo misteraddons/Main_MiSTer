@@ -2211,6 +2211,30 @@ static int FavoritesLoad(const char *directory)
 			}
 		}
 	}
+	
+	// Sort favorites list alphabetically by filename
+	for (int i = 0; i < favorites_count - 1; i++)
+	{
+		for (int j = i + 1; j < favorites_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(favorites_cache[i], '/');
+			char *filename_j = strrchr(favorites_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = favorites_cache[i];
+			if (filename_j) filename_j++; else filename_j = favorites_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, favorites_cache[i]);
+				strcpy(favorites_cache[i], favorites_cache[j]);
+				strcpy(favorites_cache[j], temp_path);
+			}
+		}
+	}
+	
 	fclose(file);
 	return favorites_count;
 }
@@ -2583,6 +2607,29 @@ static int TryLoad(const char *directory)
 		try_count++;
 	}
 	
+	// Sort try list alphabetically by filename
+	for (int i = 0; i < try_count - 1; i++)
+	{
+		for (int j = i + 1; j < try_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(try_cache[i], '/');
+			char *filename_j = strrchr(try_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = try_cache[i];
+			if (filename_j) filename_j++; else filename_j = try_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, try_cache[i]);
+				strcpy(try_cache[i], try_cache[j]);
+				strcpy(try_cache[j], temp_path);
+			}
+		}
+	}
+	
 	fclose(file);
 	return try_count;
 }
@@ -2780,6 +2827,29 @@ void TryToggle(const char *directory, const char *filename)
 			strncpy(try_cache[try_count], full_path, sizeof(try_cache[0]) - 1);
 			try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
 			try_count++;
+		}
+	}
+	
+	// Sort try list alphabetically by filename
+	for (int i = 0; i < try_count - 1; i++)
+	{
+		for (int j = i + 1; j < try_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(try_cache[i], '/');
+			char *filename_j = strrchr(try_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = try_cache[i];
+			if (filename_j) filename_j++; else filename_j = try_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, try_cache[i]);
+				strcpy(try_cache[i], try_cache[j]);
+				strcpy(try_cache[j], temp_path);
+			}
 		}
 	}
 	
