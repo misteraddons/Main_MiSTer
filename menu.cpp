@@ -2401,6 +2401,7 @@ void HandleUI(void)
 				{
 					// Use the stored full path from virtual favorites/try
 					snprintf(selPath, sizeof(selPath), "%s", flist_SelectedItem()->altname);
+					printf("Virtual try/favorites !mgl->done: selPath set to '%s'\n", selPath);
 				}
 				else
 				{
@@ -2414,6 +2415,7 @@ void HandleUI(void)
 			if (mgl->done && flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 			{
 				strcpy(selPath, flist_SelectedItem()->altname);
+				printf("Virtual try/favorites mgl->done: selPath set to '%s'\n", selPath);
 			}
 			
 			MenuHide();
@@ -5175,6 +5177,7 @@ void HandleUI(void)
 									if (filename)
 									{
 										filename++; // skip the '/'
+										printf("Calling TryToggle with core_dir='%s', filename='%s'\n", core_dir, filename);
 										TryToggle(core_dir, filename);
 									}
 								}
@@ -5408,7 +5411,7 @@ void HandleUI(void)
 						// Force PrintDirectory to display the virtual favorites immediately
 						PrintDirectory(1);
 					}
-					else if (!strcmp(name, "\x9A Try"))
+					else if (!strcmp(name, "\x9B Try"))
 					{
 						// Handle virtual try folder - show try items as files
 						printf("Entering Try virtual folder from path: %s\n", flist_Path());
@@ -7321,9 +7324,9 @@ void ScrollLongName(void)
 	int off = 0;
 	int max_len;
 
-	// Use clean filename stored after path in altname for virtual favorites
+	// Use clean filename stored after path in altname for virtual favorites and virtual try
 	char *scroll_name;
-	if (flist_SelectedItem()->flags == 0x8001)
+	if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002)
 	{
 		// Find the clean filename stored after the null terminator (extension already removed)
 		scroll_name = flist_SelectedItem()->altname + strlen(flist_SelectedItem()->altname) + 1;
@@ -7461,9 +7464,16 @@ void PrintDirectory(int expand)
 						
 						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 						{
-							// For virtual favorites/try, check the stored full path directly
+							// For virtual folders, check actual state (not just the flag) to show updated icons
 							is_favorited = FavoritesIsFullPath(core_dir, flist_DirItem(k)->altname);
 							is_try = TryIsFullPath(core_dir, flist_DirItem(k)->altname);
+							
+							// Debug output to track state detection
+							if (k == flist_iSelectedEntry())
+							{
+								printf("Virtual item '%s': is_favorited=%d, is_try=%d, flag=0x%x\n", 
+									flist_DirItem(k)->altname, is_favorited, is_try, flist_DirItem(k)->flags);
+							}
 						}
 						else
 						{
@@ -7493,7 +7503,7 @@ void PrintDirectory(int expand)
 						
 						if (is_try)
 						{
-							s[0] = '\x9A'; // Question mark character (highest priority)
+							s[0] = '\x9B'; // Empty heart character (highest priority)
 						}
 						else if (show_broken_heart)
 						{
@@ -7513,7 +7523,7 @@ void PrintDirectory(int expand)
 					
 					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 					{
-						// For virtual favorites/try, check the stored full path directly
+						// For virtual folders, check actual state (not just the flag) to show updated icons
 						is_favorited = FavoritesIsFullPath("_Arcade", flist_DirItem(k)->altname);
 						is_try = TryIsFullPath("_Arcade", flist_DirItem(k)->altname);
 					}
@@ -7545,7 +7555,7 @@ void PrintDirectory(int expand)
 					
 					if (is_try)
 					{
-						s[0] = '\x9A'; // Question mark character (highest priority)
+						s[0] = '\x9B'; // Empty heart character (highest priority)
 					}
 					else if (show_broken_heart)
 					{

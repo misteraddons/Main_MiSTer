@@ -67,6 +67,10 @@ static int iFirstEntry = 0;
 static char full_path[2100];
 uint8_t loadbuf[LOADBUF_SZ];
 
+// Prevent infinite recursion between toggle functions
+static bool in_toggle_operation = false;
+static bool in_mutual_exclusivity_call = false;
+
 fileTYPE::fileTYPE()
 {
 	filp = 0;
@@ -1229,8 +1233,8 @@ struct DirentComp
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
 		
-		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x9A Try")) return true;
-		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x9A Try")) return false;
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x9B Try")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x9B Try")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1754,7 +1758,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			{
 				// We're directly in a core directory (games/N64/), not in a subdirectory
 				// Only add virtual folders if we're not already inside a virtual folder
-				bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9A Try") != NULL);
+				bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9B Try") != NULL);
+				printf("ScanDirectory: scanned_path='%s', in_virtual_folder=%d\n", scanned_path, in_virtual_folder);
 				
 				if (!in_virtual_folder)
 				{
@@ -1782,8 +1787,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 						direntext_t try_dir;
 						memset(&try_dir, 0, sizeof(try_dir));
 						try_dir.de.d_type = DT_DIR;
-						strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
-						strcpy(try_dir.altname, "\x9A Try");
+						strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
+						strcpy(try_dir.altname, "\x9B Try");
 						try_dir.flags = 0x8000; // Special flag to identify virtual try folder
 						DirItem.push_back(try_dir);
 					}
@@ -1794,7 +1799,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		{
 			// We're in _Arcade directory specifically (not a subdirectory)
 			// Only add virtual folders if we're not already inside a virtual folder
-			bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9A Try") != NULL);
+			bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9B Try") != NULL);
+			printf("ScanDirectory _Arcade: scanned_path='%s', in_virtual_folder=%d\n", scanned_path, in_virtual_folder);
 			
 			if (!in_virtual_folder)
 			{
@@ -1822,8 +1828,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					direntext_t try_dir;
 					memset(&try_dir, 0, sizeof(try_dir));
 					try_dir.de.d_type = DT_DIR;
-					strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
-					strcpy(try_dir.altname, "\x9A Try");
+					strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
+					strcpy(try_dir.altname, "\x9B Try");
 					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
 					DirItem.push_back(try_dir);
 				}
@@ -2284,6 +2290,21 @@ bool FavoritesIsFullPath(const char *directory, const char *full_path)
 
 void FavoritesToggle(const char *directory, const char *filename)
 {
+	// Allow mutual exclusivity calls, but prevent infinite recursion
+	if (in_toggle_operation && !in_mutual_exclusivity_call)
+	{
+		printf("FavoritesToggle: This is a mutual exclusivity call\n");
+		in_mutual_exclusivity_call = true;
+	}
+	else if (in_toggle_operation && in_mutual_exclusivity_call)
+	{
+		printf("FavoritesToggle: Preventing infinite recursion\n");
+		return;
+	}
+	else
+	{
+		in_toggle_operation = true;
+	}
 	
 	if (strcmp(current_favorites_dir, directory) != 0)
 	{
@@ -2296,10 +2317,10 @@ void FavoritesToggle(const char *directory, const char *filename)
 	
 	char full_path[1024];
 	
-	// Check if we're in the virtual favorites folder
-	if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+	// Check if we're in a virtual folder (favorites or try)
+	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 	{
-		// In virtual favorites, use the stored full path from altname (not the filename parameter)
+		// In virtual folders, use the stored full path from altname (not the filename parameter)
 		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
 		full_path[sizeof(full_path) - 1] = 0;
 	}
@@ -2335,22 +2356,42 @@ void FavoritesToggle(const char *directory, const char *filename)
 	}
 	else
 	{
-		// Check if this file has a broken heart - if so, prevent direct favorite transition
-		if (IsBrokenHeart(full_path))
-		{
-			printf("Cannot add to favorites directly from broken heart state\n");
-			return; // Block the invalid transition: broken heart → favorite
-		}
-		
 		printf("Added to favorites\n");
 		
-		// If this file is currently in try list, remove it from try first
-		if (TryIsFile(directory, filename))
+		// Remove broken heart if exists (allow broken heart → favorite transition)
+		RemoveBrokenHeart(full_path);
+		
+		// Skip mutual exclusivity logic if this is already a mutual exclusivity call
+		if (in_mutual_exclusivity_call)
 		{
-			printf("Removing from try to add to favorites\n");
-			TryToggle(directory, filename); // This will remove from try
+			printf("FavoritesToggle: Skipping mutual exclusivity check (already in mutual exclusivity call)\n");
+		}
+		else
+		{
+			// If this file is currently in try list, remove it from try first
+			// Check both regular try and virtual try context
+			bool is_in_try = false;
+		
+		// Check if we're in a virtual try folder
+		if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8002)
+		{
+			// We're in virtual try - the item is definitely in try
+			is_in_try = true;
+		}
+		else
+		{
+			// Regular context - check using TryIsFile
+			is_in_try = TryIsFile(directory, filename);
 		}
 		
+			if (is_in_try)
+			{
+				printf("Removing from try to add to favorites\n");
+				TryRemove(directory, filename); // This will only remove from try
+			}
+		}
+		
+		// Always add to favorites (even in mutual exclusivity calls)
 		if (favorites_count < 256)
 		{
 			strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
@@ -2444,6 +2485,9 @@ void FavoritesToggle(const char *directory, const char *filename)
 	}
 	
 	FavoritesSave(directory);
+	
+	in_toggle_operation = false;
+	in_mutual_exclusivity_call = false;
 }
 
 void AddBrokenHeart(const char *path)
@@ -2586,14 +2630,9 @@ bool TryIsFile(const char *directory, const char *filename)
 	}
 	
 	char full_path[1024];
-	if (strcmp(directory, "_Arcade") == 0)
-	{
-		snprintf(full_path, sizeof(full_path), "/media/fat/_Arcade/%s", filename);
-	}
-	else
-	{
-		snprintf(full_path, sizeof(full_path), "/media/fat/games/%s/%s", directory, filename);
-	}
+	// Use the current file list path to construct the complete path (same as TryToggle)
+	char *current_path = flist_Path();
+	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
 	
 	for (int i = 0; i < try_count; i++)
 	{
@@ -2629,34 +2668,61 @@ bool TryIsFullPath(const char *directory, const char *full_path)
 
 void TryToggle(const char *directory, const char *filename)
 {
-	// Load try list if directory changed
-	if (strcmp(directory, current_try_dir) != 0)
+	// Allow mutual exclusivity calls, but prevent infinite recursion
+	if (in_toggle_operation && !in_mutual_exclusivity_call)
 	{
-		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
-		current_try_dir[sizeof(current_try_dir) - 1] = 0;
-		TryLoad(directory);
+		printf("TryToggle: This is a mutual exclusivity call\n");
+		in_mutual_exclusivity_call = true;
 	}
-	
-	char full_path[1024];
-	if (strcmp(directory, "_Arcade") == 0)
+	else if (in_toggle_operation && in_mutual_exclusivity_call)
 	{
-		snprintf(full_path, sizeof(full_path), "/media/fat/_Arcade/%s", filename);
+		printf("TryToggle: Preventing infinite recursion\n");
+		return;
 	}
 	else
 	{
-		snprintf(full_path, sizeof(full_path), "/media/fat/games/%s/%s", directory, filename);
+		in_toggle_operation = true;
+	}
+	
+	// Load try list if directory changed
+	if (strcmp(directory, current_try_dir) != 0)
+	{
+		printf("TryToggle: Loading try list for directory='%s'\n", directory);
+		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
+		current_try_dir[sizeof(current_try_dir) - 1] = 0;
+		TryLoad(directory);
+		printf("TryToggle: After TryLoad, try_count=%d\n", try_count);
+	}
+	
+	char full_path[1024];
+	
+	// Check if we're in a virtual folder (favorites or try)
+	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+	{
+		// In virtual folders, use the stored full path from altname (not the filename parameter)
+		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	}
+	else
+	{
+		// Use the current file list path to construct the complete path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
 	}
 	
 	// Check if already in try list
+	printf("TryToggle: Looking for path '%s' in try list with %d items\n", full_path, try_count);
 	int found_index = -1;
 	for (int i = 0; i < try_count; i++)
 	{
+		printf("  try_cache[%d] = '%s'\n", i, try_cache[i]);
 		if (strcmp(try_cache[i], full_path) == 0)
 		{
 			found_index = i;
 			break;
 		}
 	}
+	printf("TryToggle: found_index = %d\n", found_index);
 	
 	if (found_index >= 0)
 	{
@@ -2672,14 +2738,37 @@ void TryToggle(const char *directory, const char *filename)
 	{
 		printf("Added to try\n");
 		
-		// If this file is currently favorited, remove it from favorites first
-		if (FavoritesIsFile(directory, filename))
+		// Skip mutual exclusivity logic if this is already a mutual exclusivity call
+		if (in_mutual_exclusivity_call)
 		{
-			printf("Removing from favorites to add to try\n");
-			FavoritesToggle(directory, filename); // This will remove from favorites
+			printf("TryToggle: Skipping mutual exclusivity check (already in mutual exclusivity call)\n");
+		}
+		else
+		{
+			// If this file is currently favorited, remove it from favorites first
+			// Check both regular favorites and virtual favorites context
+			bool is_favorited = false;
+		
+		// Check if we're in any virtual folder (favorites or try)
+		if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+		{
+			// In virtual folders, check actual favorites state using full path
+			is_favorited = FavoritesIsFullPath(directory, flist_SelectedItem()->altname);
+		}
+		else
+		{
+			// Regular context - check using FavoritesIsFile
+			is_favorited = FavoritesIsFile(directory, filename);
 		}
 		
-		// If this file has a broken heart, remove it (valid transition: broken heart → try)
+			if (is_favorited)
+			{
+				printf("Removing from favorites to add to try\n");
+				FavoritesToggle(directory, filename); // This will remove from favorites
+			}
+		}
+		
+		// Always handle broken heart removal and adding to try
 		if (IsBrokenHeart(full_path))
 		{
 			printf("Removing broken heart to add to try\n");
@@ -2715,7 +2804,7 @@ void TryToggle(const char *directory, const char *filename)
 				bool folder_exists = false;
 				for (int i = 0; i < (int)DirItem.size(); i++)
 				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9A Try") == 0)
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9B Try") == 0)
 					{
 						folder_exists = true;
 						break;
@@ -2727,8 +2816,8 @@ void TryToggle(const char *directory, const char *filename)
 					direntext_t try_dir;
 					memset(&try_dir, 0, sizeof(try_dir));
 					try_dir.de.d_type = DT_DIR;
-					strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
-					strcpy(try_dir.altname, "\x9A Try");
+					strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
+					strcpy(try_dir.altname, "\x9B Try");
 					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
 					DirItem.push_back(try_dir);
 					
@@ -2743,7 +2832,7 @@ void TryToggle(const char *directory, const char *filename)
 				// Find and remove the virtual try folder
 				for (int i = 0; i < (int)DirItem.size(); i++)
 				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9A Try") == 0)
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9B Try") == 0)
 					{
 						DirItem.erase(DirItem.begin() + i);
 						printf("Virtual try folder removed\n");
@@ -2756,6 +2845,58 @@ void TryToggle(const char *directory, const char *filename)
 	}
 	
 	TrySave(directory);
+	
+	in_toggle_operation = false;
+	in_mutual_exclusivity_call = false;
+}
+
+void TryRemove(const char *directory, const char *filename)
+{
+	// Load try list if directory changed
+	if (strcmp(directory, current_try_dir) != 0)
+	{
+		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
+		current_try_dir[sizeof(current_try_dir) - 1] = 0;
+		TryLoad(directory);
+	}
+	
+	char full_path[1024];
+	
+	// Check if we're in a virtual folder (favorites or try)
+	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+	{
+		// In virtual folders, use the stored full path from altname
+		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	}
+	else
+	{
+		// Use the current file list path to construct the complete path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	}
+	
+	// Find and remove from try list if present
+	int found_index = -1;
+	for (int i = 0; i < try_count; i++)
+	{
+		if (strcmp(try_cache[i], full_path) == 0)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index >= 0)
+	{
+		printf("TryRemove: Removed from try list\n");
+		for (int i = found_index; i < try_count - 1; i++)
+		{
+			strcpy(try_cache[i], try_cache[i + 1]);
+		}
+		try_count--;
+		TrySave(directory);
+	}
 }
 
 int ScanVirtualFavorites(const char *core_path)
@@ -2817,7 +2958,7 @@ int ScanVirtualFavorites(const char *core_path)
 	iFirstEntry = 0;
 	
 	// Update scanned_path to include the virtual favorites folder
-	snprintf(scanned_path, sizeof(scanned_path), "%s/0 Favorites", parent_path);
+	snprintf(scanned_path, sizeof(scanned_path), "%s/\x97 Favorites", parent_path);
 	
 	// Add ".." up navigation entry at the top
 	direntext_t up_dir;
@@ -2941,7 +3082,7 @@ int ScanVirtualTry(const char *core_path)
 	iFirstEntry = 0;
 	
 	// Update scanned_path to include the virtual try folder
-	snprintf(scanned_path, sizeof(scanned_path), "%s/\x9A Try", parent_path);
+	snprintf(scanned_path, sizeof(scanned_path), "%s/\x9B Try", parent_path);
 	
 	// Add ".." up navigation entry at the top
 	direntext_t up_dir;

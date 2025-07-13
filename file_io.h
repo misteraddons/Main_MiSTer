@@ -162,6 +162,7 @@ int ScanVirtualFavorites(const char *core_path);
 bool TryIsFile(const char *directory, const char *filename);
 bool TryIsFullPath(const char *directory, const char *full_path);
 void TryToggle(const char *directory, const char *filename);
+void TryRemove(const char *directory, const char *filename);
 int ScanVirtualTry(const char *core_path);
 
 // Broken heart feedback system
