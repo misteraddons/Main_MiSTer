@@ -216,6 +216,11 @@ static uint32_t favorites_start_timer = 0;
 static bool favorites_start_pressed = false;
 static bool favorites_triggered = false;
 
+// Try system variables
+static uint32_t try_select_timer = 0;
+static bool try_select_pressed = false;
+static bool try_triggered = false;
+
 static bool osd_unlocked = 1;
 static char osd_code_entry[32];
 static uint32_t osd_lock_timer = 0;
@@ -2391,10 +2396,10 @@ void HandleUI(void)
 		{
 			if (!mgl->done)
 			{
-				// Check if this is a virtual favorites entry
-				if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+				// Check if this is a virtual favorites or try entry
+				if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 				{
-					// Use the stored full path from virtual favorites
+					// Use the stored full path from virtual favorites/try
 					snprintf(selPath, sizeof(selPath), "%s", flist_SelectedItem()->altname);
 				}
 				else
@@ -2405,8 +2410,8 @@ void HandleUI(void)
 				}
 			}
 
-			// Handle virtual favorites when mgl->done=1
-			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
+			// Handle virtual favorites/try when mgl->done=1
+			if (mgl->done && flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 			{
 				strcpy(selPath, flist_SelectedItem()->altname);
 			}
@@ -2415,10 +2420,10 @@ void HandleUI(void)
 			printf("File selected: %s\n", selPath);
 			memcpy(Selected_F[ioctl_index & 15], selPath, sizeof(Selected_F[ioctl_index & 15]));
 
-		// Special handling for .mra files from virtual favorites
-		if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001 && isXmlName(selPath) == 1)
+		// Special handling for .mra files from virtual favorites/try
+		if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002) && isXmlName(selPath) == 1)
 		{
-			printf("Loading MRA from virtual favorites: %s\n", selPath);
+			printf("Loading MRA from virtual favorites/try: %s\n", selPath);
 			xml_load(selPath);
 			menustate = MENU_NONE1;
 			break;
@@ -5060,7 +5065,22 @@ void HandleUI(void)
 								strncpy(core_dir, core_name, core_len);
 								core_dir[core_len] = 0;
 								
-								FavoritesToggle(core_dir, flist_SelectedItem()->altname);
+								// Check if we're in a virtual favorites folder (flag 0x8001)
+								if (flist_SelectedItem()->flags == 0x8001)
+								{
+									// For virtual favorites items, extract filename from the stored full path
+									char *filename = strrchr(flist_SelectedItem()->altname, '/');
+									if (filename)
+									{
+										filename++; // skip the '/'
+										FavoritesToggle(core_dir, filename);
+									}
+								}
+								else
+								{
+									// Regular file handling
+									FavoritesToggle(core_dir, flist_SelectedItem()->altname);
+								}
 								
 								// If we're in virtual favorites, just update the display
 								if (flist_SelectedItem() && flist_SelectedItem()->flags == 0x8001)
@@ -5078,10 +5098,118 @@ void HandleUI(void)
 						}
 						else if (arcade_pos)
 						{
-							// We're in _Arcade directory - use d_name to include .mra extension
-							FavoritesToggle("_Arcade", flist_SelectedItem()->de.d_name);
+							// We're in _Arcade directory
+							// Check if we're in a virtual favorites folder (flag 0x8001)
+							if (flist_SelectedItem()->flags == 0x8001)
+							{
+								// For virtual favorites items, extract filename from the stored full path
+								char *filename = strrchr(flist_SelectedItem()->altname, '/');
+								if (filename)
+								{
+									filename++; // skip the '/'
+									FavoritesToggle("_Arcade", filename);
+								}
+							}
+							else
+							{
+								// Regular file handling - use d_name to include .mra extension
+								FavoritesToggle("_Arcade", flist_SelectedItem()->de.d_name);
+							}
 							
 							// Just refresh the display to update hearts
+							PrintDirectory(1);
+							menustate = MENU_FILE_SELECT1;
+						}
+					}
+				}
+			}
+		}
+
+		// Handle try SELECT button hold logic
+		{
+			bool select_current = is_select_button_pressed();
+			if (select_current && !try_select_pressed)
+			{
+				// SELECT just pressed, start timer
+				try_select_pressed = true;
+				try_triggered = false;
+				try_select_timer = GetTimer(1000); // 1 second timer
+			}
+			else if (!select_current && try_select_pressed)
+			{
+				// SELECT released, clear everything
+				try_select_pressed = false;
+				try_triggered = false;
+			}
+			else if (select_current && try_select_pressed && !try_triggered)
+			{
+				// Still holding, check if timer expired
+				if (CheckTimer(try_select_timer))
+				{
+					// Held for 1+ seconds, toggle try
+					try_triggered = true; // Mark as triggered so we don't repeat
+					if (flist_nDirEntries() && flist_SelectedItem()->de.d_type != DT_DIR)
+					{
+						char *current_path = flist_Path();
+						printf("Current path: %s\n", current_path);
+						char *games_pos = strstr(current_path, "games/");
+						char *arcade_pos = strstr(current_path, "_Arcade");
+						if (games_pos)
+						{
+							char *core_name = games_pos + 6; // skip "games/"
+							printf("Core name start: %s\n", core_name);
+							char *slash_pos = strchr(core_name, '/');
+							printf("Slash pos: %p\n", slash_pos);
+							if (slash_pos)
+							{
+								char core_dir[256];
+								int core_len = slash_pos - core_name;
+								strncpy(core_dir, core_name, core_len);
+								core_dir[core_len] = 0;
+								
+								// Check if we're in a virtual try folder (flag 0x8002)
+								if (flist_SelectedItem()->flags == 0x8002)
+								{
+									// For virtual try items, extract filename from the stored full path
+									char *filename = strrchr(flist_SelectedItem()->altname, '/');
+									if (filename)
+									{
+										filename++; // skip the '/'
+										TryToggle(core_dir, filename);
+									}
+								}
+								else
+								{
+									// Regular file handling
+									TryToggle(core_dir, flist_SelectedItem()->altname);
+								}
+								
+								// Just refresh the display to update icons
+								PrintDirectory(1);
+								menustate = MENU_FILE_SELECT1;
+							}
+						}
+						else if (arcade_pos)
+						{
+							// We're in _Arcade directory
+							// Check if we're in a virtual try folder (flag 0x8002)
+							if (flist_SelectedItem()->flags == 0x8002)
+							{
+								// For virtual try items, extract filename from the stored full path
+								char *filename = strrchr(flist_SelectedItem()->altname, '/');
+								if (filename)
+								{
+									filename++; // skip the '/'
+									TryToggle("_Arcade", filename);
+								}
+							}
+							else
+							{
+								// Regular file handling - use d_name to include .mra extension
+								TryToggle("_Arcade", flist_SelectedItem()->de.d_name);
+							}
+							
+							// Just refresh the display to update icons
 							PrintDirectory(1);
 							menustate = MENU_FILE_SELECT1;
 						}
@@ -5258,6 +5386,11 @@ void HandleUI(void)
 
 				if (type == DT_DIR)
 				{
+					printf("Directory selected: '%s' (len=%d)\n", name, (int)strlen(name));
+					for (int i = 0; i < strlen(name); i++) {
+						printf("char[%d] = 0x%02X\n", i, (unsigned char)name[i]);
+					}
+					
 					// Check if this is the virtual favorites folder
 					if (!strcmp(name, "\x97 Favorites"))
 					{
@@ -5272,6 +5405,34 @@ void HandleUI(void)
 						{
 								menustate = MENU_FILE_SELECT1;
 						}
+						// Force PrintDirectory to display the virtual favorites immediately
+						PrintDirectory(1);
+					}
+					else if (!strcmp(name, "\x9A Try"))
+					{
+						// Handle virtual try folder - show try items as files
+						printf("Entering Try virtual folder from path: %s\n", flist_Path());
+						// Override fs_MenuSelect to ensure virtual try uses MENU_GENERIC_FILE_SELECTED
+						fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
+						int try_items = ScanVirtualTry(flist_Path());
+						printf("ScanVirtualTry returned %d items\n", try_items);
+						printf("flist_nDirEntries now reports %d total entries\n", flist_nDirEntries());
+						if (try_items > 0)
+						{
+							printf("Setting menustate to MENU_FILE_SELECT1 (with items)\n");
+							menustate = MENU_FILE_SELECT1;
+						}
+						else
+						{
+							printf("No try items found, still entering folder\n");
+							printf("Setting menustate to MENU_FILE_SELECT1 (empty)\n");
+							menustate = MENU_FILE_SELECT1;
+						}
+						printf("Try folder handling complete, menustate=%d\n", menustate);
+						// Force PrintDirectory to display the virtual try items immediately
+						printf("Calling PrintDirectory to display virtual try items...\n");
+						PrintDirectory(1);
+						printf("PrintDirectory completed for virtual try folder\n");
 					}
 					else if (!strcmp(name, "..") && flist_SelectedItem() && flist_SelectedItem()->altname && flist_SelectedItem()->altname[0] && strcmp(flist_SelectedItem()->altname, "..") != 0)
 					{
@@ -7206,6 +7367,8 @@ void PrintDirectory(int expand)
 {
 	char s[40];
 	ScrollReset();
+	
+	printf("PrintDirectory called with %d entries, expand=%d\n", flist_nDirEntries(), expand);
 
 	if (!cfg.browse_expand) expand = 0;
 
@@ -7235,9 +7398,9 @@ void PrintDirectory(int expand)
 
 		if (k < flist_nDirEntries())
 		{
-			// For virtual favorites, use clean filename stored after the path in altname
+			// For virtual favorites/try, use clean filename stored after the path in altname
 			char *display_name;
-			if (flist_DirItem(k)->flags == 0x8001)
+			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 			{
 				// Find the clean filename stored after the null terminator (extension already removed)
 				display_name = flist_DirItem(k)->altname + strlen(flist_DirItem(k)->altname) + 1;
@@ -7294,26 +7457,29 @@ void PrintDirectory(int expand)
 						core_dir[core_len] = 0;
 						
 						bool is_favorited = false;
+						bool is_try = false;
 						
-						if (flist_DirItem(k)->flags == 0x8001)
+						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 						{
-							// For virtual favorites, check the stored full path directly
+							// For virtual favorites/try, check the stored full path directly
 							is_favorited = FavoritesIsFullPath(core_dir, flist_DirItem(k)->altname);
+							is_try = TryIsFullPath(core_dir, flist_DirItem(k)->altname);
 						}
 						else
 						{
 							// Regular file check
 							is_favorited = FavoritesIsFile(core_dir, flist_DirItem(k)->altname);
+							is_try = TryIsFile(core_dir, flist_DirItem(k)->altname);
 						}
 						
 						// Check if we should show broken heart for this specific file
 						bool show_broken_heart = false;
 						char current_file_path[1024];
 						
-						// Handle both normal game files and virtual favorites
-						if (flist_DirItem(k)->flags == 0x8001)
+						// Handle both normal game files and virtual favorites/try
+						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 						{
-							// Virtual favorites - use the stored full path directly
+							// Virtual favorites/try - use the stored full path directly
 							strncpy(current_file_path, flist_DirItem(k)->altname, sizeof(current_file_path) - 1);
 							current_file_path[sizeof(current_file_path) - 1] = 0;
 						}
@@ -7325,9 +7491,13 @@ void PrintDirectory(int expand)
 						
 						show_broken_heart = IsBrokenHeart(current_file_path);
 						
-						if (show_broken_heart)
+						if (is_try)
 						{
-							s[0] = '\x99'; // Broken heart character (takes priority)
+							s[0] = '\x9A'; // Question mark character (highest priority)
+						}
+						else if (show_broken_heart)
+						{
+							s[0] = '\x99'; // Broken heart character
 						}
 						else if (is_favorited)
 						{
@@ -7339,26 +7509,29 @@ void PrintDirectory(int expand)
 				{
 					// We're in _Arcade directory
 					bool is_favorited = false;
+					bool is_try = false;
 					
-					if (flist_DirItem(k)->flags == 0x8001)
+					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 					{
-						// For virtual favorites, check the stored full path directly
+						// For virtual favorites/try, check the stored full path directly
 						is_favorited = FavoritesIsFullPath("_Arcade", flist_DirItem(k)->altname);
+						is_try = TryIsFullPath("_Arcade", flist_DirItem(k)->altname);
 					}
 					else
 					{
 						// Regular file check - use d_name to match saved format with extension
 						is_favorited = FavoritesIsFile("_Arcade", flist_DirItem(k)->de.d_name);
+						is_try = TryIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 					}
 					
 					// Check if we should show broken heart for this specific file
 					bool show_broken_heart = false;
 					char current_file_path[1024];
 					
-					// Handle both normal _Arcade files and virtual favorites
-					if (flist_DirItem(k)->flags == 0x8001)
+					// Handle both normal _Arcade files and virtual favorites/try
+					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 					{
-						// Virtual favorites - use the stored full path directly
+						// Virtual favorites/try - use the stored full path directly
 						strncpy(current_file_path, flist_DirItem(k)->altname, sizeof(current_file_path) - 1);
 						current_file_path[sizeof(current_file_path) - 1] = 0;
 					}
@@ -7370,9 +7543,13 @@ void PrintDirectory(int expand)
 					
 					show_broken_heart = IsBrokenHeart(current_file_path);
 					
-					if (show_broken_heart)
+					if (is_try)
 					{
-						s[0] = '\x99'; // Broken heart character (takes priority)
+						s[0] = '\x9A'; // Question mark character (highest priority)
+					}
+					else if (show_broken_heart)
+					{
+						s[0] = '\x99'; // Broken heart character
 					}
 					else if (is_favorited)
 					{

@@ -80,6 +80,7 @@ void input_notify_mode();
 int input_poll(int getchar);
 int is_key_pressed(int key);
 int is_start_button_pressed();
+int is_select_button_pressed();
 
 void start_map_setting(int cnt, int set = 0);
 int get_map_set();

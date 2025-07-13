@@ -1224,9 +1224,13 @@ struct DirentComp
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "..")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
 		
-		// Put virtual favorites folder right after ".." but before other directories
+		// Put virtual folders right after ".." but before other directories
+		// Order: "..", "❤ Favorites", "❓ Try", then other directories
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
+		
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x9A Try")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x9A Try")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1762,6 +1766,21 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
 					DirItem.push_back(favorites_dir);
 				}
+				
+				// Check for try.txt and add virtual try folder
+				char try_path[1024];
+				snprintf(try_path, sizeof(try_path), "%s/games/%s/try.txt", getRootDir(), core_name);
+				if (FileExists(try_path, 0))
+				{
+					// Add virtual try folder
+					direntext_t try_dir;
+					memset(&try_dir, 0, sizeof(try_dir));
+					try_dir.de.d_type = DT_DIR;
+					strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
+					strcpy(try_dir.altname, "\x9A Try");
+					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
+					DirItem.push_back(try_dir);
+				}
 			}
 		}
 		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
@@ -1779,6 +1798,21 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				strcpy(favorites_dir.altname, "\x97 Favorites");
 				favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
 				DirItem.push_back(favorites_dir);
+			}
+			
+			// Check for try.txt and add virtual try folder for _Arcade
+			char try_path[1024];
+			snprintf(try_path, sizeof(try_path), "%s/_Arcade/try.txt", getRootDir());
+			if (FileExists(try_path, 0))
+			{
+				// Add virtual try folder
+				direntext_t try_dir;
+				memset(&try_dir, 0, sizeof(try_dir));
+				try_dir.de.d_type = DT_DIR;
+				strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
+				strcpy(try_dir.altname, "\x9A Try");
+				try_dir.flags = 0x8000; // Special flag to identify virtual try folder
+				DirItem.push_back(try_dir);
 			}
 		}
 
@@ -2091,6 +2125,12 @@ static char current_favorites_dir[1024] = "";
 // Broken heart feedback system
 char broken_heart_paths[256][1024];
 int broken_heart_count = 0;
+
+
+// Try system cache
+static char try_cache[256][1024]; // Full paths
+static int try_count = 0;
+static char current_try_dir[1024] = "";
 
 static int FavoritesLoad(const char *directory)
 {
@@ -2435,6 +2475,257 @@ void ClearAllBrokenHearts()
 	broken_heart_count = 0;
 }
 
+
+static int TryLoad(const char *directory)
+{
+	char try_path[1024];
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(try_path, sizeof(try_path), "/media/fat/_Arcade/try.txt");
+	}
+	else
+	{
+		snprintf(try_path, sizeof(try_path), "/media/fat/games/%s/try.txt", directory);
+	}
+	
+	try_count = 0;
+	
+	FILE *file = fopen(try_path, "r");
+	if (!file) return 0;
+	
+	char line[1024];
+	while (fgets(line, sizeof(line), file) && try_count < 256)
+	{
+		// Remove newline
+		char *newline = strchr(line, '\n');
+		if (newline) *newline = 0;
+		
+		// Remove carriage return 
+		char *cr = strchr(line, '\r');
+		if (cr) *cr = 0;
+		
+		// Skip empty lines
+		if (strlen(line) == 0) continue;
+		
+		strncpy(try_cache[try_count], line, sizeof(try_cache[0]) - 1);
+		try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
+		try_count++;
+	}
+	
+	fclose(file);
+	return try_count;
+}
+
+static void TrySave(const char *directory)
+{
+	char try_path[1024];
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(try_path, sizeof(try_path), "/media/fat/_Arcade/try.txt");
+	}
+	else
+	{
+		snprintf(try_path, sizeof(try_path), "/media/fat/games/%s/try.txt", directory);
+	}
+	
+	if (try_count == 0)
+	{
+		// No entries, delete the file
+		unlink(try_path);
+		return;
+	}
+	
+	FILE *file = fopen(try_path, "w");
+	if (!file) return;
+	
+	for (int i = 0; i < try_count; i++)
+	{
+		fprintf(file, "%s\n", try_cache[i]);
+	}
+	
+	fclose(file);
+}
+
+bool TryIsFile(const char *directory, const char *filename)
+{
+	// Load try list if directory changed
+	if (strcmp(directory, current_try_dir) != 0)
+	{
+		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
+		current_try_dir[sizeof(current_try_dir) - 1] = 0;
+		TryLoad(directory);
+	}
+	
+	char full_path[1024];
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(full_path, sizeof(full_path), "/media/fat/_Arcade/%s", filename);
+	}
+	else
+	{
+		snprintf(full_path, sizeof(full_path), "/media/fat/games/%s/%s", directory, filename);
+	}
+	
+	for (int i = 0; i < try_count; i++)
+	{
+		if (strcmp(try_cache[i], full_path) == 0)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool TryIsFullPath(const char *directory, const char *full_path)
+{
+	// Load try list if directory changed
+	if (strcmp(directory, current_try_dir) != 0)
+	{
+		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
+		current_try_dir[sizeof(current_try_dir) - 1] = 0;
+		TryLoad(directory);
+	}
+	
+	for (int i = 0; i < try_count; i++)
+	{
+		if (strcmp(try_cache[i], full_path) == 0)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+void TryToggle(const char *directory, const char *filename)
+{
+	// Load try list if directory changed
+	if (strcmp(directory, current_try_dir) != 0)
+	{
+		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
+		current_try_dir[sizeof(current_try_dir) - 1] = 0;
+		TryLoad(directory);
+	}
+	
+	char full_path[1024];
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(full_path, sizeof(full_path), "/media/fat/_Arcade/%s", filename);
+	}
+	else
+	{
+		snprintf(full_path, sizeof(full_path), "/media/fat/games/%s/%s", directory, filename);
+	}
+	
+	// Check if already in try list
+	int found_index = -1;
+	for (int i = 0; i < try_count; i++)
+	{
+		if (strcmp(try_cache[i], full_path) == 0)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index >= 0)
+	{
+		printf("Removed from try\n");
+		
+		for (int i = found_index; i < try_count - 1; i++)
+		{
+			strcpy(try_cache[i], try_cache[i + 1]);
+		}
+		try_count--;
+	}
+	else
+	{
+		printf("Added to try\n");
+		
+		// If this file is currently favorited, remove it from favorites first
+		if (FavoritesIsFile(directory, filename))
+		{
+			printf("Removing from favorites to add to try\n");
+			FavoritesToggle(directory, filename); // This will remove from favorites
+		}
+		
+		if (try_count < 256)
+		{
+			strncpy(try_cache[try_count], full_path, sizeof(try_cache[0]) - 1);
+			try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
+			try_count++;
+		}
+	}
+	
+	// Handle dynamic virtual folder addition/removal for _Arcade directory and games directories
+	if (strcmp(directory, "_Arcade") == 0 || strstr(directory, "games/") != NULL)
+	{
+		// Check if we're transitioning between having/not having try items
+		static int previous_try_count = 0;
+		bool had_try = (previous_try_count > 0);
+		bool has_try = (try_count > 0);
+		
+		if (had_try != has_try)
+		{
+			// We need to dynamically add or remove the virtual try folder
+			printf("Dynamic virtual try folder update: had=%d, has=%d\n", had_try, has_try);
+			
+			if (!had_try && has_try)
+			{
+				printf("Adding virtual try folder dynamically\n");
+				
+				// Check if it doesn't already exist in DirItem
+				bool folder_exists = false;
+				for (int i = 0; i < (int)DirItem.size(); i++)
+				{
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9A Try") == 0)
+					{
+						folder_exists = true;
+						break;
+					}
+				}
+				
+				if (!folder_exists)
+				{
+					direntext_t try_dir;
+					memset(&try_dir, 0, sizeof(try_dir));
+					try_dir.de.d_type = DT_DIR;
+					strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
+					strcpy(try_dir.altname, "\x9A Try");
+					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
+					DirItem.push_back(try_dir);
+					
+					// Re-sort the directory to maintain proper ordering
+					std::sort(DirItem.begin(), DirItem.end(), DirentComp());
+				}
+			}
+			else if (had_try && !has_try)
+			{
+				printf("Removing virtual try folder dynamically\n");
+				
+				// Find and remove the virtual try folder
+				for (int i = 0; i < (int)DirItem.size(); i++)
+				{
+					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9A Try") == 0)
+					{
+						DirItem.erase(DirItem.begin() + i);
+						printf("Virtual try folder removed\n");
+						break;
+					}
+				}
+			}
+		}
+		previous_try_count = try_count;
+	}
+	
+	TrySave(directory);
+}
+
 int ScanVirtualFavorites(const char *core_path)
 {
 	
@@ -2561,4 +2852,117 @@ int ScanVirtualFavorites(const char *core_path)
 	}
 	
 	return DirItem.size();
+}
+
+int ScanVirtualTry(const char *core_path)
+{
+	
+	// Extract core name from path first
+	const char *games_pos = strstr(core_path, "games/");
+	const char *arcade_pos = strstr(core_path, "_Arcade");
+	if (!games_pos && !arcade_pos) return 0;
+
+	char core_dir[256] = "";
+	char parent_path[1024] = "";
+	
+	if (games_pos)
+	{
+		char *core_name = (char*)(games_pos + 6); // skip "games/"
+		char *slash_pos = strchr(core_name, '/');
+		
+		// Check if we're in the main core directory or a subdirectory
+		if (!slash_pos)
+		{
+			// We're at the core root
+			strncpy(parent_path, core_path, sizeof(parent_path) - 1);
+			parent_path[sizeof(parent_path) - 1] = 0;
+		}
+		if (slash_pos)
+		{
+			int core_len = slash_pos - core_name;
+			strncpy(core_dir, core_name, core_len);
+			core_dir[core_len] = 0;
+		}
+		else
+		{
+			strcpy(core_dir, core_name);
+		}
+	}
+	else if (arcade_pos)
+	{
+		// Handle _Arcade directory
+		strcpy(core_dir, "_Arcade");
+		strncpy(parent_path, core_path, sizeof(parent_path) - 1);
+		parent_path[sizeof(parent_path) - 1] = 0;
+	}
+	
+	// Load try list for the core directory
+	printf("ScanVirtualTry: Loading try list for core_dir='%s'\n", core_dir);
+	TryLoad(core_dir);
+	printf("ScanVirtualTry: TryLoad returned try_count=%d\n", try_count);
+	
+	if (try_count == 0) return 0;
+	
+	DirItem.clear();
+	DirNames.clear();
+	iSelectedEntry = 0;
+	iFirstEntry = 0;
+	
+	// Update scanned_path to include the virtual try folder
+	snprintf(scanned_path, sizeof(scanned_path), "%s/\x9A Try", parent_path);
+	
+	// Add ".." up navigation entry at the top
+	direntext_t up_dir;
+	memset(&up_dir, 0, sizeof(up_dir));
+	up_dir.de.d_type = DT_DIR;
+	strcpy(up_dir.de.d_name, "..");
+	strcpy(up_dir.altname, parent_path);  // Store parent path for navigation
+	DirItem.push_back(up_dir);
+	
+	// Create directory entries for each try item
+	for (int i = 0; i < try_count; i++)
+	{
+		// Extract filename from full path
+		char *filename = strrchr(try_cache[i], '/');
+		if (!filename) continue;
+		filename++; // skip the '/'
+		
+		// Create a clean filename for display (without extension)
+		char clean_filename[256];
+		strncpy(clean_filename, filename, sizeof(clean_filename) - 1);
+		clean_filename[sizeof(clean_filename) - 1] = 0;
+		
+		// Remove file extension for display
+		char *last_dot = strrchr(clean_filename, '.');
+		if (last_dot) *last_dot = 0;
+		
+		// Create directory entry with the actual stored path
+		direntext_t item;
+		memset(&item, 0, sizeof(item));
+		item.de.d_type = DT_REG;
+		// For virtual try, we'll use the same approach as favorites:
+		// Store the full path in altname for launching
+		// Store the clean filename in d_name (but it might be truncated)
+		strncpy(item.altname, try_cache[i], sizeof(item.altname) - 1);
+		item.altname[sizeof(item.altname) - 1] = 0;
+		
+		// Try to store full clean name in d_name, but it might get truncated
+		strncpy(item.de.d_name, clean_filename, sizeof(item.de.d_name) - 1);
+		item.de.d_name[sizeof(item.de.d_name) - 1] = 0;
+		
+		// Store clean filename at the end of altname after a null separator for display
+		// Format: full_path\0clean_filename
+		int path_len = strlen(item.altname);
+		if (path_len + 1 + strlen(clean_filename) < sizeof(item.altname) - 1)
+		{
+			strcpy(item.altname + path_len + 1, clean_filename);
+		}
+		
+		// Mark this as a virtual try entry by setting a special flag
+		item.flags = 0x8002; // Special flag to identify virtual try files
+		
+		DirItem.push_back(item);
+	}
+	
+	return try_count + 1; // +1 for the ".." entry
 }
