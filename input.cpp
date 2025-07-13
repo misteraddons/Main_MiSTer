@@ -41,6 +41,11 @@ char joy_bnames[NUMBUTTONS][32] = {};
 int  joy_bcount = 0;
 static struct pollfd pool[NUMDEV + 3];
 
+// Button hold tracking for L+R combinations
+static int l_button_pressed = 0;
+static int r_button_pressed = 0;
+static uint32_t lr_hold_start_time = 0;
+
 static int ev2amiga[] =
 {
 	NONE, //0   KEY_RESERVED
@@ -3199,12 +3204,66 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 						if (ev->code == input[dev].mmap[SYS_BTN_L])
 						{
+							// Handle L button for try/delete functionality
+							if (ev->value) // Button pressed
+							{
+								l_button_pressed = 1;
+								if (r_button_pressed) // Both L and R pressed
+								{
+									lr_hold_start_time = GetTimer(1000); // Start 1 second timer
+								}
+								else // Only L pressed
+								{
+									// Check if we're in menu mode and have a selection
+									if (is_menu() && flist_SelectedItem())
+									{
+										direntext_t* selected = flist_SelectedItem();
+										char* current_dir = flist_Path();
+										if (selected && current_dir)
+										{
+											TryToggle(current_dir, selected->de.d_name);
+										}
+									}
+								}
+							}
+							else // Button released
+							{
+								l_button_pressed = 0;
+								lr_hold_start_time = 0;
+							}
 							joy_digital(0, JOY_L, 0, ev->value, 0);
 							return;
 						}
 
 						if (ev->code == input[dev].mmap[SYS_BTN_R])
 						{
+							// Handle R button for favorite/delete functionality
+							if (ev->value) // Button pressed
+							{
+								r_button_pressed = 1;
+								if (l_button_pressed) // Both L and R pressed
+								{
+									lr_hold_start_time = GetTimer(1000); // Start 1 second timer
+								}
+								else // Only R pressed
+								{
+									// Check if we're in menu mode and have a selection
+									if (is_menu() && flist_SelectedItem())
+									{
+										direntext_t* selected = flist_SelectedItem();
+										char* current_dir = flist_Path();
+										if (selected && current_dir)
+										{
+											FavoritesToggle(current_dir, selected->de.d_name);
+										}
+									}
+								}
+							}
+							else // Button released
+							{
+								r_button_pressed = 0;
+								lr_hold_start_time = 0;
+							}
 							joy_digital(0, JOY_R, 0, ev->value, 0);
 							return;
 						}
@@ -5791,6 +5850,22 @@ int input_poll(int getchar)
 	static int af[NUMPLAYERS] = {};
 	static uint32_t time[NUMPLAYERS] = {};
 	static uint64_t joy_prev[NUMPLAYERS] = {};
+
+	// Check for L+R combination held for 1 second (delete functionality)
+	if (l_button_pressed && r_button_pressed && lr_hold_start_time && CheckTimer(lr_hold_start_time))
+	{
+		// Trigger delete toggle when both buttons held for 1 second
+		if (is_menu() && flist_SelectedItem())
+		{
+			direntext_t* selected = flist_SelectedItem();
+			char* current_dir = flist_Path();
+			if (selected && current_dir)
+			{
+				DeleteToggle(current_dir, selected->de.d_name);
+			}
+		}
+		lr_hold_start_time = 0; // Reset timer to prevent multiple triggers
+	}
 
 	int ret = input_test(getchar);
 	if (getchar) return ret;

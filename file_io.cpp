@@ -2152,9 +2152,15 @@ static char try_cache[256][1024]; // Full paths
 static int try_count = 0;
 static char current_try_dir[1024] = "";
 
+// Delete system cache
+static char delete_cache[256][1024]; // Full paths
+static int delete_count = 0;
+static char current_delete_dir[1024] = "";
+
 // Forward declarations
 static void FavoritesSave(const char *directory);
 static void TrySave(const char *directory);
+static void DeleteSave(const char *directory);
 
 static int FavoritesLoad(const char *directory)
 {
@@ -2677,6 +2683,111 @@ static void TrySave(const char *directory)
 	fclose(file);
 }
 
+static int DeleteLoad(const char *directory)
+{
+	char delete_path[1024];
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(delete_path, sizeof(delete_path), "/media/fat/_Arcade/delete.txt");
+	}
+	else
+	{
+		snprintf(delete_path, sizeof(delete_path), "/media/fat/games/%s/delete.txt", directory);
+	}
+	
+	delete_count = 0;
+	
+	FILE *file = fopen(delete_path, "r");
+	if (!file) return 0;
+	
+	char line[1024];
+	while (fgets(line, sizeof(line), file) && delete_count < 256)
+	{
+		// Remove newline
+		char *newline = strchr(line, '\n');
+		if (newline) *newline = 0;
+		
+		// Remove carriage return 
+		char *cr = strchr(line, '\r');
+		if (cr) *cr = 0;
+		
+		// Skip empty lines
+		if (strlen(line) == 0) continue;
+		
+		// Check if file still exists, remove from list if missing
+		if (!FileExists(line))
+		{
+			printf("Removing missing file from delete list: %s\n", line);
+			continue;
+		}
+		
+		strncpy(delete_cache[delete_count], line, sizeof(delete_cache[0]) - 1);
+		delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
+		delete_count++;
+	}
+	
+	fclose(file);
+	
+	// Sort delete list alphabetically by filename
+	for (int i = 0; i < delete_count - 1; i++)
+	{
+		for (int j = i + 1; j < delete_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(delete_cache[i], '/');
+			char *filename_j = strrchr(delete_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = delete_cache[i];
+			if (filename_j) filename_j++; else filename_j = delete_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, delete_cache[i]);
+				strcpy(delete_cache[i], delete_cache[j]);
+				strcpy(delete_cache[j], temp_path);
+			}
+		}
+	}
+	
+	return delete_count;
+}
+
+static void DeleteSave(const char *directory)
+{
+	char delete_path[1024];
+	
+	// Check if this is _Arcade directory
+	if (strcmp(directory, "_Arcade") == 0)
+	{
+		snprintf(delete_path, sizeof(delete_path), "/media/fat/_Arcade/delete.txt");
+	}
+	else
+	{
+		snprintf(delete_path, sizeof(delete_path), "/media/fat/games/%s/delete.txt", directory);
+	}
+	
+	if (delete_count == 0)
+	{
+		// No entries, delete the file
+		unlink(delete_path);
+		return;
+	}
+	
+	FILE *file = fopen(delete_path, "w");
+	if (!file) return;
+	
+	for (int i = 0; i < delete_count; i++)
+	{
+		fprintf(file, "%s\n", delete_cache[i]);
+	}
+	
+	fclose(file);
+}
+
 bool TryIsFile(const char *directory, const char *filename)
 {
 	// Load try list if directory changed
@@ -2716,6 +2827,53 @@ bool TryIsFullPath(const char *directory, const char *full_path)
 	for (int i = 0; i < try_count; i++)
 	{
 		if (strcmp(try_cache[i], full_path) == 0)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool DeleteIsFile(const char *directory, const char *filename)
+{
+	// Load delete list if directory changed
+	if (strcmp(directory, current_delete_dir) != 0)
+	{
+		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
+		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
+		DeleteLoad(directory);
+	}
+	
+	char full_path[1024];
+	// Use current path context to construct the full path
+	char *current_path = flist_Path();
+	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	
+	for (int i = 0; i < delete_count; i++)
+	{
+		if (strcmp(delete_cache[i], full_path) == 0)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool DeleteIsFullPath(const char *directory, const char *full_path)
+{
+	// Load delete list if directory changed
+	if (strcmp(directory, current_delete_dir) != 0)
+	{
+		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
+		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
+		DeleteLoad(directory);
+	}
+	
+	for (int i = 0; i < delete_count; i++)
+	{
+		if (strcmp(delete_cache[i], full_path) == 0)
 		{
 			return true;
 		}
@@ -2983,6 +3141,113 @@ void TryRemove(const char *directory, const char *filename)
 		try_count--;
 		TrySave(directory);
 	}
+}
+
+void DeleteToggle(const char *directory, const char *filename)
+{
+	// Load delete list if directory changed
+	if (strcmp(directory, current_delete_dir) != 0)
+	{
+		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
+		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
+		DeleteLoad(directory);
+	}
+	
+	char full_path[1024];
+	
+	// Check if we're in a virtual folder (favorites or try)
+	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+	{
+		// In virtual folders, use the stored full path from altname (not the filename parameter)
+		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	}
+	else
+	{
+		// Use the current file list path to construct the complete path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	}
+	
+	// Check if already in delete list
+	int found_index = -1;
+	for (int i = 0; i < delete_count; i++)
+	{
+		if (strcmp(delete_cache[i], full_path) == 0)
+		{
+			found_index = i;
+			break;
+		}
+	}
+	
+	if (found_index >= 0)
+	{
+		printf("Removed from delete\n");
+		printf("STATE: try=%s favorite=%s delete=false missing=%s\n", 
+			TryIsFullPath(directory, full_path) ? "true" : "false",
+			FavoritesIsFullPath(directory, full_path) ? "true" : "false",
+			FileExists(full_path) ? "false" : "true");
+		
+		for (int i = found_index; i < delete_count - 1; i++)
+		{
+			strcpy(delete_cache[i], delete_cache[i + 1]);
+		}
+		delete_count--;
+	}
+	else
+	{
+		printf("Added to delete\n");
+		
+		// Remove from favorites and try lists (mutual exclusivity)
+		if (FavoritesIsFullPath(directory, full_path))
+		{
+			printf("Removing from favorites to mark for delete\n");
+			FavoritesToggle(directory, filename);
+		}
+		
+		if (TryIsFullPath(directory, full_path))
+		{
+			printf("Removing from try to mark for delete\n");
+			TryRemove(directory, filename);
+		}
+		
+		// Remove broken heart if exists
+		RemoveBrokenHeart(full_path);
+		
+		if (delete_count < 256)
+		{
+			strncpy(delete_cache[delete_count], full_path, sizeof(delete_cache[0]) - 1);
+			delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
+			delete_count++;
+			printf("STATE: try=false favorite=false delete=true missing=%s\n", 
+				FileExists(full_path) ? "false" : "true");
+		}
+	}
+	
+	// Sort delete list alphabetically by filename
+	for (int i = 0; i < delete_count - 1; i++)
+	{
+		for (int j = i + 1; j < delete_count; j++)
+		{
+			// Extract filenames for comparison
+			char *filename_i = strrchr(delete_cache[i], '/');
+			char *filename_j = strrchr(delete_cache[j], '/');
+			if (filename_i) filename_i++; else filename_i = delete_cache[i];
+			if (filename_j) filename_j++; else filename_j = delete_cache[j];
+			
+			// Compare filenames (case insensitive)
+			if (strcasecmp(filename_i, filename_j) > 0)
+			{
+				// Swap full paths
+				char temp_path[1024];
+				strcpy(temp_path, delete_cache[i]);
+				strcpy(delete_cache[i], delete_cache[j]);
+				strcpy(delete_cache[j], temp_path);
+			}
+		}
+	}
+	
+	DeleteSave(directory);
 }
 
 int ScanVirtualFavorites(const char *core_path)
@@ -3254,12 +3519,14 @@ void PrintFileState(const char *directory, const char *filename)
 	
 	bool is_try = TryIsFullPath(directory, full_path);
 	bool is_favorite = FavoritesIsFullPath(directory, full_path);
+	bool is_delete = DeleteIsFullPath(directory, full_path);
 	bool is_missing = !FileExists(full_path);
 	bool is_broken_heart = IsBrokenHeart(full_path);
 	
-	printf("STATE: try=%s favorite=%s missing=%s broken_heart=%s file=%s\n", 
+	printf("STATE: try=%s favorite=%s delete=%s missing=%s broken_heart=%s file=%s\n", 
 		is_try ? "true" : "false",
-		is_favorite ? "true" : "false", 
+		is_favorite ? "true" : "false",
+		is_delete ? "true" : "false",
 		is_missing ? "true" : "false",
 		is_broken_heart ? "true" : "false",
 		filename);

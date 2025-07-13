@@ -165,6 +165,11 @@ void TryToggle(const char *directory, const char *filename);
 void TryRemove(const char *directory, const char *filename);
 int ScanVirtualTry(const char *core_path);
 
+// Delete system
+bool DeleteIsFile(const char *directory, const char *filename);
+bool DeleteIsFullPath(const char *directory, const char *full_path);
+void DeleteToggle(const char *directory, const char *filename);
+
 // Debug state tracking
 void PrintFileState(const char *directory, const char *filename);
 

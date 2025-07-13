@@ -7471,12 +7471,14 @@ void PrintDirectory(int expand)
 						
 						bool is_favorited = false;
 						bool is_try = false;
+						bool is_delete = false;
 						
 						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 						{
 							// For virtual folders, check actual state (not just the flag) to show updated icons
 							is_favorited = FavoritesIsFullPath(core_dir, flist_DirItem(k)->altname);
 							is_try = TryIsFullPath(core_dir, flist_DirItem(k)->altname);
+							is_delete = DeleteIsFullPath(core_dir, flist_DirItem(k)->altname);
 							
 							// Debug output to track state detection
 							if (k == flist_iSelectedEntry())
@@ -7515,9 +7517,13 @@ void PrintDirectory(int expand)
 						bool is_missing = (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002) && 
 						                   !FileExists(flist_DirItem(k)->altname);
 						
-						if (is_missing)
+						if (is_delete)
 						{
-							s[0] = '\x9D'; // Bold Exclamation character (highest priority for missing files)
+							s[0] = '\x9C'; // Bold X character (highest priority for delete marked files)
+						}
+						else if (is_missing)
+						{
+							s[0] = '\x9D'; // Bold Exclamation character (high priority for missing files)
 						}
 						else if (is_try)
 						{
@@ -7538,18 +7544,21 @@ void PrintDirectory(int expand)
 					// We're in _Arcade directory
 					bool is_favorited = false;
 					bool is_try = false;
+					bool is_delete = false;
 					
 					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 					{
 						// For virtual folders, check actual state (not just the flag) to show updated icons
 						is_favorited = FavoritesIsFullPath("_Arcade", flist_DirItem(k)->altname);
 						is_try = TryIsFullPath("_Arcade", flist_DirItem(k)->altname);
+						is_delete = DeleteIsFullPath("_Arcade", flist_DirItem(k)->altname);
 					}
 					else
 					{
 						// Regular file check - use d_name to match saved format with extension
 						is_favorited = FavoritesIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 						is_try = TryIsFile("_Arcade", flist_DirItem(k)->de.d_name);
+						is_delete = DeleteIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 					}
 					
 					// Check if we should show broken heart for this specific file
@@ -7578,9 +7587,13 @@ void PrintDirectory(int expand)
 					bool is_missing = (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002) && 
 					                   !FileExists(flist_DirItem(k)->altname);
 					
-					if (is_missing)
+					if (is_delete)
 					{
-						s[0] = '\x9D'; // Bold Exclamation character (highest priority for missing files)
+						s[0] = '\x9C'; // Bold X character (highest priority for delete marked files)
+					}
+					else if (is_missing)
+					{
+						s[0] = '\x9D'; // Bold Exclamation character (high priority for missing files)
 					}
 					else if (is_try)
 					{
