@@ -1752,9 +1752,55 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			}
 			else if (strchr(core_name, '/') == NULL)
 			{
-				// We're directly in a core directory (games/N64/), check for favorites
+				// We're directly in a core directory (games/N64/), not in a subdirectory
+				// Only add virtual folders if we're not already inside a virtual folder
+				bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9A Try") != NULL);
+				
+				if (!in_virtual_folder)
+				{
+					// Check for favorites.txt and add virtual favorites folder
+					char favorites_path[1024];
+					snprintf(favorites_path, sizeof(favorites_path), "%s/games/%s/favorites.txt", getRootDir(), core_name);
+					if (FileExists(favorites_path, 0))
+					{
+						// Add virtual favorites folder
+						direntext_t favorites_dir;
+						memset(&favorites_dir, 0, sizeof(favorites_dir));
+						favorites_dir.de.d_type = DT_DIR;
+						strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+						strcpy(favorites_dir.altname, "\x97 Favorites");
+						favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+						DirItem.push_back(favorites_dir);
+					}
+					
+					// Check for try.txt and add virtual try folder
+					char try_path[1024];
+					snprintf(try_path, sizeof(try_path), "%s/games/%s/try.txt", getRootDir(), core_name);
+					if (FileExists(try_path, 0))
+					{
+						// Add virtual try folder
+						direntext_t try_dir;
+						memset(&try_dir, 0, sizeof(try_dir));
+						try_dir.de.d_type = DT_DIR;
+						strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
+						strcpy(try_dir.altname, "\x9A Try");
+						try_dir.flags = 0x8000; // Special flag to identify virtual try folder
+						DirItem.push_back(try_dir);
+					}
+				}
+			}
+		}
+		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
+		{
+			// We're in _Arcade directory specifically (not a subdirectory)
+			// Only add virtual folders if we're not already inside a virtual folder
+			bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9A Try") != NULL);
+			
+			if (!in_virtual_folder)
+			{
+				// Check for favorites.txt and add virtual favorites folder
 				char favorites_path[1024];
-				snprintf(favorites_path, sizeof(favorites_path), "%s/games/%s/favorites.txt", getRootDir(), core_name);
+				snprintf(favorites_path, sizeof(favorites_path), "%s/_Arcade/favorites.txt", getRootDir());
 				if (FileExists(favorites_path, 0))
 				{
 					// Add virtual favorites folder
@@ -1767,9 +1813,9 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					DirItem.push_back(favorites_dir);
 				}
 				
-				// Check for try.txt and add virtual try folder
+				// Check for try.txt and add virtual try folder for _Arcade
 				char try_path[1024];
-				snprintf(try_path, sizeof(try_path), "%s/games/%s/try.txt", getRootDir(), core_name);
+				snprintf(try_path, sizeof(try_path), "%s/_Arcade/try.txt", getRootDir());
 				if (FileExists(try_path, 0))
 				{
 					// Add virtual try folder
@@ -1781,38 +1827,6 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
 					DirItem.push_back(try_dir);
 				}
-			}
-		}
-		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
-		{
-			// We're in _Arcade directory specifically (not a subdirectory), check for favorites
-			char favorites_path[1024];
-			snprintf(favorites_path, sizeof(favorites_path), "%s/_Arcade/favorites.txt", getRootDir());
-			if (FileExists(favorites_path, 0))
-			{
-				// Add virtual favorites folder
-				direntext_t favorites_dir;
-				memset(&favorites_dir, 0, sizeof(favorites_dir));
-				favorites_dir.de.d_type = DT_DIR;
-				strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
-				strcpy(favorites_dir.altname, "\x97 Favorites");
-				favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
-				DirItem.push_back(favorites_dir);
-			}
-			
-			// Check for try.txt and add virtual try folder for _Arcade
-			char try_path[1024];
-			snprintf(try_path, sizeof(try_path), "%s/_Arcade/try.txt", getRootDir());
-			if (FileExists(try_path, 0))
-			{
-				// Add virtual try folder
-				direntext_t try_dir;
-				memset(&try_dir, 0, sizeof(try_dir));
-				try_dir.de.d_type = DT_DIR;
-				strcpy(try_dir.de.d_name, "\x9A Try"); // Question mark symbol + Try
-				strcpy(try_dir.altname, "\x9A Try");
-				try_dir.flags = 0x8000; // Special flag to identify virtual try folder
-				DirItem.push_back(try_dir);
 			}
 		}
 
