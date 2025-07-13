@@ -2324,7 +2324,7 @@ void FavoritesToggle(const char *directory, const char *filename)
 	{
 		printf("Removed from favorites\n");
 		
-		// Add to broken heart list (shows broken heart until re-favorited)
+		// Add to broken heart list (shows broken heart until navigated away)
 		AddBrokenHeart(full_path);
 		
 		for (int i = found_index; i < favorites_count - 1; i++)
@@ -2335,10 +2335,21 @@ void FavoritesToggle(const char *directory, const char *filename)
 	}
 	else
 	{
+		// Check if this file has a broken heart - if so, prevent direct favorite transition
+		if (IsBrokenHeart(full_path))
+		{
+			printf("Cannot add to favorites directly from broken heart state\n");
+			return; // Block the invalid transition: broken heart → favorite
+		}
+		
 		printf("Added to favorites\n");
 		
-		// Remove from broken heart list (will show regular heart now)
-		RemoveBrokenHeart(full_path);
+		// If this file is currently in try list, remove it from try first
+		if (TryIsFile(directory, filename))
+		{
+			printf("Removing from try to add to favorites\n");
+			TryToggle(directory, filename); // This will remove from try
+		}
 		
 		if (favorites_count < 256)
 		{
@@ -2666,6 +2677,13 @@ void TryToggle(const char *directory, const char *filename)
 		{
 			printf("Removing from favorites to add to try\n");
 			FavoritesToggle(directory, filename); // This will remove from favorites
+		}
+		
+		// If this file has a broken heart, remove it (valid transition: broken heart → try)
+		if (IsBrokenHeart(full_path))
+		{
+			printf("Removing broken heart to add to try\n");
+			RemoveBrokenHeart(full_path);
 		}
 		
 		if (try_count < 256)
