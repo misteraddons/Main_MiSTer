@@ -2152,6 +2152,10 @@ static char try_cache[256][1024]; // Full paths
 static int try_count = 0;
 static char current_try_dir[1024] = "";
 
+// Forward declarations
+static void FavoritesSave(const char *directory);
+static void TrySave(const char *directory);
+
 static int FavoritesLoad(const char *directory)
 {
 	char favorites_path[1024];
@@ -2210,6 +2214,34 @@ static int FavoritesLoad(const char *directory)
 				}
 			}
 		}
+	}
+	
+	// Check for missing files and remove broken links
+	int original_count = favorites_count;
+	int write_index = 0;
+	for (int read_index = 0; read_index < favorites_count; read_index++)
+	{
+		if (FileExists(favorites_cache[read_index]))
+		{
+			// File exists, keep it
+			if (write_index != read_index)
+			{
+				strcpy(favorites_cache[write_index], favorites_cache[read_index]);
+			}
+			write_index++;
+		}
+		else
+		{
+			printf("Removing missing favorite: %s\n", favorites_cache[read_index]);
+		}
+	}
+	favorites_count = write_index;
+	
+	// If we removed any entries, save the updated list
+	if (favorites_count != original_count)
+	{
+		printf("Cleaned %d broken links from favorites\n", original_count - favorites_count);
+		FavoritesSave(directory);
 	}
 	
 	// Sort favorites list alphabetically by filename
@@ -2605,6 +2637,34 @@ static int TryLoad(const char *directory)
 		strncpy(try_cache[try_count], line, sizeof(try_cache[0]) - 1);
 		try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
 		try_count++;
+	}
+	
+	// Check for missing files and remove broken links
+	int original_count = try_count;
+	int write_index = 0;
+	for (int read_index = 0; read_index < try_count; read_index++)
+	{
+		if (FileExists(try_cache[read_index]))
+		{
+			// File exists, keep it
+			if (write_index != read_index)
+			{
+				strcpy(try_cache[write_index], try_cache[read_index]);
+			}
+			write_index++;
+		}
+		else
+		{
+			printf("Removing missing try file: %s\n", try_cache[read_index]);
+		}
+	}
+	try_count = write_index;
+	
+	// If we removed any entries, save the updated list
+	if (try_count != original_count)
+	{
+		printf("Cleaned %d broken links from try list\n", original_count - try_count);
+		TrySave(directory);
 	}
 	
 	// Sort try list alphabetically by filename
