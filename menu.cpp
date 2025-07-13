@@ -2399,8 +2399,11 @@ void HandleUI(void)
 				// Check if this is a virtual favorites or try entry
 				if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 				{
-					// Use the stored full path from virtual favorites/try
-					snprintf(selPath, sizeof(selPath), "%s", flist_SelectedItem()->altname);
+					// Use the stored full path from virtual favorites/try, skipping X marking if present
+					const char *clean_path = (flist_SelectedItem()->altname[0] == '\x9C') ? 
+					                          flist_SelectedItem()->altname + 2 : 
+					                          flist_SelectedItem()->altname;
+					snprintf(selPath, sizeof(selPath), "%s", clean_path);
 					printf("Virtual try/favorites !mgl->done: selPath set to '%s'\n", selPath);
 				}
 				else
@@ -2414,7 +2417,11 @@ void HandleUI(void)
 			// Handle virtual favorites/try when mgl->done=1
 			if (mgl->done && flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
 			{
-				strcpy(selPath, flist_SelectedItem()->altname);
+				// Extract clean path, skipping X marking if present
+				const char *clean_path = (flist_SelectedItem()->altname[0] == '\x9C') ? 
+				                          flist_SelectedItem()->altname + 2 : 
+				                          flist_SelectedItem()->altname;
+				strcpy(selPath, clean_path);
 				printf("Virtual try/favorites mgl->done: selPath set to '%s'\n", selPath);
 			}
 			
@@ -5257,8 +5264,11 @@ void HandleUI(void)
 				// Check if this is a virtual favorites entry (using special flag)
 				if (flist_SelectedItem()->flags == 0x8001)
 				{
-					// Use the stored full path from virtual favorites
-					strcpy(selPath, flist_SelectedItem()->altname);
+					// Use the stored full path from virtual favorites, skipping X marking if present
+					const char *clean_path = (flist_SelectedItem()->altname[0] == '\x9C') ? 
+					                          flist_SelectedItem()->altname + 2 : 
+					                          flist_SelectedItem()->altname;
+					strcpy(selPath, clean_path);
 				}
 				else
 				{
@@ -7501,7 +7511,15 @@ void PrintDirectory(int expand)
 						
 						show_broken_heart = IsBrokenHeart(current_file_path);
 						
-						if (is_try)
+						// Check if this is a missing file in virtual folders
+						bool is_missing = (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002) && 
+						                   !FileExists(flist_DirItem(k)->altname);
+						
+						if (is_missing)
+						{
+							s[0] = '\x9D'; // Bold Exclamation character (highest priority for missing files)
+						}
+						else if (is_try)
 						{
 							s[0] = '\x9B'; // Empty heart character (highest priority)
 						}
@@ -7541,8 +7559,11 @@ void PrintDirectory(int expand)
 					// Handle both normal _Arcade files and virtual favorites/try
 					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002)
 					{
-						// Virtual favorites/try - use the stored full path directly
-						strncpy(current_file_path, flist_DirItem(k)->altname, sizeof(current_file_path) - 1);
+						// Virtual favorites/try - use the stored full path, skipping X marking if present
+						const char *clean_path = (flist_DirItem(k)->altname[0] == '\x9C') ? 
+						                          flist_DirItem(k)->altname + 2 : 
+						                          flist_DirItem(k)->altname;
+						strncpy(current_file_path, clean_path, sizeof(current_file_path) - 1);
 						current_file_path[sizeof(current_file_path) - 1] = 0;
 					}
 					else
@@ -7553,7 +7574,15 @@ void PrintDirectory(int expand)
 					
 					show_broken_heart = IsBrokenHeart(current_file_path);
 					
-					if (is_try)
+					// Check if this is a missing file in virtual folders
+					bool is_missing = (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002) && 
+					                   !FileExists(flist_DirItem(k)->altname);
+					
+					if (is_missing)
+					{
+						s[0] = '\x9D'; // Bold Exclamation character (highest priority for missing files)
+					}
+					else if (is_try)
 					{
 						s[0] = '\x9B'; // Empty heart character (highest priority)
 					}

@@ -2216,33 +2216,6 @@ static int FavoritesLoad(const char *directory)
 		}
 	}
 	
-	// Check for missing files and remove broken links
-	int original_count = favorites_count;
-	int write_index = 0;
-	for (int read_index = 0; read_index < favorites_count; read_index++)
-	{
-		if (FileExists(favorites_cache[read_index]))
-		{
-			// File exists, keep it
-			if (write_index != read_index)
-			{
-				strcpy(favorites_cache[write_index], favorites_cache[read_index]);
-			}
-			write_index++;
-		}
-		else
-		{
-			printf("Removing missing favorite: %s\n", favorites_cache[read_index]);
-		}
-	}
-	favorites_count = write_index;
-	
-	// If we removed any entries, save the updated list
-	if (favorites_count != original_count)
-	{
-		printf("Cleaned %d broken links from favorites\n", original_count - favorites_count);
-		FavoritesSave(directory);
-	}
 	
 	// Sort favorites list alphabetically by filename
 	for (int i = 0; i < favorites_count - 1; i++)
@@ -2400,6 +2373,9 @@ void FavoritesToggle(const char *directory, const char *filename)
 	if (found_index >= 0)
 	{
 		printf("Removed from favorites\n");
+		printf("STATE: try=%s favorite=false missing=%s\n", 
+			TryIsFullPath(directory, full_path) ? "true" : "false",
+			FileExists(full_path) ? "false" : "true");
 		
 		// Add to broken heart list (shows broken heart until navigated away)
 		AddBrokenHeart(full_path);
@@ -2452,6 +2428,8 @@ void FavoritesToggle(const char *directory, const char *filename)
 		{
 			strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
 			favorites_count++;
+			printf("STATE: try=false favorite=true missing=%s\n", 
+				FileExists(full_path) ? "false" : "true");
 		}
 	}
 	
@@ -2639,33 +2617,6 @@ static int TryLoad(const char *directory)
 		try_count++;
 	}
 	
-	// Check for missing files and remove broken links
-	int original_count = try_count;
-	int write_index = 0;
-	for (int read_index = 0; read_index < try_count; read_index++)
-	{
-		if (FileExists(try_cache[read_index]))
-		{
-			// File exists, keep it
-			if (write_index != read_index)
-			{
-				strcpy(try_cache[write_index], try_cache[read_index]);
-			}
-			write_index++;
-		}
-		else
-		{
-			printf("Removing missing try file: %s\n", try_cache[read_index]);
-		}
-	}
-	try_count = write_index;
-	
-	// If we removed any entries, save the updated list
-	if (try_count != original_count)
-	{
-		printf("Cleaned %d broken links from try list\n", original_count - try_count);
-		TrySave(directory);
-	}
 	
 	// Sort try list alphabetically by filename
 	for (int i = 0; i < try_count - 1; i++)
@@ -2834,6 +2785,9 @@ void TryToggle(const char *directory, const char *filename)
 	if (found_index >= 0)
 	{
 		printf("Removed from try\n");
+		printf("STATE: try=false favorite=%s missing=%s\n", 
+			FavoritesIsFullPath(directory, full_path) ? "true" : "false",
+			FileExists(full_path) ? "false" : "true");
 		
 		for (int i = found_index; i < try_count - 1; i++)
 		{
@@ -2887,6 +2841,8 @@ void TryToggle(const char *directory, const char *filename)
 			strncpy(try_cache[try_count], full_path, sizeof(try_cache[0]) - 1);
 			try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
 			try_count++;
+			printf("STATE: try=true favorite=false missing=%s\n", 
+				FileExists(full_path) ? "false" : "true");
 		}
 	}
 	
@@ -3079,6 +3035,8 @@ int ScanVirtualFavorites(const char *core_path)
 		parent_path[sizeof(parent_path) - 1] = 0;
 	}
 	
+	// Force a fresh reload by clearing the cached directory
+	current_favorites_dir[0] = 0;
 	int count = FavoritesLoad(core_dir);
 	if (count == 0) return 0;
 	
@@ -3100,14 +3058,17 @@ int ScanVirtualFavorites(const char *core_path)
 	
 	for (int i = 0; i < favorites_count; i++)
 	{
+		// Extract clean path, skipping X marking if present
+		const char *clean_path = (favorites_cache[i][0] == '\x9C') ? favorites_cache[i] + 2 : favorites_cache[i];
+		
 		// Use the exact path as stored - don't try to reconstruct it
-		if (!FileExists(favorites_cache[i], 1)) 
+		if (!FileExists(clean_path, 1)) 
 		{
 			continue;
 		}
 		
 		// Extract filename from full path
-		char *filename = strrchr(favorites_cache[i], '/');
+		char *filename = (char*)strrchr(clean_path, '/');
 		char clean_filename[256];
 		
 		if (filename) 
@@ -3117,7 +3078,7 @@ int ScanVirtualFavorites(const char *core_path)
 		}
 		else
 		{
-			strncpy(clean_filename, favorites_cache[i], sizeof(clean_filename) - 1);
+			strncpy(clean_filename, clean_path, sizeof(clean_filename) - 1);
 		}
 		clean_filename[sizeof(clean_filename) - 1] = 0;
 		
@@ -3129,10 +3090,8 @@ int ScanVirtualFavorites(const char *core_path)
 		direntext_t item;
 		memset(&item, 0, sizeof(item));
 		item.de.d_type = DT_REG;
-		// For virtual favorites, we'll use a special approach:
-		// Store the full path in altname for launching
-		// Store the clean filename in d_name (but it might be truncated)
-		// We'll add a display_name field for the full clean name
+		// For virtual favorites, store the original path (including X marking if present) in altname
+		// This allows the icon display logic to detect missing files
 		strncpy(item.altname, favorites_cache[i], sizeof(item.altname) - 1);
 		item.altname[sizeof(item.altname) - 1] = 0;
 		
@@ -3201,6 +3160,8 @@ int ScanVirtualTry(const char *core_path)
 	
 	// Load try list for the core directory
 	printf("ScanVirtualTry: Loading try list for core_dir='%s'\n", core_dir);
+	// Force a fresh reload by clearing the cached directory
+	current_try_dir[0] = 0;
 	TryLoad(core_dir);
 	printf("ScanVirtualTry: TryLoad returned try_count=%d\n", try_count);
 	
@@ -3225,8 +3186,11 @@ int ScanVirtualTry(const char *core_path)
 	// Create directory entries for each try item
 	for (int i = 0; i < try_count; i++)
 	{
+		// Extract clean path, skipping X marking if present
+		const char *clean_path = (try_cache[i][0] == '\x9C') ? try_cache[i] + 2 : try_cache[i];
+		
 		// Extract filename from full path
-		char *filename = strrchr(try_cache[i], '/');
+		char *filename = (char*)strrchr(clean_path, '/');
 		if (!filename) continue;
 		filename++; // skip the '/'
 		
@@ -3243,9 +3207,8 @@ int ScanVirtualTry(const char *core_path)
 		direntext_t item;
 		memset(&item, 0, sizeof(item));
 		item.de.d_type = DT_REG;
-		// For virtual try, we'll use the same approach as favorites:
-		// Store the full path in altname for launching
-		// Store the clean filename in d_name (but it might be truncated)
+		// For virtual try, store the original path (including X marking if present) in altname
+		// This allows the icon display logic to detect missing files
 		strncpy(item.altname, try_cache[i], sizeof(item.altname) - 1);
 		item.altname[sizeof(item.altname) - 1] = 0;
 		
@@ -3268,4 +3231,36 @@ int ScanVirtualTry(const char *core_path)
 	}
 	
 	return try_count + 1; // +1 for the ".." entry
+}
+
+// Debug state tracking function
+void PrintFileState(const char *directory, const char *filename)
+{
+	char full_path[1024];
+	
+	// Check if we're in a virtual folder (favorites or try)
+	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
+	{
+		// In virtual folders, use the stored full path from altname (not the filename parameter)
+		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	}
+	else
+	{
+		// Use the current file list path to construct the complete path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	}
+	
+	bool is_try = TryIsFullPath(directory, full_path);
+	bool is_favorite = FavoritesIsFullPath(directory, full_path);
+	bool is_missing = !FileExists(full_path);
+	bool is_broken_heart = IsBrokenHeart(full_path);
+	
+	printf("STATE: try=%s favorite=%s missing=%s broken_heart=%s file=%s\n", 
+		is_try ? "true" : "false",
+		is_favorite ? "true" : "false", 
+		is_missing ? "true" : "false",
+		is_broken_heart ? "true" : "false",
+		filename);
 }

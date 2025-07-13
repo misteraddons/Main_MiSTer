@@ -165,6 +165,9 @@ void TryToggle(const char *directory, const char *filename);
 void TryRemove(const char *directory, const char *filename);
 int ScanVirtualTry(const char *core_path);
 
+// Debug state tracking
+void PrintFileState(const char *directory, const char *filename);
+
 // Broken heart feedback system
 extern char broken_heart_paths[256][1024];
 extern int broken_heart_count;
