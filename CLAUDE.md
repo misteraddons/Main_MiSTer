@@ -615,6 +615,68 @@ if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after
 - No manual navigation required to see virtual folders
 - Maintains responsive UI feedback for all game state changes
 
+## Universal Favorites System (Planned)
+
+### **Vision: Cross-Core Game Access**
+Implement a universal favorites system that allows access to favorite games across all cores from a single location.
+
+### **Proposed Architecture**
+
+**Main Menu Integration:**
+- Add "♥ Favorites" entry to main menu (alongside existing core directories)
+- Accessible from any context without needing to enter specific cores first
+- Provides centralized access to entire favorite games collection
+
+**Directory Structure:**
+```
+/media/fat/Favorites/
+├── Super Nintendo/          (beautified via names.txt)
+│   ├── Super Mario World.mgl
+│   ├── The Legend of Zelda - A Link to the Past.mgl
+│   └── Super Metroid.mgl
+├── Nintendo 64/            (beautified via names.txt)
+│   ├── Super Mario 64.mgl
+│   ├── The Legend of Zelda - Ocarina of Time.mgl
+│   └── Mario Kart 64.mgl
+└── Sega Genesis/           (beautified via names.txt)
+    ├── Sonic the Hedgehog.mgl
+    └── Streets of Rage 2.mgl
+```
+
+**Technical Implementation:**
+- **Dynamic MGL Generation**: Create MGL files on-demand when browsing Universal Favorites
+- **Core Name Beautification**: Use names.txt to display friendly core names ("Super Nintendo" instead of "SNES")
+- **File Filtering**: Respect per-core file extension filters (only show .sfc files in SNES folder, etc.)
+- **MGL Format**: Follow official MiSTer MGL specification for proper core loading
+- **Synchronization**: Keep Universal Favorites synchronized with individual core favorites automatically
+
+**User Experience Benefits:**
+- **Cross-Core Discovery**: Browse all favorites from any core or main menu
+- **Quick Access**: Launch any favorite game directly without navigating to specific core first
+- **Collection Overview**: See the scope of entire favorite games collection at a glance
+- **Organized by System**: Maintain logical organization while providing unified access
+
+**Implementation Details:**
+- Extend existing GamesList system to also manage Universal Favorites
+- Generate MGL files following official specification: https://mister-devel.github.io/MkDocs_MiSTer/advanced/mgl/#mgl-arguments
+- Integrate with existing virtual folder infrastructure
+- Use names.txt for core name beautification
+- Maintain synchronization between per-core and universal favorites
+
+**Integration with Existing System:**
+- Universal Favorites complements existing per-core favorites
+- Both systems stay synchronized automatically
+- Users can choose which view to use based on their needs
+- No disruption to existing workflows
+
+### **Next Steps**
+1. Create `favorites-universal-dev` branch for development
+2. Implement main menu "♥ Favorites" entry
+3. Add core folder structure with names.txt beautification
+4. Implement dynamic MGL generation
+5. Add file filtering per core
+6. Integrate with existing GamesList synchronization
+
 ## Conclusion
 
-**Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. The addition of the file deletion mechanism completes the virtual folder system, providing a full workflow for managing game collections: mark as favorite/try/delete → organize in virtual folders → actually delete unwanted games.
+**Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. The addition of the file deletion mechanism and planned Universal Favorites system completes the virtual folder ecosystem, providing a comprehensive workflow for managing game collections: mark as favorite/try/delete → organize in virtual folders → access universally across cores → actually delete unwanted games.
