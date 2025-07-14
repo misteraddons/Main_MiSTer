@@ -2929,8 +2929,9 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 			int count_after = GamesList_CountByType(list, type);
 			if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after == 0))
 			{
-				// Virtual directory should appear or disappear - trigger rescan
-				printf("GamesList: Virtual directory change detected, triggering rescan\n");
+				// Virtual directory should appear or disappear - save immediately then trigger rescan
+				printf("GamesList: Virtual directory change detected, saving and triggering rescan\n");
+				GamesList_Save(list, directory);
 				GamesList_TriggerDirectoryRescan();
 			}
 			return; // Exit early - no need to continue loop
@@ -2950,8 +2951,9 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 		int count_after = GamesList_CountByType(list, type);
 		if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after == 0))
 		{
-			// Virtual directory should appear or disappear - trigger rescan
-			printf("GamesList: Virtual directory change detected, triggering rescan\n");
+			// Virtual directory should appear or disappear - save immediately then trigger rescan
+			printf("GamesList: Virtual directory change detected, saving and triggering rescan\n");
+			GamesList_Save(list, directory);
 			GamesList_TriggerDirectoryRescan();
 		}
 	}
