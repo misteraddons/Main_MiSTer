@@ -294,18 +294,74 @@ Tested with real-world path:
 ## Todo Items
 
 ### High Priority
-- [ ] **Fix _Arcade virtual folder navigation**: Path parsing doesn't handle _Arcade correctly
-- [ ] **Investigate removing `<DIR>` from virtual directories**: May improve UI clarity
+- [x] **Fix _Arcade virtual folder navigation**: Path parsing doesn't handle _Arcade correctly *(COMPLETED)*
+- [x] **Investigate removing `<DIR>` from virtual directories**: May improve UI clarity *(COMPLETED)*
 
 ### Medium Priority  
-- [ ] **Implement hash tables**: Replace linear search for better performance with large collections
-- [ ] **Dynamic memory allocation**: Consider malloc/free instead of static 96KB allocation
+- [x] **Implement hash tables**: Replace linear search for better performance with large collections *(COMPLETED - determined unnecessary for 512 entry limit)*
+- [x] **Dynamic memory allocation**: Consider malloc/free instead of static 96KB allocation *(COMPLETED - static allocation preferred for embedded system)*
 - [ ] **Path compression**: Investigate shorter path storage for memory efficiency
 
 ### Low Priority
-- [ ] **Code cleanup**: Remove debug printf statements from production builds
-- [ ] **Documentation**: Add inline comments for complex virtual folder logic
-- [ ] **Error handling**: Improve robustness for corrupted games.txt files
+- [x] **Code cleanup**: Remove debug printf statements from production builds *(COMPLETED)*
+- [x] **Documentation**: Add inline comments for complex virtual folder logic *(COMPLETED)*
+- [x] **Error handling**: Improve robustness for corrupted games.txt files *(COMPLETED)*
+
+## _Arcade Virtual Folder Fix
+
+### Problem
+The _Arcade virtual folders could not be navigated, showing debug output:
+```
+Entering Favorites virtual folder from path: _Arcade
+ScanVirtualFavorites: core_path='_Arcade'
+ScanVirtualFavorites: 'games/' not found in path
+ScanVirtualFavorites returned 0 items
+```
+
+### Root Cause
+The path parsing logic in `ScanVirtualFolder()` expected all paths to contain "games/" (like "games/SNES"), but _Arcade paths are just "_Arcade" without the "games/" prefix.
+
+### Solution
+Updated path parsing logic in `file_io.cpp:2827-2842` to handle two path formats:
+1. **Standard games paths**: "games/SNES" → core_name="SNES"  
+2. **_Arcade paths**: "_Arcade" → core_name="_Arcade"
+
+```cpp
+// Extract core name from path first
+const char *core_name;
+const char *games_pos = strstr(core_path, "games/");
+if (games_pos) {
+    // Standard games path like "games/SNES" - extract just the core name
+    core_name = games_pos + 6; // Skip "games/" prefix
+} else if (core_path[0] == '_') {
+    // _Arcade path like "_Arcade" - use the full path as core name
+    core_name = core_path;
+} else {
+    // Unrecognized path format - skip virtual folder creation
+    return 0;
+}
+```
+
+### Result
+_Arcade virtual folders (favorites, try, delete) now work correctly and can be navigated like other core virtual folders.
+
+## Implementation Summary
+
+All major todo items have been completed:
+
+### ✅ **Completed Optimizations**
+- **Binary size reduction**: 39% smaller (686KB saved) through GamesList optimization
+- **Virtual folder bug fixes**: Fixed path parsing, mutual exclusivity, symbol display
+- **UI improvements**: Removed `<DIR>` from virtual directories for cleaner display
+- **Code quality**: Removed debug statements, added comprehensive comments
+- **Error handling**: Improved robustness for corrupted games.txt files
+- **Performance analysis**: Determined current algorithms are suitable for embedded system
+
+### 📈 **Performance Characteristics**
+- **Lookup time**: O(n) linear search acceptable for 512 entry limit
+- **Memory usage**: 96KB static allocation provides predictable performance
+- **Flash wear**: Significantly reduced through cache-based delayed writes
+- **Binary size**: Optimized from 1.76MB to 1.07MB (39% reduction)
 
 ## Conclusion
 

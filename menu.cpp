@@ -5222,21 +5222,17 @@ void HandleUI(void)
 					const char *favorites_str = "\x97 Favorites";
 					const char *try_str = "? Try";
 					
-					printf("Expected Favorites: ");
 					for (int i = 0; i <= strlen(favorites_str); i++) {
 						printf("0x%02X ", (unsigned char)favorites_str[i]);
 					}
 					printf("\n");
 					
 					// Check if this is the virtual favorites folder
-					printf("Comparing '%s' with '\\x97 Favorites'\n", name);
-					printf("strcmp result: %d\n", strcmp(name, "\x97 Favorites"));
 					
 					// Try alternate checks
 					bool is_favorites = false;
 					if (!strcmp(name, "\x97 Favorites")) {
 						is_favorites = true;
-						printf("Matched with single-byte heart\n");
 					} else if (strlen(name) >= 10 && !strcmp(name + strlen(name) - 9, "Favorites")) {
 						is_favorites = true;
 						printf("Matched by suffix 'Favorites'\n");
@@ -5247,11 +5243,8 @@ void HandleUI(void)
 						// Handle virtual favorites folder - show favorites as files
 						// Override fs_MenuSelect to ensure virtual favorites use MENU_GENERIC_FILE_SELECTED
 						fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
-						printf("Entering Favorites virtual folder from path: %s\n", flist_Path());
-						int fav_items = ScanVirtualFavorites(flist_Path());
-						printf("ScanVirtualFavorites returned %d items\n", fav_items);
-						printf("flist_nDirEntries now reports %d total entries\n", flist_nDirEntries());
-						if (fav_items > 0)
+							int fav_items = ScanVirtualFavorites(flist_Path());
+								if (fav_items > 0)
 						{
 							printf("Setting menustate to MENU_FILE_SELECT1 (with items)\n");
 							menustate = MENU_FILE_SELECT1;
@@ -5265,15 +5258,13 @@ void HandleUI(void)
 						// Force PrintDirectory to display the virtual favorites immediately
 						printf("Calling PrintDirectory to display virtual favorites items...\n");
 						PrintDirectory(1);
-						printf("PrintDirectory completed for virtual favorites folder\n");
-					}
+						}
 					// Check for Try folder
 					else
 					{
 						bool is_try = false;
 						if (!strcmp(name, "? Try")) {
 							is_try = true;
-							printf("Matched with question mark\n");
 						} else if (strlen(name) >= 3 && !strcmp(name + strlen(name) - 3, "Try")) {
 							is_try = true;
 							printf("Matched by suffix 'Try'\n");
@@ -5281,16 +5272,11 @@ void HandleUI(void)
 						
 						if (is_try)
 						{
-							printf("Comparing '%s' with '? Try'\n", name);
-							printf("strcmp result for Try: %d\n", strcmp(name, "? Try"));
-							// Handle virtual try folder - show try items as files
-							printf("Entering Try virtual folder from path: %s\n", flist_Path());
-							// Override fs_MenuSelect to ensure virtual try uses MENU_GENERIC_FILE_SELECTED
+								// Handle virtual try folder - show try items as files
+								// Override fs_MenuSelect to ensure virtual try uses MENU_GENERIC_FILE_SELECTED
 							fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
 							int try_items = ScanVirtualTry(flist_Path());
-							printf("ScanVirtualTry returned %d items\n", try_items);
-							printf("flist_nDirEntries now reports %d total entries\n", flist_nDirEntries());
-							if (try_items > 0)
+										if (try_items > 0)
 							{
 								printf("Setting menustate to MENU_FILE_SELECT1 (with items)\n");
 								menustate = MENU_FILE_SELECT1;
@@ -5305,15 +5291,13 @@ void HandleUI(void)
 							// Force PrintDirectory to display the virtual try items immediately
 							printf("Calling PrintDirectory to display virtual try items...\n");
 							PrintDirectory(1);
-							printf("PrintDirectory completed for virtual try folder\n");
-						}
+							}
 						else
 						{
 							// Check for Delete folder
 							bool is_delete = false;
 							if (!strcmp(name, "\x9C Delete")) {
 								is_delete = true;
-								printf("Matched with bold X character\n");
 							} else if (strlen(name) >= 6 && !strcmp(name + strlen(name) - 6, "Delete")) {
 								is_delete = true;
 								printf("Matched by suffix 'Delete'\n");
@@ -5321,16 +5305,11 @@ void HandleUI(void)
 							
 							if (is_delete)
 							{
-								printf("Comparing '%s' with '\\x9C Delete'\n", name);
-								printf("strcmp result for Delete: %d\n", strcmp(name, "\x9C Delete"));
-								// Handle virtual delete folder - show delete items as files
-								printf("Entering Delete virtual folder from path: %s\n", flist_Path());
-								// Override fs_MenuSelect to ensure virtual delete uses MENU_GENERIC_FILE_SELECTED
+									// Handle virtual delete folder - show delete items as files
+									// Override fs_MenuSelect to ensure virtual delete uses MENU_GENERIC_FILE_SELECTED
 								fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
 								int delete_items = ScanVirtualDelete(flist_Path());
-								printf("ScanVirtualDelete returned %d items\n", delete_items);
-								printf("flist_nDirEntries now reports %d total entries\n", flist_nDirEntries());
-								if (delete_items > 0)
+												if (delete_items > 0)
 								{
 									printf("Setting menustate to MENU_FILE_SELECT1 (with items)\n");
 									menustate = MENU_FILE_SELECT1;
@@ -5345,16 +5324,14 @@ void HandleUI(void)
 								// Force PrintDirectory to display the virtual delete items immediately
 								printf("Calling PrintDirectory to display virtual delete items...\n");
 								PrintDirectory(1);
-								printf("PrintDirectory completed for virtual delete folder\n");
-							}
+								}
 							else if (!strcmp(name, ".."))
 							{
 								// Navigate back to parent directory from virtual folder
 								if (flist_SelectedItem() && flist_SelectedItem()->altname && flist_SelectedItem()->altname[0] && strcmp(flist_SelectedItem()->altname, "..") != 0)
 								{
 									// Use the stored parent path from the ".." entry's altname
-									printf("DEBUG: Navigating back from virtual folder to stored path: %s\n", flist_SelectedItem()->altname);
-									strcpy(selPath, flist_SelectedItem()->altname);
+										strcpy(selPath, flist_SelectedItem()->altname);
 									GamesList_FlushChanges();
 									ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
 									menustate = MENU_FILE_SELECT1;
@@ -5362,8 +5339,7 @@ void HandleUI(void)
 								else
 								{
 									// Fallback to regular navigation
-									printf("DEBUG: Navigating back from virtual folder using changeDir\n");
-									char parent_dir[] = "..";
+										char parent_dir[] = "..";
 									changeDir(parent_dir);
 									menustate = MENU_FILE_SELECT1;
 								}
@@ -7304,15 +7280,12 @@ void RescanVirtualFolderIfNeeded()
 		
 		// Rescan the appropriate virtual folder
 		if (has_virtual_favorites) {
-			printf("Rescanning virtual favorites folder\n");
 			ScanVirtualFavorites(flist_Path());
 		}
 		else if (has_virtual_try) {
-			printf("Rescanning virtual try folder\n");
 			ScanVirtualTry(flist_Path());
 		}
 		else if (has_virtual_delete) {
-			printf("Rescanning virtual delete folder\n");
 			ScanVirtualDelete(flist_Path());
 		}
 	}
@@ -7324,7 +7297,6 @@ void PrintDirectory(int expand)
 	char s[40];
 	ScrollReset();
 	
-	printf("PrintDirectory called with %d entries, expand=%d\n", flist_nDirEntries(), expand);
 	if (flist_nDirEntries() == 0) {
 		printf("PrintDirectory: WARNING - 0 entries detected!\n");
 	}
@@ -7461,9 +7433,8 @@ void PrintDirectory(int expand)
 						                   !FileExists(flist_DirItem(k)->altname);
 						
 						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003) {
-							printf("Checking virtual item: %s, exists=%d, missing=%d\n", 
-							       flist_DirItem(k)->altname, FileExists(flist_DirItem(k)->altname), is_missing);
-						}
+ 
+							}
 						
 						// Only show special characters for regular files, not directories or zip files
 						if (flist_DirItem(k)->de.d_type == DT_REG)
@@ -7522,8 +7493,7 @@ void PrintDirectory(int expand)
 					                   !FileExists(flist_DirItem(k)->altname);
 					
 					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003) {
-						printf("Checking virtual item (arcade): %s, exists=%d, missing=%d\n", 
-						       flist_DirItem(k)->altname, FileExists(flist_DirItem(k)->altname), is_missing);
+ 
 					}
 					
 					// Only show special characters for regular files, not directories or zip files
@@ -7591,6 +7561,8 @@ void PrintDirectory(int expand)
 				{
 					if (flist_DirItem(k)->flags & DT_EXT_ZIP) // mark ZIP archive with different suffix
 						strcpy(&s[22], " <ZIP>");
+					else if (flist_DirItem(k)->flags == 0x8000 || flist_DirItem(k)->flags == 0x4000)
+						; // Don't add <DIR> for virtual directories (favorites, try, delete)
 					else
 						strcpy(&s[22], " <DIR>");
 				}

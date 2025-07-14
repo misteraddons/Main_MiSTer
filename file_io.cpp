@@ -48,7 +48,18 @@ static const size_t YieldIterations = 128;
 DirentVector DirItem;
 DirNameSet DirNames;
 
-// Forward declarations for unified games list system
+// Unified games list system for favorites, try, and delete game management
+// This provides a cache-based approach to track game states across cores
+//
+// Virtual Folder Flag System:
+// - Directory flags: 0x8000 (favorites dir), 0x4000 (try/delete dirs)  
+// - File flags: 0x8001 (favorites files), 0x8002 (try files), 0x8003 (delete files)
+// - Regular files/dirs use standard flags (DT_REG, DT_DIR, etc.)
+//
+// The flag system allows the UI to distinguish between:
+// 1. Real directories vs virtual directories (different <DIR> display)
+// 2. Real files vs virtual files (different symbol display)  
+// 3. Different virtual file types (♥, ?, ✗ symbols)
 typedef enum {
     GAME_TYPE_DELETE = 'd',
     GAME_TYPE_FAVORITE = 'f', 
@@ -1809,26 +1820,29 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 						GamesLoad(core_name);
 						
 						// Add virtual favorites folder if there are favorites
+						// Only show the virtual folder if it contains items to avoid empty folders
 						if (GamesList_CountByType(&g_games_list, GAME_TYPE_FAVORITE) > 0)
 						{
 							direntext_t favorites_dir;
 							memset(&favorites_dir, 0, sizeof(favorites_dir));
 							favorites_dir.de.d_type = DT_DIR;
-							strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+							strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // \x97 = heart symbol
 							strcpy(favorites_dir.altname, "\x97 Favorites");
-							favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+							// Flag 0x8000 identifies virtual directory (vs 0x8001 for virtual files inside)
+							favorites_dir.flags = 0x8000; 
 							DirItem.push_back(favorites_dir);
 						}
 						
-						// Add virtual try folder if there are try entries
+						// Add virtual try folder if there are try entries  
 						if (GamesList_CountByType(&g_games_list, GAME_TYPE_TRY) > 0)
 						{
 							direntext_t try_dir;
 							memset(&try_dir, 0, sizeof(try_dir));
 							try_dir.de.d_type = DT_DIR;
-							strcpy(try_dir.de.d_name, "? Try"); // Question mark + Try
+							strcpy(try_dir.de.d_name, "? Try"); // ? = question mark symbol
 							strcpy(try_dir.altname, "? Try");
-							try_dir.flags = 0x4000; // Special flag to identify virtual try folder
+							// Flag 0x4000 identifies virtual try directory (vs 0x8002 for virtual files inside)
+							try_dir.flags = 0x4000;
 							DirItem.push_back(try_dir);
 						}
 						
@@ -1838,9 +1852,10 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 							direntext_t delete_dir;
 							memset(&delete_dir, 0, sizeof(delete_dir));
 							delete_dir.de.d_type = DT_DIR;
-							strcpy(delete_dir.de.d_name, "\x9C Delete"); // Bold X + Delete
+							strcpy(delete_dir.de.d_name, "\x9C Delete"); // \x9C = bold X symbol
 							strcpy(delete_dir.altname, "\x9C Delete");
-							delete_dir.flags = 0x4000; // Special flag to identify virtual delete folder
+							// Flag 0x4000 identifies virtual delete directory (vs 0x8003 for virtual files inside)
+							delete_dir.flags = 0x4000;
 							DirItem.push_back(delete_dir);
 						}
 						
@@ -2242,7 +2257,6 @@ static void GamesList_MarkDirty(GamesList* list)
 	}
 	
 	// Debug: Print current cache contents
-	printf("=== CACHE DEBUG: %d entries in list ===\n", list->count);
 	for (int i = 0; i < list->count; i++)
 	{
 		printf("  [%d] %c: %s\n", i, list->entries[i].type, list->entries[i].path);
@@ -2422,48 +2436,58 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	// Mark as clean when loading
 	GamesList_MarkClean(list);
 	
-	printf("GamesList_Load: Attempting to open '%s'\n", games_path);
 	FILE *file = fopen(games_path, "r");
 	if (!file) 
 	{
-		printf("GamesList_Load: Failed to open '%s' - %s\n", games_path, strerror(errno));
-		GamesList_UpdateLegacyCaches(list);
+			GamesList_UpdateLegacyCaches(list);
 		return;
 	}
-	printf("GamesList_Load: Successfully opened '%s'\n", games_path);
 	
 	char line[1024];
 	int line_num = 0;
+	int corrupt_lines = 0;
+	
 	while (fgets(line, sizeof(line), file) && list->count < 512)
 	{
 		line_num++;
 		line[strcspn(line, "\r\n")] = 0;
-		printf("GamesList_Load: Line %d: '%s'\n", line_num, line);
 		
-		if (strlen(line) < 3) continue; // Need at least "x,y"
+		// Skip empty lines gracefully
+		if (strlen(line) < 3) continue; 
 		
+		// Validate basic format: "type,path"
 		char type_char = line[0];
-		if (line[1] != ',') continue; // Invalid format
+		if (line[1] != ',') {
+			corrupt_lines++;
+			continue; // Skip malformed lines
+		}
 		
 		char *filepath = &line[2];
-		printf("GamesList_Load: Parsed type='%c', filepath='%s'\n", type_char, filepath);
 		
-		if ((type_char == 'd' || type_char == 'f' || type_char == 't'))
-		{
-			strncpy(list->entries[list->count].path, filepath, sizeof(list->entries[list->count].path) - 1);
-			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
-			list->entries[list->count].type = (GameType)type_char;
-			list->count++;
+		// Validate type character
+		if (!(type_char == 'd' || type_char == 'f' || type_char == 't')) {
+			corrupt_lines++;
+			continue; // Skip invalid type
 		}
+		
+		// Validate filepath is not empty and not too long
+		if (strlen(filepath) == 0 || strlen(filepath) >= sizeof(list->entries[list->count].path)) {
+			corrupt_lines++;
+			continue; // Skip invalid paths
+		}
+		
+		// Add valid entry
+		strncpy(list->entries[list->count].path, filepath, sizeof(list->entries[list->count].path) - 1);
+		list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
+		list->entries[list->count].type = (GameType)type_char;
+		list->count++;
 	}
+	
+	// Silently handle corruption - the system continues to work with valid entries
+	// In a production system, this could optionally log corruption for debugging
 	
 	fclose(file);
 	
-	printf("GamesList_Load: Loaded %d total entries\n", list->count);
-	for (int i = 0; i < list->count; i++)
-	{
-		printf("  [%d] %c: %s\n", i, list->entries[i].type, list->entries[i].path);
-	}
 	
 	// Sort the unified list
 	GamesList_Sort(list);
@@ -2575,7 +2599,6 @@ static bool GamesList_Contains(GamesList* list, const char* directory, const cha
 
 static void GamesList_Toggle(GamesList* list, const char* directory, const char* filename, GameType type)
 {
-	printf("=== GamesList_Toggle START ===\n");
 	printf("GamesList_Toggle: directory='%s', filename='%s', type='%c'\n", directory, filename, type);
 	printf("Current list directory: '%s', count=%d\n", list->current_directory, list->count);
 	
@@ -2652,7 +2675,6 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 	}
 	
 	// Mark dirty for delayed write instead of immediate save
-	printf("=== GamesList_Toggle END: Final count=%d ===\n", list->count);
 	GamesList_MarkDirty(list);
 }
 
@@ -2689,11 +2711,9 @@ bool FavoritesIsFile(const char *directory, const char *filename)
 
 void FavoritesToggle(const char *directory, const char *filename)
 {
-	printf("FavoritesToggle called: directory='%s', filename='%s'\n", directory, filename);
 	// Block favorites toggle when L+R combo is active (user trying to delete)
 	if (is_lr_combo_active())
 	{
-		printf("FavoritesToggle BLOCKED - L+R combo active or grace period\n");
 		return;
 	}
 	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_FAVORITE);
@@ -2706,11 +2726,9 @@ bool TryIsFile(const char *directory, const char *filename)
 
 void TryToggle(const char *directory, const char *filename)
 {
-	printf("TryToggle called: directory='%s', filename='%s'\n", directory, filename);
 	// Block try toggle when L+R combo is active (user trying to delete)
 	if (is_lr_combo_active())
 	{
-		printf("TryToggle BLOCKED - L+R combo active or grace period\n");
 		return;
 	}
 	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_TRY);
@@ -2718,7 +2736,6 @@ void TryToggle(const char *directory, const char *filename)
 
 void DeleteToggle(const char *directory, const char *filename)
 {
-	printf("DeleteToggle called: directory='%s', filename='%s'\n", directory, filename);
 	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_DELETE);
 }
 #endif
@@ -2831,26 +2848,26 @@ bool DeleteIsFullPath(const char *directory, const char *full_path) { return fal
 // Unified virtual folder scanner for all game types
 static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t flags, const char *type_name)
 {
-	printf("ScanVirtual%s: core_path='%s'\n", type_name, core_path);
 	
 	// Extract core name from path first
+	// This handles two different path formats:
+	// 1. Standard games paths: "games/SNES" -> core_name="SNES"  
+	// 2. _Arcade paths: "_Arcade" -> core_name="_Arcade"
 	const char *core_name;
 	const char *games_pos = strstr(core_path, "games/");
 	if (games_pos) {
-		// Standard games path like "games/SNES"
-		core_name = games_pos + 6; // Skip "games/"
+		// Standard games path like "games/SNES" - extract just the core name
+		core_name = games_pos + 6; // Skip "games/" prefix
 	} else if (core_path[0] == '_') {
-		// _Arcade path like "_Arcade" 
+		// _Arcade path like "_Arcade" - use the full path as core name
 		core_name = core_path;
 	} else {
-		printf("ScanVirtual%s: 'games/' not found in path and not _Arcade format\n", type_name);
+		// Unrecognized path format - skip virtual folder creation
 		return 0;
 	}
 	
-	printf("ScanVirtual%s: core_name='%s'\n", type_name, core_name);
 	
 	// Clear current directory listing
-	printf("DirItem.clear() called in ScanVirtual%s\n", type_name);
 	DirItem.clear();
 	DirNames.clear();
 	iSelectedEntry = 0;
@@ -2868,7 +2885,6 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 	if (strcmp(g_games_list.current_directory, core_name) != 0) {
 		GamesList_Load(&g_games_list, core_name);
 	} else {
-		printf("ScanVirtual%s: Using cached games list for '%s'\n", type_name, core_name);
 	}
 	
 	// Add items of the specified type as virtual files
@@ -2881,23 +2897,26 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 			memset(&item, 0, sizeof(item));
 			
 			// Extract just the filename from the full path
+			// Example: "/media/fat/games/SNES/Super Mario World.sfc" -> "Super Mario World.sfc"
 			const char *filename = strrchr(g_games_list.entries[i].path, '/');
 			if (filename) filename++; else filename = g_games_list.entries[i].path;
 			
-			// Create clean display name (remove file extension)
+			// Create clean display name (remove file extension for better UI)
 			char clean_name[256];
 			strncpy(clean_name, filename, sizeof(clean_name) - 1);
 			clean_name[sizeof(clean_name) - 1] = 0;
 			
-			// Remove file extension from clean name
+			// Remove file extension from clean name  
+			// Example: "Super Mario World.sfc" -> "Super Mario World"
 			char *ext_pos = strrchr(clean_name, '.');
 			if (ext_pos) *ext_pos = 0;
 			
-			// Set as regular file with clean name (special character handled by PrintDirectory)
+			// Set as regular file with clean name (special symbols added by PrintDirectory)
 			item.de.d_type = DT_REG;
 			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
 			
-			// For virtual items, altname contains the full path for loading
+			// Store full path in altname for game loading - this is critical for virtual folders
+			// The altname field contains the real file path while d_name contains the display name
 			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
 			item.altname[sizeof(item.altname) - 1] = 0;
 			
@@ -2911,7 +2930,6 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 		}
 	}
 	
-	printf("ScanVirtual%s: Added %d %s items\n", type_name, count, type_name);
 	return count;
 }
 
