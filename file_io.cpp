@@ -2614,9 +2614,11 @@ static void GamesList_ExtractBasename(const char* full_path, char* basename, siz
 
 // Remove filename duplicates (ignoring file extensions)
 // When duplicates found, keeps one entry and removes the rest
+// Also handles cross-type duplicates (favorite vs try for same basename)
 static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 {
 	printf("GamesList: Checking for filename duplicates (ignoring extensions)...\n");
+	bool changes_made = false;
 	
 	for (int i = 0; i < list->count; i++)
 	{
@@ -2632,35 +2634,59 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 			// Check if basenames match (ignoring file extensions)
 			if (strcmp(basename_i, basename_j) == 0)
 			{
-				printf("Found duplicate basename: '%s' vs '%s'\n", list->entries[i].path, list->entries[j].path);
+				printf("Found duplicate basename: '%s' (type=%c) vs '%s' (type=%c)\n", 
+					list->entries[i].path, list->entries[i].type, 
+					list->entries[j].path, list->entries[j].type);
 				
-				// Decide which one to keep based on preferences
+				// For cross-type duplicates (favorite vs try), prefer favorite
+				// Ignore delete entries for cross-type checks (they keep full paths)
 				int keep_i = 1; // Default: keep entry i
 				
-				// Prefer 1G1R (1 Game 1 ROM) paths
-				bool i_is_1g1r = (strstr(list->entries[i].path, "1G1R") != NULL);
-				bool j_is_1g1r = (strstr(list->entries[j].path, "1G1R") != NULL);
-				
-				if (!i_is_1g1r && j_is_1g1r) {
-					keep_i = 0; // Keep j (1G1R)
+				if (list->entries[i].type != list->entries[j].type && 
+				    list->entries[i].type != GAME_TYPE_DELETE && 
+				    list->entries[j].type != GAME_TYPE_DELETE)
+				{
+					// Cross-type duplicate: prefer favorite over try
+					if (list->entries[i].type == GAME_TYPE_FAVORITE) {
+						keep_i = 1; // Keep favorite (i)
+					} else if (list->entries[j].type == GAME_TYPE_FAVORITE) {
+						keep_i = 0; // Keep favorite (j)
+					}
+					printf("Cross-type duplicate detected - preferring %s\n", 
+						(keep_i ? "favorite" : "try"));
 				}
-				else if (i_is_1g1r && !j_is_1g1r) {
-					keep_i = 1; // Keep i (1G1R)
-				}
-				else {
-					// Both or neither are 1G1R, check file format preferences
-					const char* ext_i = strrchr(list->entries[i].path, '.');
-					const char* ext_j = strrchr(list->entries[j].path, '.');
+				else if (list->entries[i].type == list->entries[j].type)
+				{
+					// Same type - use path/format preferences
+					// Prefer 1G1R (1 Game 1 ROM) paths
+					bool i_is_1g1r = (strstr(list->entries[i].path, "1G1R") != NULL);
+					bool j_is_1g1r = (strstr(list->entries[j].path, "1G1R") != NULL);
 					
-					// N64: prefer .z64 over .n64
-					if (ext_i && ext_j) {
-						if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
-							keep_i = 0; // Keep .z64
-						}
-						else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
-							keep_i = 1; // Keep .z64
+					if (!i_is_1g1r && j_is_1g1r) {
+						keep_i = 0; // Keep j (1G1R)
+					}
+					else if (i_is_1g1r && !j_is_1g1r) {
+						keep_i = 1; // Keep i (1G1R)
+					}
+					else {
+						// Both or neither are 1G1R, check file format preferences
+						const char* ext_i = strrchr(list->entries[i].path, '.');
+						const char* ext_j = strrchr(list->entries[j].path, '.');
+						
+						// N64: prefer .z64 over .n64
+						if (ext_i && ext_j) {
+							if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
+								keep_i = 0; // Keep .z64
+							}
+							else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
+								keep_i = 1; // Keep .z64
+							}
 						}
 					}
+				}
+				else {
+					// One is delete type - keep both (delete tracks full paths)
+					continue;
 				}
 				
 				// Remove the less preferred entry
@@ -2671,6 +2697,7 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 				// Use swap-and-pop for O(1) removal
 				list->entries[remove_idx] = list->entries[list->count - 1];
 				list->count--;
+				changes_made = true;
 				
 				// Adjust loop indices
 				if (remove_idx == i) {
@@ -2681,6 +2708,12 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 				}
 			}
 		}
+	}
+	
+	// Mark dirty if changes were made to ensure save happens
+	if (changes_made) {
+		list->is_dirty = true;
+		printf("GamesList: Marked dirty due to duplicate removals\n");
 	}
 	
 	printf("GamesList: Duplicate check complete, %d entries remaining\n", list->count);

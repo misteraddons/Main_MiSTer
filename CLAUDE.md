@@ -220,9 +220,10 @@ After:
 
 **Implementation details:**
 - **Extension-agnostic**: Compares base filenames ignoring extensions (.n64 vs .z64)
+- **Cross-type handling**: Same game can't be both favorite and try (prefers favorite)
+- **Delete list immunity**: Delete entries are ignored for cross-type checks (keep full paths)
 - **Smart preferences**: Keeps best version based on path (1G1R) and format (.z64 > .n64)
-- **Single survivor**: Removes all duplicates except the preferred one
-- **Automatic cleanup**: Runs during games.txt loading, transparent to user
+- **Persistent changes**: Marks list dirty to ensure games.txt is saved with removals
 - **Performance**: O(n²) but acceptable for 512-entry limit
 
 ## Optimization Opportunities
