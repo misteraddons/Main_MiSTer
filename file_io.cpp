@@ -37,6 +37,9 @@
 
 #define MIN(a,b) (((a)<(b)) ? (a) : (b))
 
+// Virtual folder system - disabled for testing, enable for full functionality
+#define VIRTUAL_FOLDER_SYSTEM_DISABLED 0
+
 typedef std::vector<direntext_t> DirentVector;
 typedef std::set<std::string> DirNameSet;
 
@@ -53,14 +56,14 @@ typedef enum {
 } GameType;
 
 typedef struct {
-    char path[1024];
-    GameType type;
-} GameEntry;
+    char path[256];        // 256 chars covers even long paths
+    GameType type;         // 'd', 'f', or 't'
+} GameEntry;               // = 257 bytes per entry
 
 typedef struct {
-    GameEntry entries[768]; // 256 * 3 total capacity
+    GameEntry entries[512]; // 512 entries per core
     int count;
-    char current_directory[1024];
+    char current_directory[256]; // Shorter directory path
     bool is_dirty;          // True if changes need to be saved
     uint32_t last_change_time; // Time of last change for delayed writing
     bool auto_save_enabled; // Enable/disable automatic delayed saves
@@ -2431,7 +2434,7 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	
 	char line[1024];
 	int line_num = 0;
-	while (fgets(line, sizeof(line), file) && list->count < 768)
+	while (fgets(line, sizeof(line), file) && list->count < 512)
 	{
 		line_num++;
 		line[strcspn(line, "\r\n")] = 0;
@@ -2631,7 +2634,7 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 	else
 	{
 		// File has no state - add new entry
-		if (list->count < 768)
+		if (list->count < 512)
 		{
 			strncpy(list->entries[list->count].path, full_path, sizeof(list->entries[list->count].path) - 1);
 			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
@@ -2671,6 +2674,7 @@ static void GamesSave(const char* directory)
 	GamesList_Save(&g_games_list, directory);
 }
 
+#if !VIRTUAL_FOLDER_SYSTEM_DISABLED
 bool FavoritesIsFile(const char *directory, const char *filename)
 {
 	return GamesList_Contains(&g_games_list, directory, filename, GAME_TYPE_FAVORITE);
@@ -2710,7 +2714,9 @@ void DeleteToggle(const char *directory, const char *filename)
 	printf("DeleteToggle called: directory='%s', filename='%s'\n", directory, filename);
 	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_DELETE);
 }
+#endif
 
+#if !VIRTUAL_FOLDER_SYSTEM_DISABLED
 // Public caching control functions
 void GamesList_ProcessAutoSave()
 {
@@ -2735,7 +2741,9 @@ void GamesList_SetAutoSave(bool enabled)
 	g_games_list.auto_save_enabled = enabled;
 	printf("GamesList: Auto-save %s\n", enabled ? "enabled" : "disabled");
 }
+#endif
 
+#if !VIRTUAL_FOLDER_SYSTEM_DISABLED
 // Additional missing functions needed by menu.cpp
 bool FavoritesIsFullPath(const char *directory, const char *full_path)
 {
@@ -2792,7 +2800,27 @@ bool DeleteIsFullPath(const char *directory, const char *full_path)
 	}
 	return false;
 }
+#endif
 
+#if VIRTUAL_FOLDER_SYSTEM_DISABLED
+// Stubbed virtual folder functions for size testing
+static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t flags, const char *type_name) { return 0; }
+int ScanVirtualFavorites(const char *core_path) { return 0; }
+int ScanVirtualTry(const char *core_path) { return 0; }
+int ScanVirtualDelete(const char *core_path) { return 0; }
+void FavoritesToggle(const char *directory, const char *filename) {}
+void TryToggle(const char *directory, const char *filename) {}
+void DeleteToggle(const char *directory, const char *filename) {}
+void GamesList_ProcessAutoSave() {}
+void GamesList_FlushChanges() {}
+void GamesList_SetAutoSave(bool enabled) {}
+bool FavoritesIsFile(const char *directory, const char *filename) { return false; }
+bool TryIsFile(const char *directory, const char *filename) { return false; }
+bool DeleteIsFile(const char *directory, const char *filename) { return false; }
+bool FavoritesIsFullPath(const char *directory, const char *full_path) { return false; }
+bool TryIsFullPath(const char *directory, const char *full_path) { return false; }
+bool DeleteIsFullPath(const char *directory, const char *full_path) { return false; }
+#else
 // Unified virtual folder scanner for all game types
 static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t flags, const char *type_name)
 {
@@ -2884,4 +2912,5 @@ int ScanVirtualDelete(const char *core_path)
 {
 	return ScanVirtualFolder(core_path, GAME_TYPE_DELETE, 0x8003, "Delete");
 }
+#endif
 
