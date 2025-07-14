@@ -179,6 +179,10 @@ void DeleteToggle(const char *directory, const char *filename);
 int ExecuteDeleteAction(const char *directory);
 int ScanVirtualDelete(const char *core_path);
 
+// Universal Favorites system
+int ScanUniversalFavoritesMGL(const char* core_name);
+void GenerateUniversalFavoritesMGL(const char* core_name, const char* game_path, const char* output_path);
+
 // Games list caching system (flash wear reduction)
 void GamesList_ProcessAutoSave();  // Call periodically to process delayed writes
 void GamesList_FlushChanges();     // Force immediate write of pending changes

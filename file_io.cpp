@@ -1480,6 +1480,146 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			}
 		}
 
+		// Handle special Universal Favorites paths before directory check
+		printf("ScanDirectory: path='%s', checking for UNIVERSAL_FAVORITES\n", path);
+		if (strcmp(path, "UNIVERSAL_FAVORITES") == 0)
+		{
+			printf("Scanning Universal Favorites directory\n");
+			
+			// Add parent directory entry for navigation
+			direntext_t parent_entry;
+			memset(&parent_entry, 0, sizeof(parent_entry));
+			parent_entry.de.d_type = DT_DIR;
+			strcpy(parent_entry.de.d_name, "..");
+			strcpy(parent_entry.altname, "..");
+			parent_entry.flags = 0;
+			parent_entry.cookie = 0;
+			parent_entry.datecode[0] = 0; // Ensure datecode is null-terminated
+			DirItem.push_back(parent_entry);
+			
+			// Add core folders for each core that has favorites
+			DIR *games_dir = opendir("/media/fat/games");
+			if (games_dir)
+			{
+				struct dirent *entry;
+				while ((entry = readdir(games_dir)) != NULL)
+				{
+					if (entry->d_type == DT_DIR && entry->d_name[0] != '.')
+					{
+						char games_path[1024];
+						snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", entry->d_name);
+						if (FileExists(games_path, 0))
+						{
+							// Check if this core has favorites
+							FILE *file = fopen(games_path, "r");
+							if (file)
+							{
+								char line[1024];
+								bool has_favorites = false;
+								while (fgets(line, sizeof(line), file))
+								{
+									if (line[0] == 'f' && line[1] == ',')
+									{
+										has_favorites = true;
+										break;
+									}
+								}
+								fclose(file);
+								
+								if (has_favorites)
+								{
+									// Add core folder entry
+									direntext_t core_entry;
+									memset(&core_entry, 0, sizeof(core_entry));
+									core_entry.de.d_type = DT_DIR;
+									strcpy(core_entry.de.d_name, entry->d_name);
+									strcpy(core_entry.altname, entry->d_name);
+									core_entry.flags = 0x9000; // Special flag for Universal Favorites core folder
+									core_entry.cookie = 0;
+									core_entry.datecode[0] = 0; // Ensure datecode is null-terminated
+									
+									// No need to call get_display_name for directories - it returns immediately for DT_DIR
+									
+									DirItem.push_back(core_entry);
+								}
+							}
+						}
+					}
+				}
+				closedir(games_dir);
+			}
+			
+			// Check _Arcade for favorites
+			char arcade_games_path[1024];
+			snprintf(arcade_games_path, sizeof(arcade_games_path), "/media/fat/_Arcade/games.txt");
+			if (FileExists(arcade_games_path, 0))
+			{
+				FILE *file = fopen(arcade_games_path, "r");
+				if (file)
+				{
+					char line[1024];
+					bool has_favorites = false;
+					while (fgets(line, sizeof(line), file))
+					{
+						if (line[0] == 'f' && line[1] == ',')
+						{
+							has_favorites = true;
+							break;
+						}
+					}
+					fclose(file);
+					
+					if (has_favorites)
+					{
+						// Add _Arcade folder entry
+						direntext_t arcade_entry;
+						memset(&arcade_entry, 0, sizeof(arcade_entry));
+						arcade_entry.de.d_type = DT_DIR;
+						strcpy(arcade_entry.de.d_name, "_Arcade");
+						strcpy(arcade_entry.altname, "_Arcade");
+						arcade_entry.flags = 0x9000; // Special flag for Universal Favorites core folder
+						arcade_entry.cookie = 0;
+						arcade_entry.datecode[0] = 0; // Ensure datecode is null-terminated
+						
+						// No need to call get_display_name for directories - it returns immediately for DT_DIR
+						
+						DirItem.push_back(arcade_entry);
+					}
+				}
+			}
+			
+			// Sort directories alphabetically, keeping ".." at the top
+			if (DirItem.size() > 2) // More than just ".." entry
+			{
+				std::sort(DirItem.begin() + 1, DirItem.end(), 
+					[](const direntext_t& a, const direntext_t& b) {
+						// Sort directories alphabetically by display name
+						return strcasecmp(a.de.d_name, b.de.d_name) < 0;
+					});
+			}
+			
+			printf("Universal Favorites scan complete, total entries: %d\n", flist_nDirEntries());
+			for (int i = 0; i < flist_nDirEntries(); i++) {
+				direntext_t* item = flist_DirItem(i);
+				printf("Entry %d: name='%s', altname='%s', flags=0x%x, d_type=%d\n", 
+					i, item->de.d_name, item->altname, item->flags, item->de.d_type);
+			}
+			return flist_nDirEntries();
+		}
+		else if (strncmp(path, "UNIVERSAL_FAVORITES/", 20) == 0)
+		{
+			// Handle core-specific Universal Favorites (e.g., "UNIVERSAL_FAVORITES/N64")
+			const char* core_name = path + 20; // Skip "UNIVERSAL_FAVORITES/"
+			printf("Scanning Universal Favorites for core: '%s'\n", core_name);
+			
+			// Call existing ScanUniversalFavoritesMGL function (it adds its own parent entry)
+			int result = ScanUniversalFavoritesMGL(core_name);
+			printf("ScanUniversalFavoritesMGL returned %d entries\n", result);
+			
+			return flist_nDirEntries();
+		}
+
+		// Normal directory handling - check if path is a valid directory
 		if (!isPathDirectory(path)) return 0;
 		snprintf(scanned_path, sizeof(scanned_path), "%s", path);
 		scanned_opts = options;
@@ -1927,6 +2067,84 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					// Restore old counts if needed
 					// (No longer needed with unified system)
 				}
+			}
+		}
+
+		// Add Universal Favorites entry to main menu when scanning for cores
+		if (options & SCANO_CORES && strlen(path) == 0)
+		{
+			// Check if any core has favorites before adding the entry
+			bool has_favorites = false;
+			
+			// Check all cores for favorites
+			DIR *games_dir = opendir("/media/fat/games");
+			if (games_dir)
+			{
+				struct dirent *entry;
+				while ((entry = readdir(games_dir)) != NULL)
+				{
+					if (entry->d_type == DT_DIR && entry->d_name[0] != '.')
+					{
+						char games_path[1024];
+						snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", entry->d_name);
+						if (FileExists(games_path, 0))
+						{
+							// Quick check for favorites in this core's games.txt
+							FILE *file = fopen(games_path, "r");
+							if (file)
+							{
+								char line[1024];
+								while (fgets(line, sizeof(line), file))
+								{
+									if (line[0] == 'f' && line[1] == ',')
+									{
+										has_favorites = true;
+										break;
+									}
+								}
+								fclose(file);
+								if (has_favorites) break;
+							}
+						}
+					}
+				}
+				closedir(games_dir);
+			}
+			
+			// Also check _Arcade for favorites
+			if (!has_favorites)
+			{
+				char arcade_games_path[1024];
+				snprintf(arcade_games_path, sizeof(arcade_games_path), "/media/fat/_Arcade/games.txt");
+				if (FileExists(arcade_games_path, 0))
+				{
+					FILE *file = fopen(arcade_games_path, "r");
+					if (file)
+					{
+						char line[1024];
+						while (fgets(line, sizeof(line), file))
+						{
+							if (line[0] == 'f' && line[1] == ',')
+							{
+								has_favorites = true;
+								break;
+							}
+						}
+						fclose(file);
+					}
+				}
+			}
+			
+			// Add Universal Favorites entry if any core has favorites
+			if (has_favorites)
+			{
+				direntext_t favorites_entry;
+				memset(&favorites_entry, 0, sizeof(favorites_entry));
+				favorites_entry.de.d_type = DT_DIR;
+				strcpy(favorites_entry.de.d_name, "\x97 Favorites");
+				strcpy(favorites_entry.altname, "\x97 Favorites");
+				favorites_entry.flags = 0x9000; // Special flag for Universal Favorites
+				DirItem.push_back(favorites_entry);
 			}
 		}
 
@@ -2965,6 +3183,152 @@ static int GamesList_CountByType(GamesList* list, GameType type)
 			count++;
 		}
 	}
+	return count;
+}
+
+// Universal Favorites implementation
+
+// Generate an MGL file for Universal Favorites game launching
+// This creates a temporary MGL file that loads the specified core with the game file
+void GenerateUniversalFavoritesMGL(const char* core_name, const char* game_path, const char* output_path)
+{
+	printf("GenerateUniversalFavoritesMGL: core='%s', game='%s', output='%s'\n", core_name, game_path, output_path);
+	
+	FILE* mgl_file = fopen(output_path, "w");
+	if (!mgl_file)
+	{
+		printf("ERROR: Could not create MGL file: %s\n", output_path);
+		return;
+	}
+	
+	// Convert core name to correct RBF path format
+	char rbf_path[256];
+	if (strcmp(core_name, "N64") == 0) {
+		strcpy(rbf_path, "_console/n64");
+	} else if (strcmp(core_name, "SNES") == 0) {
+		strcpy(rbf_path, "_console/snes");
+	} else if (strcmp(core_name, "MegaDrive") == 0) {
+		strcpy(rbf_path, "_console/genesis");
+	} else if (strcmp(core_name, "_Arcade") == 0) {
+		strcpy(rbf_path, "_arcade");
+	} else {
+		// Default fallback - convert to lowercase
+		snprintf(rbf_path, sizeof(rbf_path), "_console/%s", core_name);
+		for (int i = 0; rbf_path[i]; i++) {
+			rbf_path[i] = tolower(rbf_path[i]);
+		}
+	}
+	
+	// Convert absolute path to relative path from games directory
+	char relative_path[512];
+	const char* games_pos = strstr(game_path, "/games/");
+	if (games_pos) {
+		// Skip "/games/CORE/" to get relative path
+		const char* core_pos = strchr(games_pos + 7, '/');
+		if (core_pos) {
+			strcpy(relative_path, core_pos + 1);
+		} else {
+			strcpy(relative_path, game_path);
+		}
+	} else {
+		strcpy(relative_path, game_path);
+	}
+	
+	// Write MGL XML content following the correct specification
+	fprintf(mgl_file, "<mistergamedescription>\n");
+	fprintf(mgl_file, "    <rbf>%s</rbf>\n", rbf_path);
+	fprintf(mgl_file, "    <file delay=\"2\" type=\"f\" index=\"0\" path=\"%s\"/>\n", relative_path);
+	fprintf(mgl_file, "</mistergamedescription>\n");
+	
+	fclose(mgl_file);
+	printf("MGL file generated successfully: %s\n", output_path);
+	
+	// Debug: Show the contents of the MGL file
+	FILE* debug_file = fopen(output_path, "r");
+	if (debug_file) {
+		printf("MGL file contents:\n");
+		char line[256];
+		while (fgets(line, sizeof(line), debug_file)) {
+			printf("  %s", line);
+		}
+		fclose(debug_file);
+	}
+}
+
+// Universal Favorites MGL file scanner
+// This scans favorites from all cores and presents them as MGL files for launching
+int ScanUniversalFavoritesMGL(const char* core_name)
+{
+	printf("ScanUniversalFavoritesMGL: Scanning core '%s'\n", core_name);
+	
+	// Load the games list for this core
+	GamesLoad(core_name);
+	
+	// Add parent directory entry
+	direntext_t parent_item;
+	memset(&parent_item, 0, sizeof(parent_item));
+	parent_item.de.d_type = DT_DIR;
+	strcpy(parent_item.de.d_name, "..");
+	strcpy(parent_item.altname, ""); // Empty altname for parent
+	DirItem.push_back(parent_item);
+	
+	int count = 1; // Start with parent directory
+	
+	// Scan through all games and add favorites as MGL files
+	for (int i = 0; i < g_games_list.count; i++)
+	{
+		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE)
+		{
+			// Create file entry
+			direntext_t item;
+			memset(&item, 0, sizeof(item));
+			item.de.d_type = DT_REG;
+			
+			// Extract just the filename from the full path
+			const char *filename = strrchr(g_games_list.entries[i].path, '/');
+			if (filename) filename++; else filename = g_games_list.entries[i].path;
+			
+			// Create display name without core prefix and without extension
+			char display_name[256];
+			strcpy(display_name, filename);
+			
+			// Check if this is an MRA file
+			bool is_mra = false;
+			int len = strlen(filename);
+			if (len > 4 && !strcasecmp(filename + len - 4, ".mra"))
+			{
+				is_mra = true;
+			}
+			
+			// Remove extension from game name
+			char *ext = strrchr(display_name, '.');
+			if (ext) *ext = '\0';
+			
+			strcpy(item.de.d_name, display_name);
+			
+			if (is_mra)
+			{
+				// For MRA files, store the path directly for loading
+				strcpy(item.altname, g_games_list.entries[i].path);
+				item.flags = 0x9003; // Special flag for Universal Favorites MRA file
+			}
+			else
+			{
+				// For regular games, store info for MGL generation
+				snprintf(item.altname, sizeof(item.altname), "%s|%s|%s", 
+				         display_name, core_name, g_games_list.entries[i].path);
+				item.flags = 0x9002; // Special flag for Universal Favorites MGL file
+			}
+			
+			printf("ScanUniversalFavoritesMGL: Adding %s item '%s' for game '%s'\n", 
+			       is_mra ? "MRA" : "MGL", item.de.d_name, g_games_list.entries[i].path);
+			
+			DirItem.push_back(item);
+			count++;
+		}
+	}
+	
+	printf("ScanUniversalFavoritesMGL: Found %d favorites for core '%s'\n", count - 1, core_name);
 	return count;
 }
 
