@@ -2416,6 +2416,34 @@ void HandleUI(void)
 				}
 			}
 
+			// Handle special delete action
+			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8004)
+			{
+				// This is the "Delete All Games" action
+				if (strcmp(flist_SelectedItem()->altname, "DELETE_ALL_GAMES_ACTION") == 0)
+				{
+					// Extract core name from current path
+					const char *core_path = flist_Path();
+					const char *core_name = strrchr(core_path, '/');
+					if (core_name) core_name++; else core_name = core_path;
+					
+					// Remove "/2 Delete" suffix if present
+					char clean_core_name[256];
+					strncpy(clean_core_name, core_name, sizeof(clean_core_name) - 1);
+					clean_core_name[sizeof(clean_core_name) - 1] = 0;
+					char *delete_suffix = strstr(clean_core_name, "/2 Delete");
+					if (delete_suffix) *delete_suffix = 0;
+					
+					printf("Executing delete action for core: '%s'\n", clean_core_name);
+					int deleted = ExecuteDeleteAction(clean_core_name);
+					printf("Deleted %d files\n", deleted);
+					
+					// Refresh the virtual delete folder to show updated list
+					menustate = MENU_FILE_SELECT1;
+					return;
+				}
+			}
+			
 			// Handle virtual favorites/try when mgl->done=1
 			if (mgl->done && flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003))
 			{
@@ -7299,7 +7327,7 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen((flist_DirItem(k)->flags == 0x8001) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
+			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
 			&& !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0] && (flist_DirItem(k)->flags != 0x8001))
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
@@ -7323,7 +7351,7 @@ void PrintDirectory(int expand)
 		{
 			// For virtual favorites/try/delete, use the clean name from d_name
 			char *display_name;
-			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003)
+			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004)
 			{
 				// Use the clean game name from d_name (special character handled separately)
 				display_name = flist_DirItem(k)->de.d_name;

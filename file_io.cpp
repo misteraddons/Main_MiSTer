@@ -96,6 +96,7 @@ static void GamesList_Free(GamesList* list);
 static void GamesList_RemoveDuplicates(GamesList* list);
 static void GamesList_RemoveFilenameDuplicates(GamesList* list);
 static void GamesList_ExtractBasename(const char* full_path, char* basename, size_t basename_size);
+static int GamesList_DeleteMarkedFiles(GamesList* list);
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -2709,6 +2710,61 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 	printf("GamesList: Duplicate check complete, %d entries remaining\n", list->count);
 }
 
+static int GamesList_DeleteMarkedFiles(GamesList* list)
+{
+	int deleted_count = 0;
+	int failed_count = 0;
+	
+	printf("GamesList: Starting deletion of marked files...\n");
+	
+	// Go through all entries and delete files marked for deletion
+	for (int i = list->count - 1; i >= 0; i--) // Go backwards to avoid index issues
+	{
+		if (list->entries[i].type == GAME_TYPE_DELETE)
+		{
+			const char* file_path = list->entries[i].path;
+			
+			// Check if file exists
+			struct stat st;
+			if (stat(file_path, &st) == 0)
+			{
+				// Attempt to delete the file
+				if (unlink(file_path) == 0)
+				{
+					printf("GamesList: Deleted '%s'\n", file_path);
+					deleted_count++;
+				}
+				else
+				{
+					printf("GamesList: Failed to delete '%s': %s\n", file_path, strerror(errno));
+					failed_count++;
+				}
+			}
+			else
+			{
+				printf("GamesList: File not found (already deleted?): '%s'\n", file_path);
+			}
+			
+			// Remove from list regardless of delete success (cleanup)
+			// Use swap-and-pop for efficient removal
+			if (i != list->count - 1)
+			{
+				list->entries[i] = list->entries[list->count - 1];
+			}
+			list->count--;
+		}
+	}
+	
+	// Mark dirty if any changes were made
+	if (deleted_count > 0 || failed_count > 0)
+	{
+		list->is_dirty = true;
+		printf("GamesList: Deletion complete - %d deleted, %d failed\n", deleted_count, failed_count);
+	}
+	
+	return deleted_count;
+}
+
 static void GamesList_Save(GamesList* list, const char* directory)
 {
 	char games_path[1024];
@@ -2922,6 +2978,20 @@ void DeleteToggle(const char *directory, const char *filename)
 {
 	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_DELETE);
 }
+
+int ExecuteDeleteAction(const char *directory)
+{
+	// Load games list for the current directory
+	GamesList_Load(&g_games_list, directory);
+	
+	// Delete all marked files
+	int deleted = GamesList_DeleteMarkedFiles(&g_games_list);
+	
+	// Save changes
+	GamesList_Save(&g_games_list, directory);
+	
+	return deleted;
+}
 #endif
 
 #if !VIRTUAL_FOLDER_SYSTEM_DISABLED
@@ -3129,7 +3199,26 @@ int ScanVirtualTry(const char *core_path)
 
 int ScanVirtualDelete(const char *core_path)
 {
-	return ScanVirtualFolder(core_path, GAME_TYPE_DELETE, 0x8003, "Delete");
+	// First scan normally to get all delete items
+	int count = ScanVirtualFolder(core_path, GAME_TYPE_DELETE, 0x8003, "Delete");
+	
+	// If we have any delete items, add special "Delete All Games" entry at the bottom
+	if (count > 1) { // count > 1 means we have more than just the ".." entry
+		direntext_t delete_all_item;
+		memset(&delete_all_item, 0, sizeof(delete_all_item));
+		
+		// Mark as special delete action item
+		delete_all_item.de.d_type = DT_REG;
+		strcpy(delete_all_item.de.d_name, ">>>>>>>>> DELETE <<<<<<<<<");
+		strcpy(delete_all_item.altname, "DELETE_ALL_GAMES_ACTION");
+		delete_all_item.flags = 0x8004; // Special flag for delete action
+		
+		// Add at the bottom of the list
+		DirItem.push_back(delete_all_item);
+		count++;
+	}
+	
+	return count;
 }
 #endif
 

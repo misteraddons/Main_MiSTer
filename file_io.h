@@ -169,6 +169,7 @@ int ScanVirtualTry(const char *core_path);
 bool DeleteIsFile(const char *directory, const char *filename);
 bool DeleteIsFullPath(const char *directory, const char *full_path);
 void DeleteToggle(const char *directory, const char *filename);
+int ExecuteDeleteAction(const char *directory);
 int ScanVirtualDelete(const char *core_path);
 
 // Games list caching system (flash wear reduction)

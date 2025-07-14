@@ -521,6 +521,69 @@ All major todo items have been completed:
 - **Memory efficiency**: Scales from 0KB (no games) to 96KB (512 games)
 - **Error resilience**: Handles corrupted games.txt files gracefully
 
+## Delete System Implementation
+
+### **File Deletion Mechanism**
+Implemented a comprehensive system for actually deleting games marked for deletion:
+
+**Delete Button in Virtual Delete Folder**:
+- Added `">>>>>>>>> DELETE <<<<<<<<<"` button at the bottom of virtual delete folders
+- Appears only when games are marked for deletion
+- Uses special flag `0x8004` to distinguish from regular files
+- Positioned as last entry in the folder for easy access
+
+**Core Implementation**:
+```cpp
+// Delete button creation in ScanVirtualDelete()
+direntext_t delete_all_item;
+delete_all_item.de.d_type = DT_REG;
+strcpy(delete_all_item.de.d_name, ">>>>>>>>> DELETE <<<<<<<<<");
+strcpy(delete_all_item.altname, "DELETE_ALL_GAMES_ACTION");
+delete_all_item.flags = 0x8004; // Special flag for delete action
+DirItem.push_back(delete_all_item); // Add to bottom of list
+
+// File deletion logic in GamesList_DeleteMarkedFiles()
+for (int i = list->count - 1; i >= 0; i--) {
+    if (list->entries[i].type == GAME_TYPE_DELETE) {
+        if (unlink(list->entries[i].path) == 0) {
+            printf("GamesList: Deleted '%s'\n", list->entries[i].path);
+            deleted_count++;
+        }
+        // Remove from list using swap-and-pop
+        if (i != list->count - 1) {
+            list->entries[i] = list->entries[list->count - 1];
+        }
+        list->count--;
+    }
+}
+```
+
+**Menu Integration**:
+- Modified `menu.cpp` to detect delete button selection (flag 0x8004)
+- Extracts core name from current path and calls `ExecuteDeleteAction()`
+- Provides user feedback with deletion count and failure reports
+- Automatically refreshes the virtual delete folder after deletion
+
+**Safety Features**:
+- Only deletes files explicitly marked for deletion
+- Handles missing files gracefully (reports as "already deleted")
+- Provides detailed logging of success/failure for each file
+- Removes deleted entries from games list and saves changes
+- Uses filesystem-level `unlink()` for secure deletion
+
+**User Experience**:
+- Simple workflow: Mark games for deletion → Navigate to delete folder → Select delete button
+- Clear visual feedback with progress reporting
+- Automatic cleanup of successfully deleted entries
+- Error handling for permission issues or missing files
+
+### **Integration with Existing Systems**
+The delete mechanism seamlessly integrates with the existing virtual folder system:
+- Shares the same GamesList cache system for consistency
+- Uses the same file persistence as favorites/try systems
+- Maintains the same per-core isolation (each core has its own delete list)
+- Follows the same delayed-write pattern for flash wear reduction
+
 ## Conclusion
 
-**Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. This demonstrates the importance of analyzing actual usage patterns rather than over-provisioning for theoretical maximums.
+**Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. The addition of the file deletion mechanism completes the virtual folder system, providing a full workflow for managing game collections: mark as favorite/try/delete → organize in virtual folders → actually delete unwanted games.
