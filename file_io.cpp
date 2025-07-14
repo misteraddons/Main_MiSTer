@@ -2658,32 +2658,21 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 				}
 				else if (list->entries[i].type == list->entries[j].type)
 				{
-					// Same type - use path/format preferences
-					// Prefer 1G1R (1 Game 1 ROM) paths
-					bool i_is_1g1r = (strstr(list->entries[i].path, "1G1R") != NULL);
-					bool j_is_1g1r = (strstr(list->entries[j].path, "1G1R") != NULL);
+					// Same type - use format preferences only
+					const char* ext_i = strrchr(list->entries[i].path, '.');
+					const char* ext_j = strrchr(list->entries[j].path, '.');
 					
-					if (!i_is_1g1r && j_is_1g1r) {
-						keep_i = 0; // Keep j (1G1R)
-					}
-					else if (i_is_1g1r && !j_is_1g1r) {
-						keep_i = 1; // Keep i (1G1R)
-					}
-					else {
-						// Both or neither are 1G1R, check file format preferences
-						const char* ext_i = strrchr(list->entries[i].path, '.');
-						const char* ext_j = strrchr(list->entries[j].path, '.');
-						
-						// N64: prefer .z64 over .n64
-						if (ext_i && ext_j) {
-							if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
-								keep_i = 0; // Keep .z64
-							}
-							else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
-								keep_i = 1; // Keep .z64
-							}
+					// N64: prefer .z64 over .n64
+					if (ext_i && ext_j) {
+						if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
+							keep_i = 0; // Keep .z64
 						}
+						else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
+							keep_i = 1; // Keep .z64
+						}
+						// If same extensions or no preference, keep first one (default behavior)
 					}
+					// If no extension preferences apply, keep first one (default behavior)
 				}
 				else {
 					// One is delete type - keep both (delete tracks full paths)
