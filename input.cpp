@@ -41,10 +41,64 @@ char joy_bnames[NUMBUTTONS][32] = {};
 int  joy_bcount = 0;
 static struct pollfd pool[NUMDEV + 3];
 
-// Button hold tracking for L+R combinations
+// Button hold tracking for L/R actions
 static int l_button_pressed = 0;
 static int r_button_pressed = 0;
+static uint32_t l_hold_start_time = 0;
+static uint32_t r_hold_start_time = 0;
 static uint32_t lr_hold_start_time = 0;
+static int l_action_triggered = 0;
+static int r_action_triggered = 0;
+static int lr_action_triggered = 0;
+
+// Grace period to prevent accidental triggers after button actions
+static uint32_t lr_grace_period_end = 0;
+static uint32_t l_grace_period_end = 0;
+static uint32_t r_grace_period_end = 0;
+#define GRACE_PERIOD_MS 500  // 500ms grace period after any action
+
+// Global flag to prevent menu actions when buttons are active or in grace period
+bool is_lr_combo_active()
+{
+	uint32_t current_time = GetTimer(0);
+	return (l_button_pressed && r_button_pressed && lr_hold_start_time > 0) ||
+	       (lr_grace_period_end > 0 && current_time < lr_grace_period_end) ||
+	       (l_grace_period_end > 0 && current_time < l_grace_period_end) ||
+	       (r_grace_period_end > 0 && current_time < r_grace_period_end);
+}
+
+// Helper function to extract core directory from virtual folder paths
+static const char* get_core_directory(const char* path)
+{
+	static char core_dir[256];
+	
+	// Handle paths like "games/SNES/0 Try" -> extract just "SNES" 
+	const char* core_start = path;
+	
+	// Skip "games/" prefix if present
+	if (strncmp(path, "games/", 6) == 0)
+	{
+		core_start = path + 6;
+	}
+	
+	// Find the first slash to get core name
+	const char* slash_pos = strchr(core_start, '/');
+	if (slash_pos)
+	{
+		// Copy everything before the first slash
+		int core_len = slash_pos - core_start;
+		strncpy(core_dir, core_start, core_len);
+		core_dir[core_len] = 0;
+		return core_dir;
+	}
+	else
+	{
+		// No slash, use the whole core name
+		strncpy(core_dir, core_start, sizeof(core_dir) - 1);
+		core_dir[sizeof(core_dir) - 1] = 0;
+		return core_dir;
+	}
+}
 
 static int ev2amiga[] =
 {
@@ -3202,83 +3256,93 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 							return;
 						}
 
-						if (ev->code == input[dev].mmap[SYS_BTN_L])
+						if (ev->code == input[dev].mmap[SYS_BTN_L] || ev->code == 310)
 						{
-							// Handle L button for try/delete functionality
+							// Handle L button for try/delete functionality (SYS_BTN_L or raw BTN_TL)
 							if (ev->value) // Button pressed
 							{
-								l_button_pressed = 1;
-								if (r_button_pressed) // Both L and R pressed
+								// Only act on fresh button press, not repeated events
+								if (!l_button_pressed)
 								{
-									lr_hold_start_time = GetTimer(1000); // Start 1 second timer
-								}
-								else // Only L pressed
-								{
-									// Check if we're in menu mode and have a selection
-									if (is_menu() && flist_SelectedItem())
+									// If R is already pressed, cancel R hold and start L+R delete timer
+									if (r_button_pressed)
 									{
-										direntext_t* selected = flist_SelectedItem();
-										char* current_dir = flist_Path();
-										if (selected && current_dir)
-										{
-											TryToggle(current_dir, selected->de.d_name);
-										}
+										r_hold_start_time = 0;
+										r_action_triggered = 0;
+										lr_action_triggered = 0;
+										// Start L+R delete timer
+										lr_hold_start_time = GetTimer(1000); // 1 second for delete
 									}
+									else
+									{
+										l_hold_start_time = GetTimer(500); // Start 0.5 second timer
+										l_action_triggered = 0; // Reset action flag only on fresh press
+									}
+									l_button_pressed = 1;
 								}
 							}
 							else // Button released
 							{
 								l_button_pressed = 0;
-								lr_hold_start_time = 0;
+								l_hold_start_time = 0;
+								l_action_triggered = 0;
+								// DON'T clear grace period - let it expire naturally
+								// Only clear L+R timer if R is also not pressed
+								if (!r_button_pressed)
+								{
+									lr_action_triggered = 0;
+									lr_hold_start_time = 0;
+									// DON'T clear grace period - let it expire naturally
+								}
 							}
 							joy_digital(0, JOY_L, 0, ev->value, 0);
 							return;
 						}
 
-						if (ev->code == input[dev].mmap[SYS_BTN_R])
+						if (ev->code == input[dev].mmap[SYS_BTN_R] || ev->code == 311)
 						{
-							// Handle R button for favorite/delete functionality
+							// Handle R button for favorite/delete functionality (SYS_BTN_R or raw BTN_TR)
 							if (ev->value) // Button pressed
 							{
-								r_button_pressed = 1;
-								if (l_button_pressed) // Both L and R pressed
+								// Only act on fresh button press, not repeated events
+								if (!r_button_pressed)
 								{
-									lr_hold_start_time = GetTimer(1000); // Start 1 second timer
-								}
-								else // Only R pressed
-								{
-									// Check if we're in menu mode and have a selection
-									if (is_menu() && flist_SelectedItem())
+									// If L is already pressed, cancel L hold and start L+R delete timer
+									if (l_button_pressed)
 									{
-										direntext_t* selected = flist_SelectedItem();
-										char* current_dir = flist_Path();
-										if (selected && current_dir)
-										{
-											FavoritesToggle(current_dir, selected->de.d_name);
-										}
+										l_hold_start_time = 0;
+										l_action_triggered = 0;
+										lr_action_triggered = 0;
+										// Start L+R delete timer
+										lr_hold_start_time = GetTimer(1000); // 1 second for delete
 									}
+									else
+									{
+										r_hold_start_time = GetTimer(500); // Start 0.5 second timer
+										r_action_triggered = 0; // Reset action flag only on fresh press
+									}
+									r_button_pressed = 1;
 								}
 							}
 							else // Button released
 							{
 								r_button_pressed = 0;
-								lr_hold_start_time = 0;
+								r_hold_start_time = 0;
+								r_action_triggered = 0;
+								// DON'T clear grace period - let it expire naturally
+								// Only clear L+R timer if L is also not pressed
+								if (!l_button_pressed)
+								{
+									lr_action_triggered = 0;
+									lr_hold_start_time = 0;
+									// DON'T clear grace period - let it expire naturally
+								}
 							}
 							joy_digital(0, JOY_R, 0, ev->value, 0);
 							return;
 						}
 
-						if (ev->code == input[dev].mmap[SYS_BTN_START])
-						{
-							joy_digital(0, JOY_L2, 0, ev->value, 0);
-							return;
-						}
 
-						if (ev->code == input[dev].mmap[SYS_BTN_SELECT])
-						{
-							joy_digital(0, JOY_R2, 0, ev->value, 0);
-							return;
-						}
 
 						for (int i = 0; i < SYS_BTN_A; i++)
 						{
@@ -5851,20 +5915,65 @@ int input_poll(int getchar)
 	static uint32_t time[NUMPLAYERS] = {};
 	static uint64_t joy_prev[NUMPLAYERS] = {};
 
-	// Check for L+R combination held for 1 second (delete functionality)
-	if (l_button_pressed && r_button_pressed && lr_hold_start_time && CheckTimer(lr_hold_start_time))
+	// Check for button hold actions (0.5 second holds)
+	if (flist_SelectedItem())
 	{
-		// Trigger delete toggle when both buttons held for 1 second
-		if (is_menu() && flist_SelectedItem())
+		direntext_t* selected = flist_SelectedItem();
+		char* current_dir = flist_Path();
+		if (selected && current_dir)
 		{
-			direntext_t* selected = flist_SelectedItem();
-			char* current_dir = flist_Path();
-			if (selected && current_dir)
+			const char* core_dir = get_core_directory(current_dir);
+			
+			// Clear expired grace periods
+			uint32_t current_time = GetTimer(0);
+			if (l_grace_period_end > 0 && current_time >= l_grace_period_end)
+				l_grace_period_end = 0;
+			if (r_grace_period_end > 0 && current_time >= r_grace_period_end) 
+				r_grace_period_end = 0;
+			if (lr_grace_period_end > 0 && current_time >= lr_grace_period_end)
+				lr_grace_period_end = 0;
+			
+			
+			// Check for L+R combination held for 1 second (delete) - HIGHEST PRIORITY
+			if (l_button_pressed && r_button_pressed && 
+			    lr_hold_start_time && CheckTimer(lr_hold_start_time) &&
+			    !lr_action_triggered)
 			{
-				DeleteToggle(current_dir, selected->de.d_name);
+				printf("L+R DELETE triggered\n");
+				DeleteToggle(core_dir, selected->de.d_name);
+				PrintDirectory(1); // Refresh display to update visual indicators
+				lr_action_triggered = 1; // Prevent multiple triggers
+				lr_hold_start_time = 0; // Clear timer to prevent repeated triggers
+				lr_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period
+			}
+			// Check for L button held for 0.5 seconds (try) - only if R not pressed AND no L+R timer active AND not in grace period
+			if (l_button_pressed && !r_button_pressed && !lr_hold_start_time &&
+			    l_hold_start_time && CheckTimer(l_hold_start_time) && 
+			    !l_action_triggered && l_grace_period_end == 0)
+			{
+				printf("L TRY triggered\n");
+				TryToggle(core_dir, selected->de.d_name);
+				PrintDirectory(1); // Refresh display to update visual indicators
+				l_action_triggered = 1; // Prevent multiple triggers
+				l_hold_start_time = 0; // Clear timer to prevent repeated triggers
+				l_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period
+			}
+			// Check for R button held for 0.5 seconds (favorite) - only if L not pressed AND no L+R timer active AND not in grace period
+			else if (r_button_pressed && !l_button_pressed && !lr_hold_start_time &&
+			         r_hold_start_time && CheckTimer(r_hold_start_time) && 
+			         !r_action_triggered && r_grace_period_end == 0)
+			{
+				printf("R FAVORITE triggered\n");
+				FavoritesToggle(core_dir, selected->de.d_name);
+				PrintDirectory(1); // Refresh display to update visual indicators
+				r_action_triggered = 1; // Prevent multiple triggers
+				r_hold_start_time = 0; // Clear timer to prevent repeated triggers
+				r_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period
 			}
 		}
-		lr_hold_start_time = 0; // Reset timer to prevent multiple triggers
+		
+		// Process auto-save for games list (flash wear reduction)
+		GamesList_ProcessAutoSave();
 	}
 
 	int ret = input_test(getchar);
@@ -6013,7 +6122,7 @@ int is_key_pressed(int key)
 	return 0;
 }
 
-int is_start_button_pressed()
+int is_r_button_pressed()
 {
 	// Throttle the expensive ioctl calls to reduce input lag
 	// Only check every 50ms (roughly every 3 frames at 60fps)
@@ -6037,10 +6146,10 @@ int is_start_button_pressed()
 			memset(bits, 0, sizeof(bits));
 			if (ioctl(pool[i].fd, EVIOCGKEY(sizeof(bits)), &bits) >= 0)
 			{
-				uint32_t start_code = input[i].mmap[SYS_BTN_START] & 0xFFFF;
-				if (start_code > 0 && start_code < 512)
+				uint32_t r_code = input[i].mmap[SYS_BTN_R] & 0xFFFF;
+				if (r_code > 0 && r_code < 512)
 				{
-					if (bits[start_code / 8] & (1 << (start_code % 8)))
+					if (bits[r_code / 8] & (1 << (r_code % 8)))
 					{
 						cached_result = 1;
 						return 1;
@@ -6052,7 +6161,7 @@ int is_start_button_pressed()
 	return 0;
 }
 
-int is_select_button_pressed()
+int is_l_button_pressed()
 {
 	// Throttle the expensive ioctl calls to reduce input lag
 	// Only check every 50ms (roughly every 3 frames at 60fps)
@@ -6076,10 +6185,10 @@ int is_select_button_pressed()
 			memset(bits, 0, sizeof(bits));
 			if (ioctl(pool[i].fd, EVIOCGKEY(sizeof(bits)), &bits) >= 0)
 			{
-				uint32_t select_code = input[i].mmap[SYS_BTN_SELECT] & 0xFFFF;
-				if (select_code > 0 && select_code < 512)
+				uint32_t l_code = input[i].mmap[SYS_BTN_L] & 0xFFFF;
+				if (l_code > 0 && l_code < 512)
 				{
-					if (bits[select_code / 8] & (1 << (select_code % 8)))
+					if (bits[l_code / 8] & (1 << (l_code % 8)))
 					{
 						cached_result = 1;
 						return 1;

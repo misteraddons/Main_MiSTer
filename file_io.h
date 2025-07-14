@@ -169,6 +169,12 @@ int ScanVirtualTry(const char *core_path);
 bool DeleteIsFile(const char *directory, const char *filename);
 bool DeleteIsFullPath(const char *directory, const char *full_path);
 void DeleteToggle(const char *directory, const char *filename);
+int ScanVirtualDelete(const char *core_path);
+
+// Games list caching system (flash wear reduction)
+void GamesList_ProcessAutoSave();  // Call periodically to process delayed writes
+void GamesList_FlushChanges();     // Force immediate write of pending changes
+void GamesList_SetAutoSave(bool enabled); // Enable/disable auto-save (default: enabled)
 
 // Debug state tracking
 void PrintFileState(const char *directory, const char *filename);

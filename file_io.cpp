@@ -7,6 +7,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <strings.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <ctype.h>
@@ -44,6 +45,35 @@ static const size_t YieldIterations = 128;
 DirentVector DirItem;
 DirNameSet DirNames;
 
+// Forward declarations for unified games list system
+typedef enum {
+    GAME_TYPE_DELETE = 'd',
+    GAME_TYPE_FAVORITE = 'f', 
+    GAME_TYPE_TRY = 't'
+} GameType;
+
+typedef struct {
+    char path[1024];
+    GameType type;
+} GameEntry;
+
+typedef struct {
+    GameEntry entries[768]; // 256 * 3 total capacity
+    int count;
+    char current_directory[1024];
+    bool is_dirty;          // True if changes need to be saved
+    uint32_t last_change_time; // Time of last change for delayed writing
+    bool auto_save_enabled; // Enable/disable automatic delayed saves
+} GamesList;
+
+// Global unified games list
+static GamesList g_games_list = {{}, 0, "", false, 0, true};
+
+// Forward declarations for functions used throughout the file
+static int GamesList_CountByType(GamesList* list, GameType type);
+static int GamesLoad(const char* directory);
+static void GamesList_Save(GamesList* list, const char* directory);
+static void GamesList_Load(GamesList* list, const char* directory);
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -1229,12 +1259,15 @@ struct DirentComp
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "..")) return false;
 		
 		// Put virtual folders right after ".." but before other directories
-		// Order: "..", "❤ Favorites", "❓ Try", then other directories
+		// Order: "..", "❤ Favorites", "❓ Try", "✖ Delete", then other directories
 		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x97 Favorites")) return true;
 		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x97 Favorites")) return false;
 		
-		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x9B Try")) return true;
-		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x9B Try")) return false;
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "? Try")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "? Try")) return false;
+		
+		if ((de1.de.d_type == DT_DIR) && !strcmp(de1.altname, "\x9C Delete")) return true;
+		if ((de2.de.d_type == DT_DIR) && !strcmp(de2.altname, "\x9C Delete")) return false;
 
 		if ((de1.de.d_type == DT_DIR) && (de2.de.d_type != DT_DIR)) return true;
 		if ((de1.de.d_type != DT_DIR) && (de2.de.d_type == DT_DIR)) return false;
@@ -1406,6 +1439,7 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 	{
 		iFirstEntry = 0;
 		iSelectedEntry = 0;
+		printf("DirItem.clear() called in SCANF_INIT mode\n");
 		DirItem.clear();
 		DirNames.clear();
 
@@ -1758,17 +1792,81 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			{
 				// We're directly in a core directory (games/N64/), not in a subdirectory
 				// Only add virtual folders if we're not already inside a virtual folder
-				bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9B Try") != NULL);
+				bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "? Try") != NULL || strstr(scanned_path, "\x9C Delete") != NULL);
 				printf("ScanDirectory: scanned_path='%s', in_virtual_folder=%d\n", scanned_path, in_virtual_folder);
 				
 				if (!in_virtual_folder)
 				{
-					// Check for favorites.txt and add virtual favorites folder
-					char favorites_path[1024];
-					snprintf(favorites_path, sizeof(favorites_path), "%s/games/%s/favorites.txt", getRootDir(), core_name);
-					if (FileExists(favorites_path, 0))
+					// Check for games.txt and add virtual folders based on content
+					char games_path[1024];
+					snprintf(games_path, sizeof(games_path), "%s/games/%s/games.txt", getRootDir(), core_name);
+					if (FileExists(games_path, 0))
 					{
-						// Add virtual favorites folder
+						// Load games.txt to determine which virtual folders to create
+						GamesLoad(core_name);
+						
+						// Add virtual favorites folder if there are favorites
+						if (GamesList_CountByType(&g_games_list, GAME_TYPE_FAVORITE) > 0)
+						{
+							direntext_t favorites_dir;
+							memset(&favorites_dir, 0, sizeof(favorites_dir));
+							favorites_dir.de.d_type = DT_DIR;
+							strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
+							strcpy(favorites_dir.altname, "\x97 Favorites");
+							favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
+							DirItem.push_back(favorites_dir);
+						}
+						
+						// Add virtual try folder if there are try entries
+						if (GamesList_CountByType(&g_games_list, GAME_TYPE_TRY) > 0)
+						{
+							direntext_t try_dir;
+							memset(&try_dir, 0, sizeof(try_dir));
+							try_dir.de.d_type = DT_DIR;
+							strcpy(try_dir.de.d_name, "? Try"); // Question mark + Try
+							strcpy(try_dir.altname, "? Try");
+							try_dir.flags = 0x4000; // Special flag to identify virtual try folder
+							DirItem.push_back(try_dir);
+						}
+						
+						// Add virtual delete folder if there are delete entries
+						if (GamesList_CountByType(&g_games_list, GAME_TYPE_DELETE) > 0)
+						{
+							direntext_t delete_dir;
+							memset(&delete_dir, 0, sizeof(delete_dir));
+							delete_dir.de.d_type = DT_DIR;
+							strcpy(delete_dir.de.d_name, "\x9C Delete"); // Bold X + Delete
+							strcpy(delete_dir.altname, "\x9C Delete");
+							delete_dir.flags = 0x4000; // Special flag to identify virtual delete folder
+							DirItem.push_back(delete_dir);
+						}
+						
+						// Restore old counts if needed
+						// (No longer needed with unified system)
+					}
+				}
+			}
+		}
+		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
+		{
+			// We're in _Arcade directory specifically (not a subdirectory)
+			// Only add virtual folders if we're not already inside a virtual folder
+			bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "? Try") != NULL || strstr(scanned_path, "\x9C Delete") != NULL);
+			printf("ScanDirectory _Arcade: scanned_path='%s', in_virtual_folder=%d\n", scanned_path, in_virtual_folder);
+			
+			if (!in_virtual_folder)
+			{
+				// Check for games.txt and add virtual folders based on content
+				char games_path[1024];
+				snprintf(games_path, sizeof(games_path), "%s/_Arcade/games.txt", getRootDir());
+				if (FileExists(games_path, 0))
+				{
+					// Load games.txt to determine which virtual folders to create
+					GamesLoad("_Arcade");
+					
+					// Add virtual favorites folder if there are favorites
+					if (GamesList_CountByType(&g_games_list, GAME_TYPE_FAVORITE) > 0)
+					{
 						direntext_t favorites_dir;
 						memset(&favorites_dir, 0, sizeof(favorites_dir));
 						favorites_dir.de.d_type = DT_DIR;
@@ -1778,60 +1876,32 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 						DirItem.push_back(favorites_dir);
 					}
 					
-					// Check for try.txt and add virtual try folder
-					char try_path[1024];
-					snprintf(try_path, sizeof(try_path), "%s/games/%s/try.txt", getRootDir(), core_name);
-					if (FileExists(try_path, 0))
+					// Add virtual try folder if there are try entries
+					if (GamesList_CountByType(&g_games_list, GAME_TYPE_TRY) > 0)
 					{
-						// Add virtual try folder
 						direntext_t try_dir;
 						memset(&try_dir, 0, sizeof(try_dir));
 						try_dir.de.d_type = DT_DIR;
-						strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
-						strcpy(try_dir.altname, "\x9B Try");
-						try_dir.flags = 0x8000; // Special flag to identify virtual try folder
+						strcpy(try_dir.de.d_name, "? Try"); // Question mark + Try
+						strcpy(try_dir.altname, "? Try");
+						try_dir.flags = 0x4000; // Special flag to identify virtual try folder
 						DirItem.push_back(try_dir);
 					}
-				}
-			}
-		}
-		else if (arcade_pos && (strcmp(scanned_path, "_Arcade") == 0 || (strstr(scanned_path, "_Arcade") && strchr(arcade_pos + 7, '/') == NULL)))
-		{
-			// We're in _Arcade directory specifically (not a subdirectory)
-			// Only add virtual folders if we're not already inside a virtual folder
-			bool in_virtual_folder = (strstr(scanned_path, "\x97 Favorites") != NULL || strstr(scanned_path, "\x9B Try") != NULL);
-			printf("ScanDirectory _Arcade: scanned_path='%s', in_virtual_folder=%d\n", scanned_path, in_virtual_folder);
-			
-			if (!in_virtual_folder)
-			{
-				// Check for favorites.txt and add virtual favorites folder
-				char favorites_path[1024];
-				snprintf(favorites_path, sizeof(favorites_path), "%s/_Arcade/favorites.txt", getRootDir());
-				if (FileExists(favorites_path, 0))
-				{
-					// Add virtual favorites folder
-					direntext_t favorites_dir;
-					memset(&favorites_dir, 0, sizeof(favorites_dir));
-					favorites_dir.de.d_type = DT_DIR;
-					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
-					strcpy(favorites_dir.altname, "\x97 Favorites");
-					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
-					DirItem.push_back(favorites_dir);
-				}
-				
-				// Check for try.txt and add virtual try folder for _Arcade
-				char try_path[1024];
-				snprintf(try_path, sizeof(try_path), "%s/_Arcade/try.txt", getRootDir());
-				if (FileExists(try_path, 0))
-				{
-					// Add virtual try folder
-					direntext_t try_dir;
-					memset(&try_dir, 0, sizeof(try_dir));
-					try_dir.de.d_type = DT_DIR;
-					strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
-					strcpy(try_dir.altname, "\x9B Try");
-					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
-					DirItem.push_back(try_dir);
+					
+					// Add virtual delete folder if there are delete entries
+					if (GamesList_CountByType(&g_games_list, GAME_TYPE_DELETE) > 0)
+					{
+						direntext_t delete_dir;
+						memset(&delete_dir, 0, sizeof(delete_dir));
+						delete_dir.de.d_type = DT_DIR;
+						strcpy(delete_dir.de.d_name, "\x9C Delete"); // Bold X + Delete
+						strcpy(delete_dir.altname, "\x9C Delete");
+						delete_dir.flags = 0x4000; // Special flag to identify virtual delete folder
+						DirItem.push_back(delete_dir);
+					}
+					
+					// Restore old counts if needed
+					// (No longer needed with unified system)
 				}
 			}
 		}
@@ -2137,1413 +2207,817 @@ const char *FileReadLine(fileTextReader *reader)
 	return nullptr;
 }
 
-// Favorites system implementation
+// Write cache settings
+#define GAMES_CACHE_DELAY_MS 60000  // 60 seconds (1 minute) delay before auto-save
+#define GAMES_CACHE_MAX_DIRTY_TIME_MS 120000 // 2 minutes max before forced save
+
+// Legacy compatibility - these will point to filtered subsets of the unified list
 static char favorites_cache[256][1024]; // Full paths
 static int favorites_count = 0;
 static char current_favorites_dir[1024] = "";
+
+static char try_cache[256][1024]; // Full paths
+static int try_count = 0;
+static char current_try_dir[1024] = "";
+
+static char delete_cache[256][1024]; // Full paths
+static int delete_count = 0;
+static char current_delete_dir[1024] = "";
 
 // Broken heart feedback system
 char broken_heart_paths[256][1024];
 int broken_heart_count = 0;
 
-
-// Try system cache
-static char try_cache[256][1024]; // Full paths
-static int try_count = 0;
-static char current_try_dir[1024] = "";
-
-// Delete system cache
-static char delete_cache[256][1024]; // Full paths
-static int delete_count = 0;
-static char current_delete_dir[1024] = "";
-
-// Forward declarations
-static void FavoritesSave(const char *directory);
-static void TrySave(const char *directory);
-static void DeleteSave(const char *directory);
-
-static int FavoritesLoad(const char *directory)
+// Unified GamesList Caching Functions
+static void GamesList_MarkDirty(GamesList* list)
 {
-	char favorites_path[1024];
-	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
+	if (!list->is_dirty)
 	{
-		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/_Arcade/favorites.txt");
-	}
-	else
-	{
-		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+		list->is_dirty = true;
+		list->last_change_time = GetTimer(0);
+		printf("GamesList: Marked dirty, will auto-save in %d seconds\n", GAMES_CACHE_DELAY_MS / 1000);
 	}
 	
-	favorites_count = 0;
-	memset(favorites_cache, 0, sizeof(favorites_cache));
-	
-	FILE *file = fopen(favorites_path, "r");
-	if (!file) return 0;
-	
-	char line[1024];
-	while (fgets(line, sizeof(line), file) && favorites_count < 256)
+	// Debug: Print current cache contents
+	printf("=== CACHE DEBUG: %d entries in list ===\n", list->count);
+	for (int i = 0; i < list->count; i++)
 	{
-		line[strcspn(line, "\r\n")] = 0;
-		if (strlen(line) > 0)
-		{
-			// Check if this is new format (filename|full_path) and extract just the path
-			char *pipe_pos = strchr(line, '|');
-			if (pipe_pos)
-			{
-				// New format: extract just the full path part
-				char *full_path = pipe_pos + 1;
-				if (strstr(full_path, "/media/fat/games/") == full_path || 
-				    strstr(full_path, "/media/fat/_Arcade/") == full_path)
-				{
-					strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
-					favorites_count++;
-				}
-				else
-				{
-					printf("Skipping invalid favorite path: %s\n", full_path);
-				}
-			}
-			else
-			{
-				// Old format: just path
-				if (strstr(line, "/media/fat/games/") == line || 
-				    strstr(line, "/media/fat/_Arcade/") == line) // Should start with valid path prefix
-				{
-					strncpy(favorites_cache[favorites_count], line, sizeof(favorites_cache[0]) - 1);
-					favorites_count++;
-				}
-				else
-				{
-					printf("Skipping invalid favorite path: %s\n", line);
-				}
-			}
-		}
+		printf("  [%d] %c: %s\n", i, list->entries[i].type, list->entries[i].path);
 	}
-	
-	
-	// Sort favorites list alphabetically by filename
-	for (int i = 0; i < favorites_count - 1; i++)
-	{
-		for (int j = i + 1; j < favorites_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(favorites_cache[i], '/');
-			char *filename_j = strrchr(favorites_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = favorites_cache[i];
-			if (filename_j) filename_j++; else filename_j = favorites_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, favorites_cache[i]);
-				strcpy(favorites_cache[i], favorites_cache[j]);
-				strcpy(favorites_cache[j], temp_path);
-			}
-		}
-	}
-	
-	fclose(file);
-	return favorites_count;
+	printf("=== END CACHE DEBUG ===\n");
 }
 
-static void FavoritesSave(const char *directory)
+static void GamesList_MarkClean(GamesList* list)
 {
-	char favorites_path[1024];
+	list->is_dirty = false;
+	list->last_change_time = 0;
+}
+
+static bool GamesList_ShouldAutoSave(GamesList* list)
+{
+	if (!list->is_dirty || !list->auto_save_enabled)
+		return false;
+		
+	uint32_t current_time = GetTimer(0);
+	uint32_t time_since_change = current_time - list->last_change_time;
 	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
+	// Auto-save after delay period or if max dirty time exceeded
+	return (time_since_change >= GAMES_CACHE_DELAY_MS) || 
+	       (time_since_change >= GAMES_CACHE_MAX_DIRTY_TIME_MS);
+}
+
+static void GamesList_ForceFlush(GamesList* list, const char* directory)
+{
+	if (list->is_dirty)
 	{
-		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/_Arcade/favorites.txt");
+		printf("GamesList: Force flushing changes to disk\n");
+		GamesList_Save(list, directory);
+	}
+}
+
+static void GamesList_CheckAutoSave(GamesList* list, const char* directory)
+{
+	if (GamesList_ShouldAutoSave(list))
+	{
+		printf("GamesList: Auto-saving after %dms delay\n", GAMES_CACHE_DELAY_MS);
+		GamesList_Save(list, directory);
+	}
+}
+
+// Unified GamesList Functions
+static void GamesList_UpdateLegacyCaches(GamesList* list)
+{
+	// Clear legacy caches
+	favorites_count = 0;
+	try_count = 0;
+	delete_count = 0;
+	
+	// Populate legacy caches from unified list
+	for (int i = 0; i < list->count; i++)
+	{
+		switch (list->entries[i].type)
+		{
+			case GAME_TYPE_FAVORITE:
+				if (favorites_count < 256)
+				{
+					strncpy(favorites_cache[favorites_count], list->entries[i].path, sizeof(favorites_cache[0]) - 1);
+					favorites_cache[favorites_count][sizeof(favorites_cache[0]) - 1] = 0;
+					favorites_count++;
+				}
+				break;
+			case GAME_TYPE_TRY:
+				if (try_count < 256)
+				{
+					strncpy(try_cache[try_count], list->entries[i].path, sizeof(try_cache[0]) - 1);
+					try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
+					try_count++;
+				}
+				break;
+			case GAME_TYPE_DELETE:
+				if (delete_count < 256)
+				{
+					strncpy(delete_cache[delete_count], list->entries[i].path, sizeof(delete_cache[0]) - 1);
+					delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
+					delete_count++;
+				}
+				break;
+		}
+	}
+	
+	// Update legacy directory tracking
+	strncpy(current_favorites_dir, list->current_directory, sizeof(current_favorites_dir) - 1);
+	current_favorites_dir[sizeof(current_favorites_dir) - 1] = 0;
+	strncpy(current_try_dir, list->current_directory, sizeof(current_try_dir) - 1);
+	current_try_dir[sizeof(current_try_dir) - 1] = 0;
+	strncpy(current_delete_dir, list->current_directory, sizeof(current_delete_dir) - 1);
+	current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
+}
+
+static int GamesList_Compare(const void* a, const void* b)
+{
+	const GameEntry* entry_a = (const GameEntry*)a;
+	const GameEntry* entry_b = (const GameEntry*)b;
+	
+	// First, sort by type: d, f, t
+	int priority_a = (entry_a->type == 'd') ? 0 : (entry_a->type == 'f') ? 1 : 2;
+	int priority_b = (entry_b->type == 'd') ? 0 : (entry_b->type == 'f') ? 1 : 2;
+	
+	if (priority_a != priority_b)
+		return priority_a - priority_b;
+	
+	// Same type, sort by filename (excluding path)
+	const char* filename_a = strrchr(entry_a->path, '/');
+	const char* filename_b = strrchr(entry_b->path, '/');
+	filename_a = filename_a ? filename_a + 1 : entry_a->path;
+	filename_b = filename_b ? filename_b + 1 : entry_b->path;
+	
+	return strcasecmp(filename_a, filename_b);
+}
+
+static void GamesList_Sort(GamesList* list)
+{
+	if (list->count > 1)
+		qsort(list->entries, list->count, sizeof(GameEntry), GamesList_Compare);
+}
+
+static void GamesList_Load(GamesList* list, const char* directory)
+{
+	// If changing directories and we have unsaved changes, flush them first
+	if (strlen(list->current_directory) > 0 && strcmp(list->current_directory, directory) != 0)
+	{
+		if (list->is_dirty)
+		{
+			printf("GamesList: Directory change - flushing pending changes for '%s'\n", list->current_directory);
+			GamesList_Save(list, list->current_directory);
+		}
+	}
+	
+	char games_path[1024];
+	char core_name[256];
+	
+	// Extract core name from directory path
+	// Examples: "SNES" -> "SNES", "games/SNES/0 Try" -> "SNES", "SNES/subdir" -> "SNES"
+	const char* dir_to_parse = directory;
+	
+	// Skip "games/" prefix if present
+	if (strncmp(directory, "games/", 6) == 0)
+	{
+		dir_to_parse = directory + 6;
+	}
+	
+	// Find first slash to get core name
+	const char* slash_pos = strchr(dir_to_parse, '/');
+	if (slash_pos)
+	{
+		// Copy everything before the first slash
+		int core_len = slash_pos - dir_to_parse;
+		strncpy(core_name, dir_to_parse, core_len);
+		core_name[core_len] = 0;
 	}
 	else
 	{
-		snprintf(favorites_path, sizeof(favorites_path), "/media/fat/games/%s/favorites.txt", directory);
+		// No slash, use the whole string
+		strncpy(core_name, dir_to_parse, sizeof(core_name) - 1);
+		core_name[sizeof(core_name) - 1] = 0;
 	}
 	
-	// If no favorites, delete the file
-	if (favorites_count == 0)
+	// Check if this is _Arcade directory
+	if (strcmp(core_name, "_Arcade") == 0)
 	{
-		remove(favorites_path);
-		return;
+		snprintf(games_path, sizeof(games_path), "/media/fat/_Arcade/games.txt");
+	}
+	else
+	{
+		snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", core_name);
 	}
 	
-	FILE *file = fopen(favorites_path, "w");
+	// Clear the list
+	list->count = 0;
+	strncpy(list->current_directory, directory, sizeof(list->current_directory) - 1);
+	list->current_directory[sizeof(list->current_directory) - 1] = 0;
+	
+	// Mark as clean when loading
+	GamesList_MarkClean(list);
+	
+	printf("GamesList_Load: Attempting to open '%s'\n", games_path);
+	FILE *file = fopen(games_path, "r");
 	if (!file) 
 	{
-		printf("ERROR: Could not open favorites file for writing: %s\n", favorites_path);
+		printf("GamesList_Load: Failed to open '%s' - %s\n", games_path, strerror(errno));
+		GamesList_UpdateLegacyCaches(list);
+		return;
+	}
+	printf("GamesList_Load: Successfully opened '%s'\n", games_path);
+	
+	char line[1024];
+	int line_num = 0;
+	while (fgets(line, sizeof(line), file) && list->count < 768)
+	{
+		line_num++;
+		line[strcspn(line, "\r\n")] = 0;
+		printf("GamesList_Load: Line %d: '%s'\n", line_num, line);
+		
+		if (strlen(line) < 3) continue; // Need at least "x,y"
+		
+		char type_char = line[0];
+		if (line[1] != ',') continue; // Invalid format
+		
+		char *filepath = &line[2];
+		printf("GamesList_Load: Parsed type='%c', filepath='%s'\n", type_char, filepath);
+		
+		if ((type_char == 'd' || type_char == 'f' || type_char == 't'))
+		{
+			strncpy(list->entries[list->count].path, filepath, sizeof(list->entries[list->count].path) - 1);
+			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
+			list->entries[list->count].type = (GameType)type_char;
+			list->count++;
+		}
+	}
+	
+	fclose(file);
+	
+	printf("GamesList_Load: Loaded %d total entries\n", list->count);
+	for (int i = 0; i < list->count; i++)
+	{
+		printf("  [%d] %c: %s\n", i, list->entries[i].type, list->entries[i].path);
+	}
+	
+	// Sort the unified list
+	GamesList_Sort(list);
+	
+	// Update legacy caches for backward compatibility
+	GamesList_UpdateLegacyCaches(list);
+}
+
+static void GamesList_Save(GamesList* list, const char* directory)
+{
+	char games_path[1024];
+	char core_name[256];
+	
+	// Extract core name from directory path
+	// Examples: "SNES" -> "SNES", "games/SNES/0 Try" -> "SNES", "SNES/subdir" -> "SNES"
+	const char* dir_to_parse = directory;
+	
+	// Skip "games/" prefix if present
+	if (strncmp(directory, "games/", 6) == 0)
+	{
+		dir_to_parse = directory + 6;
+	}
+	
+	// Find first slash to get core name
+	const char* slash_pos = strchr(dir_to_parse, '/');
+	if (slash_pos)
+	{
+		// Copy everything before the first slash
+		int core_len = slash_pos - dir_to_parse;
+		strncpy(core_name, dir_to_parse, core_len);
+		core_name[core_len] = 0;
+	}
+	else
+	{
+		// No slash, use the whole string
+		strncpy(core_name, dir_to_parse, sizeof(core_name) - 1);
+		core_name[sizeof(core_name) - 1] = 0;
+	}
+	
+	// Check if this is _Arcade directory
+	if (strcmp(core_name, "_Arcade") == 0)
+	{
+		snprintf(games_path, sizeof(games_path), "/media/fat/_Arcade/games.txt");
+	}
+	else
+	{
+		snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", core_name);
+	}
+	
+	printf("GamesList_Save: Saving to path: %s (directory='%s', count=%d)\n", games_path, directory, list->count);
+	
+	// If no entries, delete the file
+	if (list->count == 0)
+	{
+		printf("GamesList_Save: No entries, removing file\n");
+		remove(games_path);
+		GamesList_MarkClean(list);
+		GamesList_UpdateLegacyCaches(list);
 		return;
 	}
 	
-	for (int i = 0; i < favorites_count; i++)
+	// Sort before saving
+	GamesList_Sort(list);
+	
+	FILE *file = fopen(games_path, "w");
+	if (!file) 
 	{
-		fprintf(file, "%s\n", favorites_cache[i]);
+		printf("ERROR: Could not open games file for writing: %s\n", games_path);
+		return;
 	}
+	
+	// Write all entries (already sorted by type and filename)
+	for (int i = 0; i < list->count; i++)
+	{
+		fprintf(file, "%c,%s\n", list->entries[i].type, list->entries[i].path);
+	}
+	
 	fclose(file);
-	printf("Favorites file saved successfully\n");
+	printf("Games file saved successfully\n");
+	
+	// Mark as clean after successful save
+	GamesList_MarkClean(list);
+	
+	// Update legacy caches
+	GamesList_UpdateLegacyCaches(list);
+}
+
+static bool GamesList_Contains(GamesList* list, const char* directory, const char* filename, GameType type)
+{
+	// Load if directory changed
+	if (strcmp(list->current_directory, directory) != 0)
+	{
+		GamesList_Load(list, directory);
+	}
+	
+	// Build full path - we need the actual current path, not just the core directory
+	char full_path[1024];
+	char *current_path = flist_Path();
+	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	
+	// Search for entry
+	for (int i = 0; i < list->count; i++)
+	{
+		if (list->entries[i].type == type && strcmp(list->entries[i].path, full_path) == 0)
+			return true;
+	}
+	return false;
+}
+
+static void GamesList_Toggle(GamesList* list, const char* directory, const char* filename, GameType type)
+{
+	printf("=== GamesList_Toggle START ===\n");
+	printf("GamesList_Toggle: directory='%s', filename='%s', type='%c'\n", directory, filename, type);
+	printf("Current list directory: '%s', count=%d\n", list->current_directory, list->count);
+	
+	// Load if directory changed
+	if (strcmp(list->current_directory, directory) != 0)
+	{
+		printf("Directory changed, loading new list...\n");
+		GamesList_Load(list, directory);
+		printf("After load: count=%d\n", list->count);
+	}
+	
+	// Build full path - we need the actual current path, not just the core directory
+	char full_path[1024];
+	char *current_path = flist_Path();
+	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	
+	printf("GamesList_Toggle: full_path='%s'\n", full_path);
+	
+	// Find existing entry for this file (any type) for mutual exclusivity
+	int existing_index = -1;
+	GameType existing_type = GAME_TYPE_FAVORITE;
+	printf("Searching for existing entry in %d entries...\n", list->count);
+	for (int i = 0; i < list->count; i++)
+	{
+		printf("  Comparing '%s' with '%s'\n", list->entries[i].path, full_path);
+		if (strcmp(list->entries[i].path, full_path) == 0)
+		{
+			existing_index = i;
+			existing_type = list->entries[i].type;
+			printf("  FOUND existing entry at index %d, type=%c\n", i, existing_type);
+			break;
+		}
+	}
+	if (existing_index == -1) printf("  No existing entry found\n");
+	
+	if (existing_index >= 0)
+	{
+		// File already has a state
+		if (list->entries[existing_index].type == type)
+		{
+			// Same type - remove it (toggle off)
+			for (int i = existing_index; i < list->count - 1; i++)
+			{
+				list->entries[i] = list->entries[i + 1];
+			}
+			list->count--;
+			printf("Removed from %c list\n", type);
+		}
+		else
+		{
+			// Different type - change the state
+			list->entries[existing_index].type = type;
+			printf("Changed from %c to %c list\n", existing_type, type);
+		}
+	}
+	else
+	{
+		// File has no state - add new entry
+		if (list->count < 768)
+		{
+			strncpy(list->entries[list->count].path, full_path, sizeof(list->entries[list->count].path) - 1);
+			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
+			list->entries[list->count].type = type;
+			list->count++;
+			printf("Added to %c list\n", type);
+		}
+	}
+	
+	// Mark dirty for delayed write instead of immediate save
+	printf("=== GamesList_Toggle END: Final count=%d ===\n", list->count);
+	GamesList_MarkDirty(list);
+}
+
+static int GamesList_CountByType(GamesList* list, GameType type)
+{
+	int count = 0;
+	for (int i = 0; i < list->count; i++)
+	{
+		if (list->entries[i].type == type)
+		{
+			count++;
+		}
+	}
+	return count;
+}
+
+// Backward compatibility wrapper functions
+static int GamesLoad(const char* directory)
+{
+	GamesList_Load(&g_games_list, directory);
+	return g_games_list.count;
+}
+
+static void GamesSave(const char* directory)
+{
+	GamesList_Save(&g_games_list, directory);
 }
 
 bool FavoritesIsFile(const char *directory, const char *filename)
 {
-	if (strcmp(current_favorites_dir, directory) != 0)
-	{
-		strcpy(current_favorites_dir, directory);
-		FavoritesLoad(directory);
-	}
-	
-	// Use current path context to construct the full path
-	char full_path[1024];
-	char *current_path = flist_Path();
-	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	
-	for (int i = 0; i < favorites_count; i++)
-	{
-		if (strcmp(favorites_cache[i], full_path) == 0)
-			return true;
-	}
-	return false;
-}
-
-bool FavoritesIsFullPath(const char *directory, const char *full_path)
-{
-	if (strcmp(current_favorites_dir, directory) != 0)
-	{
-		strcpy(current_favorites_dir, directory);
-		FavoritesLoad(directory);
-	}
-	
-	for (int i = 0; i < favorites_count; i++)
-	{
-		if (strcmp(favorites_cache[i], full_path) == 0)
-			return true;
-	}
-	return false;
+	return GamesList_Contains(&g_games_list, directory, filename, GAME_TYPE_FAVORITE);
 }
 
 void FavoritesToggle(const char *directory, const char *filename)
 {
-	// Allow mutual exclusivity calls, but prevent infinite recursion
-	if (in_toggle_operation && !in_mutual_exclusivity_call)
+	printf("FavoritesToggle called: directory='%s', filename='%s'\n", directory, filename);
+	// Block favorites toggle when L+R combo is active (user trying to delete)
+	if (is_lr_combo_active())
 	{
-		printf("FavoritesToggle: This is a mutual exclusivity call\n");
-		in_mutual_exclusivity_call = true;
-	}
-	else if (in_toggle_operation && in_mutual_exclusivity_call)
-	{
-		printf("FavoritesToggle: Preventing infinite recursion\n");
+		printf("FavoritesToggle BLOCKED - L+R combo active or grace period\n");
 		return;
 	}
-	else
-	{
-		in_toggle_operation = true;
-	}
-	
-	if (strcmp(current_favorites_dir, directory) != 0)
-	{
-		strcpy(current_favorites_dir, directory);
-		FavoritesLoad(directory);
-	}
-	
-	// Track previous favorites count to detect transitions
-	int previous_favorites_count = favorites_count;
-	
-	char full_path[1024];
-	
-	// Check if we're in a virtual folder (favorites or try)
-	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-	{
-		// In virtual folders, use the stored full path from altname (not the filename parameter)
-		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
-		full_path[sizeof(full_path) - 1] = 0;
-	}
-	else
-	{
-		// Use the current file list path to construct the complete path
-		char *current_path = flist_Path();
-		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	}
-	
-	int found_index = -1;
-	for (int i = 0; i < favorites_count; i++)
-	{
-		if (strcmp(favorites_cache[i], full_path) == 0)
-		{
-			found_index = i;
-			break;
-		}
-	}
-	
-	if (found_index >= 0)
-	{
-		printf("Removed from favorites\n");
-		printf("STATE: try=%s favorite=false missing=%s\n", 
-			TryIsFullPath(directory, full_path) ? "true" : "false",
-			FileExists(full_path) ? "false" : "true");
-		
-		// Add to broken heart list (shows broken heart until navigated away)
-		AddBrokenHeart(full_path);
-		
-		for (int i = found_index; i < favorites_count - 1; i++)
-		{
-			strcpy(favorites_cache[i], favorites_cache[i + 1]);
-		}
-		favorites_count--;
-	}
-	else
-	{
-		printf("Added to favorites\n");
-		
-		// Remove broken heart if exists (allow broken heart → favorite transition)
-		RemoveBrokenHeart(full_path);
-		
-		// Skip mutual exclusivity logic if this is already a mutual exclusivity call
-		if (in_mutual_exclusivity_call)
-		{
-			printf("FavoritesToggle: Skipping mutual exclusivity check (already in mutual exclusivity call)\n");
-		}
-		else
-		{
-			// Check for mutual exclusivity with try and delete
-			bool is_in_try = false;
-			bool is_delete = false;
-		
-			// Check if we're in any virtual folder (favorites or try)
-			if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-			{
-				// In virtual folders, check actual state using full path
-				is_in_try = TryIsFullPath(directory, flist_SelectedItem()->altname);
-				is_delete = DeleteIsFullPath(directory, flist_SelectedItem()->altname);
-			}
-			else
-			{
-				// Regular context - check using file-based methods
-				is_in_try = TryIsFile(directory, filename);
-				is_delete = DeleteIsFile(directory, filename);
-			}
-		
-			if (is_in_try)
-			{
-				printf("Removing from try to add to favorites\n");
-				TryRemove(directory, filename); // This will only remove from try
-			}
-			
-			if (is_delete)
-			{
-				printf("Removing from delete to add to favorites\n");
-				DeleteToggle(directory, filename); // This will remove from delete
-			}
-		}
-		
-		// Always add to favorites (even in mutual exclusivity calls)
-		if (favorites_count < 256)
-		{
-			strncpy(favorites_cache[favorites_count], full_path, sizeof(favorites_cache[0]) - 1);
-			favorites_count++;
-			printf("STATE: try=false favorite=true missing=%s\n", 
-				FileExists(full_path) ? "false" : "true");
-		}
-	}
-	
-	// Sort favorites alphabetically by filename
-	for (int i = 0; i < favorites_count - 1; i++)
-	{
-		for (int j = i + 1; j < favorites_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(favorites_cache[i], '/');
-			char *filename_j = strrchr(favorites_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = favorites_cache[i];
-			if (filename_j) filename_j++; else filename_j = favorites_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, favorites_cache[i]);
-				strcpy(favorites_cache[i], favorites_cache[j]);
-				strcpy(favorites_cache[j], temp_path);
-			}
-		}
-	}
-	
-	// Handle dynamic virtual folder addition/removal for _Arcade directory and games directories
-	if (strcmp(directory, "_Arcade") == 0 || strstr(directory, "games/") != NULL)
-	{
-		// Check if we're transitioning between having/not having favorites
-		bool had_favorites = (previous_favorites_count > 0);
-		bool has_favorites = (favorites_count > 0);
-		
-		if (had_favorites != has_favorites)
-		{
-			// We need to dynamically add or remove the virtual folder
-			printf("Dynamic virtual folder update: had=%d, has=%d\n", had_favorites, has_favorites);
-			
-			if (has_favorites && !had_favorites)
-			{
-				// Add virtual favorites folder dynamically
-				printf("Adding virtual favorites folder dynamically\n");
-				
-				// Check if it doesn't already exist in DirItem
-				bool folder_exists = false;
-				for (int i = 0; i < (int)DirItem.size(); i++)
-				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x97 Favorites") == 0)
-					{
-						folder_exists = true;
-						break;
-					}
-				}
-				
-				if (!folder_exists)
-				{
-					direntext_t favorites_dir;
-					memset(&favorites_dir, 0, sizeof(favorites_dir));
-					favorites_dir.de.d_type = DT_DIR;
-					strcpy(favorites_dir.de.d_name, "\x97 Favorites"); // Heart symbol + Favorites
-					strcpy(favorites_dir.altname, "\x97 Favorites");
-					favorites_dir.flags = 0x8000; // Special flag to identify virtual favorites folder
-					DirItem.push_back(favorites_dir);
-					
-					// Re-sort the directory to maintain proper ordering
-					std::sort(DirItem.begin(), DirItem.end(), DirentComp());
-					printf("Virtual favorites folder added and directory re-sorted\n");
-				}
-			}
-			else if (!has_favorites && had_favorites)
-			{
-				// Remove virtual favorites folder dynamically
-				printf("Removing virtual favorites folder dynamically\n");
-				
-				// Find and remove the virtual folder
-				for (int i = 0; i < (int)DirItem.size(); i++)
-				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x97 Favorites") == 0)
-					{
-						DirItem.erase(DirItem.begin() + i);
-						printf("Virtual favorites folder removed\n");
-						break;
-					}
-				}
-			}
-		}
-	}
-	
-	FavoritesSave(directory);
-	
-	in_toggle_operation = false;
-	in_mutual_exclusivity_call = false;
-}
-
-void AddBrokenHeart(const char *path)
-{
-	// Check if already in list
-	for (int i = 0; i < broken_heart_count; i++)
-	{
-		if (strcmp(broken_heart_paths[i], path) == 0)
-		{
-			return; // Already in list
-		}
-	}
-	
-	// Add to list if space available
-	if (broken_heart_count < 256)
-	{
-		strncpy(broken_heart_paths[broken_heart_count], path, sizeof(broken_heart_paths[0]) - 1);
-		broken_heart_paths[broken_heart_count][sizeof(broken_heart_paths[0]) - 1] = 0;
-		broken_heart_count++;
-	}
-}
-
-void RemoveBrokenHeart(const char *path)
-{
-	for (int i = 0; i < broken_heart_count; i++)
-	{
-		if (strcmp(broken_heart_paths[i], path) == 0)
-		{
-			// Shift remaining entries down
-			for (int j = i; j < broken_heart_count - 1; j++)
-			{
-				strcpy(broken_heart_paths[j], broken_heart_paths[j + 1]);
-			}
-			broken_heart_count--;
-			return;
-		}
-	}
-}
-
-bool IsBrokenHeart(const char *path)
-{
-	for (int i = 0; i < broken_heart_count; i++)
-	{
-		if (strcmp(broken_heart_paths[i], path) == 0)
-		{
-			return true;
-		}
-	}
-	return false;
-}
-
-void ClearAllBrokenHearts()
-{
-	broken_heart_count = 0;
-}
-
-
-static int TryLoad(const char *directory)
-{
-	char try_path[1024];
-	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
-	{
-		snprintf(try_path, sizeof(try_path), "/media/fat/_Arcade/try.txt");
-	}
-	else
-	{
-		snprintf(try_path, sizeof(try_path), "/media/fat/games/%s/try.txt", directory);
-	}
-	
-	try_count = 0;
-	
-	FILE *file = fopen(try_path, "r");
-	if (!file) return 0;
-	
-	char line[1024];
-	while (fgets(line, sizeof(line), file) && try_count < 256)
-	{
-		// Remove newline
-		char *newline = strchr(line, '\n');
-		if (newline) *newline = 0;
-		
-		// Remove carriage return 
-		char *cr = strchr(line, '\r');
-		if (cr) *cr = 0;
-		
-		// Skip empty lines
-		if (strlen(line) == 0) continue;
-		
-		strncpy(try_cache[try_count], line, sizeof(try_cache[0]) - 1);
-		try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
-		try_count++;
-	}
-	
-	
-	// Sort try list alphabetically by filename
-	for (int i = 0; i < try_count - 1; i++)
-	{
-		for (int j = i + 1; j < try_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(try_cache[i], '/');
-			char *filename_j = strrchr(try_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = try_cache[i];
-			if (filename_j) filename_j++; else filename_j = try_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, try_cache[i]);
-				strcpy(try_cache[i], try_cache[j]);
-				strcpy(try_cache[j], temp_path);
-			}
-		}
-	}
-	
-	fclose(file);
-	return try_count;
-}
-
-static void TrySave(const char *directory)
-{
-	char try_path[1024];
-	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
-	{
-		snprintf(try_path, sizeof(try_path), "/media/fat/_Arcade/try.txt");
-	}
-	else
-	{
-		snprintf(try_path, sizeof(try_path), "/media/fat/games/%s/try.txt", directory);
-	}
-	
-	if (try_count == 0)
-	{
-		// No entries, delete the file
-		unlink(try_path);
-		return;
-	}
-	
-	FILE *file = fopen(try_path, "w");
-	if (!file) return;
-	
-	for (int i = 0; i < try_count; i++)
-	{
-		fprintf(file, "%s\n", try_cache[i]);
-	}
-	
-	fclose(file);
-}
-
-static int DeleteLoad(const char *directory)
-{
-	char delete_path[1024];
-	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
-	{
-		snprintf(delete_path, sizeof(delete_path), "/media/fat/_Arcade/delete.txt");
-	}
-	else
-	{
-		snprintf(delete_path, sizeof(delete_path), "/media/fat/games/%s/delete.txt", directory);
-	}
-	
-	delete_count = 0;
-	
-	FILE *file = fopen(delete_path, "r");
-	if (!file) return 0;
-	
-	char line[1024];
-	while (fgets(line, sizeof(line), file) && delete_count < 256)
-	{
-		// Remove newline
-		char *newline = strchr(line, '\n');
-		if (newline) *newline = 0;
-		
-		// Remove carriage return 
-		char *cr = strchr(line, '\r');
-		if (cr) *cr = 0;
-		
-		// Skip empty lines
-		if (strlen(line) == 0) continue;
-		
-		// Check if file still exists, remove from list if missing
-		if (!FileExists(line))
-		{
-			printf("Removing missing file from delete list: %s\n", line);
-			continue;
-		}
-		
-		strncpy(delete_cache[delete_count], line, sizeof(delete_cache[0]) - 1);
-		delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
-		delete_count++;
-	}
-	
-	fclose(file);
-	
-	// Sort delete list alphabetically by filename
-	for (int i = 0; i < delete_count - 1; i++)
-	{
-		for (int j = i + 1; j < delete_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(delete_cache[i], '/');
-			char *filename_j = strrchr(delete_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = delete_cache[i];
-			if (filename_j) filename_j++; else filename_j = delete_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, delete_cache[i]);
-				strcpy(delete_cache[i], delete_cache[j]);
-				strcpy(delete_cache[j], temp_path);
-			}
-		}
-	}
-	
-	return delete_count;
-}
-
-static void DeleteSave(const char *directory)
-{
-	char delete_path[1024];
-	
-	// Check if this is _Arcade directory
-	if (strcmp(directory, "_Arcade") == 0)
-	{
-		snprintf(delete_path, sizeof(delete_path), "/media/fat/_Arcade/delete.txt");
-	}
-	else
-	{
-		snprintf(delete_path, sizeof(delete_path), "/media/fat/games/%s/delete.txt", directory);
-	}
-	
-	if (delete_count == 0)
-	{
-		// No entries, delete the file
-		unlink(delete_path);
-		return;
-	}
-	
-	FILE *file = fopen(delete_path, "w");
-	if (!file) return;
-	
-	for (int i = 0; i < delete_count; i++)
-	{
-		fprintf(file, "%s\n", delete_cache[i]);
-	}
-	
-	fclose(file);
+	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_FAVORITE);
 }
 
 bool TryIsFile(const char *directory, const char *filename)
 {
-	// Load try list if directory changed
-	if (strcmp(directory, current_try_dir) != 0)
+	return GamesList_Contains(&g_games_list, directory, filename, GAME_TYPE_TRY);
+}
+
+void TryToggle(const char *directory, const char *filename)
+{
+	printf("TryToggle called: directory='%s', filename='%s'\n", directory, filename);
+	// Block try toggle when L+R combo is active (user trying to delete)
+	if (is_lr_combo_active())
 	{
-		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
-		current_try_dir[sizeof(current_try_dir) - 1] = 0;
-		TryLoad(directory);
+		printf("TryToggle BLOCKED - L+R combo active or grace period\n");
+		return;
+	}
+	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_TRY);
+}
+
+void DeleteToggle(const char *directory, const char *filename)
+{
+	printf("DeleteToggle called: directory='%s', filename='%s'\n", directory, filename);
+	GamesList_Toggle(&g_games_list, directory, filename, GAME_TYPE_DELETE);
+}
+
+// Public caching control functions
+void GamesList_ProcessAutoSave()
+{
+	// Check if auto-save should happen for the current directory
+	if (strlen(g_games_list.current_directory) > 0)
+	{
+		GamesList_CheckAutoSave(&g_games_list, g_games_list.current_directory);
+	}
+}
+
+void GamesList_FlushChanges()
+{
+	// Force flush any pending changes
+	if (strlen(g_games_list.current_directory) > 0)
+	{
+		GamesList_ForceFlush(&g_games_list, g_games_list.current_directory);
+	}
+}
+
+void GamesList_SetAutoSave(bool enabled)
+{
+	g_games_list.auto_save_enabled = enabled;
+	printf("GamesList: Auto-save %s\n", enabled ? "enabled" : "disabled");
+}
+
+// Additional missing functions needed by menu.cpp
+bool FavoritesIsFullPath(const char *directory, const char *full_path)
+{
+	// Load if directory changed
+	if (strcmp(g_games_list.current_directory, directory) != 0)
+	{
+		GamesList_Load(&g_games_list, directory);
 	}
 	
-	char full_path[1024];
-	// Use the current file list path to construct the complete path (same as TryToggle)
-	char *current_path = flist_Path();
-	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	
-	for (int i = 0; i < try_count; i++)
+	// Search for entry
+	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (strcmp(try_cache[i], full_path) == 0)
-		{
+		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE && strcmp(g_games_list.entries[i].path, full_path) == 0)
 			return true;
-		}
 	}
-	
 	return false;
 }
 
 bool TryIsFullPath(const char *directory, const char *full_path)
 {
-	// Load try list if directory changed
-	if (strcmp(directory, current_try_dir) != 0)
+	// Load if directory changed
+	if (strcmp(g_games_list.current_directory, directory) != 0)
 	{
-		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
-		current_try_dir[sizeof(current_try_dir) - 1] = 0;
-		TryLoad(directory);
+		GamesList_Load(&g_games_list, directory);
 	}
 	
-	for (int i = 0; i < try_count; i++)
+	// Search for entry
+	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (strcmp(try_cache[i], full_path) == 0)
-		{
+		if (g_games_list.entries[i].type == GAME_TYPE_TRY && strcmp(g_games_list.entries[i].path, full_path) == 0)
 			return true;
-		}
 	}
-	
 	return false;
 }
 
 bool DeleteIsFile(const char *directory, const char *filename)
 {
-	// Load delete list if directory changed
-	if (strcmp(directory, current_delete_dir) != 0)
-	{
-		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
-		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
-		DeleteLoad(directory);
-	}
-	
-	char full_path[1024];
-	// Use current path context to construct the full path
-	char *current_path = flist_Path();
-	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	
-	for (int i = 0; i < delete_count; i++)
-	{
-		if (strcmp(delete_cache[i], full_path) == 0)
-		{
-			return true;
-		}
-	}
-	
-	return false;
+	return GamesList_Contains(&g_games_list, directory, filename, GAME_TYPE_DELETE);
 }
 
 bool DeleteIsFullPath(const char *directory, const char *full_path)
 {
-	// Load delete list if directory changed
-	if (strcmp(directory, current_delete_dir) != 0)
+	// Load if directory changed
+	if (strcmp(g_games_list.current_directory, directory) != 0)
 	{
-		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
-		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
-		DeleteLoad(directory);
+		GamesList_Load(&g_games_list, directory);
 	}
 	
-	for (int i = 0; i < delete_count; i++)
+	// Search for entry
+	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (strcmp(delete_cache[i], full_path) == 0)
-		{
+		if (g_games_list.entries[i].type == GAME_TYPE_DELETE && strcmp(g_games_list.entries[i].path, full_path) == 0)
 			return true;
-		}
 	}
-	
 	return false;
-}
-
-void TryToggle(const char *directory, const char *filename)
-{
-	// Allow mutual exclusivity calls, but prevent infinite recursion
-	if (in_toggle_operation && !in_mutual_exclusivity_call)
-	{
-		printf("TryToggle: This is a mutual exclusivity call\n");
-		in_mutual_exclusivity_call = true;
-	}
-	else if (in_toggle_operation && in_mutual_exclusivity_call)
-	{
-		printf("TryToggle: Preventing infinite recursion\n");
-		return;
-	}
-	else
-	{
-		in_toggle_operation = true;
-	}
-	
-	// Load try list if directory changed
-	if (strcmp(directory, current_try_dir) != 0)
-	{
-		printf("TryToggle: Loading try list for directory='%s'\n", directory);
-		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
-		current_try_dir[sizeof(current_try_dir) - 1] = 0;
-		TryLoad(directory);
-		printf("TryToggle: After TryLoad, try_count=%d\n", try_count);
-	}
-	
-	char full_path[1024];
-	
-	// Check if we're in a virtual folder (favorites or try)
-	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-	{
-		// In virtual folders, use the stored full path from altname (not the filename parameter)
-		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
-		full_path[sizeof(full_path) - 1] = 0;
-	}
-	else
-	{
-		// Use the current file list path to construct the complete path
-		char *current_path = flist_Path();
-		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	}
-	
-	// Check if already in try list
-	printf("TryToggle: Looking for path '%s' in try list with %d items\n", full_path, try_count);
-	int found_index = -1;
-	for (int i = 0; i < try_count; i++)
-	{
-		printf("  try_cache[%d] = '%s'\n", i, try_cache[i]);
-		if (strcmp(try_cache[i], full_path) == 0)
-		{
-			found_index = i;
-			break;
-		}
-	}
-	printf("TryToggle: found_index = %d\n", found_index);
-	
-	if (found_index >= 0)
-	{
-		printf("Removed from try\n");
-		printf("STATE: try=false favorite=%s missing=%s\n", 
-			FavoritesIsFullPath(directory, full_path) ? "true" : "false",
-			FileExists(full_path) ? "false" : "true");
-		
-		for (int i = found_index; i < try_count - 1; i++)
-		{
-			strcpy(try_cache[i], try_cache[i + 1]);
-		}
-		try_count--;
-	}
-	else
-	{
-		printf("Added to try\n");
-		
-		// Skip mutual exclusivity logic if this is already a mutual exclusivity call
-		if (in_mutual_exclusivity_call)
-		{
-			printf("TryToggle: Skipping mutual exclusivity check (already in mutual exclusivity call)\n");
-		}
-		else
-		{
-			// Check for mutual exclusivity with favorites and delete
-			bool is_favorited = false;
-			bool is_delete = false;
-		
-			// Check if we're in any virtual folder (favorites or try)
-			if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-			{
-				// In virtual folders, check actual state using full path
-				is_favorited = FavoritesIsFullPath(directory, flist_SelectedItem()->altname);
-				is_delete = DeleteIsFullPath(directory, flist_SelectedItem()->altname);
-			}
-			else
-			{
-				// Regular context - check using file-based methods
-				is_favorited = FavoritesIsFile(directory, filename);
-				is_delete = DeleteIsFile(directory, filename);
-			}
-		
-			if (is_favorited)
-			{
-				printf("Removing from favorites to add to try\n");
-				FavoritesToggle(directory, filename); // This will remove from favorites
-			}
-			
-			if (is_delete)
-			{
-				printf("Removing from delete to add to try\n");
-				DeleteToggle(directory, filename); // This will remove from delete
-			}
-		}
-		
-		// Always handle broken heart removal and adding to try
-		if (IsBrokenHeart(full_path))
-		{
-			printf("Removing broken heart to add to try\n");
-			RemoveBrokenHeart(full_path);
-		}
-		
-		if (try_count < 256)
-		{
-			strncpy(try_cache[try_count], full_path, sizeof(try_cache[0]) - 1);
-			try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
-			try_count++;
-			printf("STATE: try=true favorite=false missing=%s\n", 
-				FileExists(full_path) ? "false" : "true");
-		}
-	}
-	
-	// Sort try list alphabetically by filename
-	for (int i = 0; i < try_count - 1; i++)
-	{
-		for (int j = i + 1; j < try_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(try_cache[i], '/');
-			char *filename_j = strrchr(try_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = try_cache[i];
-			if (filename_j) filename_j++; else filename_j = try_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, try_cache[i]);
-				strcpy(try_cache[i], try_cache[j]);
-				strcpy(try_cache[j], temp_path);
-			}
-		}
-	}
-	
-	// Handle dynamic virtual folder addition/removal for _Arcade directory and games directories
-	if (strcmp(directory, "_Arcade") == 0 || strstr(directory, "games/") != NULL)
-	{
-		// Check if we're transitioning between having/not having try items
-		static int previous_try_count = 0;
-		bool had_try = (previous_try_count > 0);
-		bool has_try = (try_count > 0);
-		
-		if (had_try != has_try)
-		{
-			// We need to dynamically add or remove the virtual try folder
-			printf("Dynamic virtual try folder update: had=%d, has=%d\n", had_try, has_try);
-			
-			if (!had_try && has_try)
-			{
-				printf("Adding virtual try folder dynamically\n");
-				
-				// Check if it doesn't already exist in DirItem
-				bool folder_exists = false;
-				for (int i = 0; i < (int)DirItem.size(); i++)
-				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9B Try") == 0)
-					{
-						folder_exists = true;
-						break;
-					}
-				}
-				
-				if (!folder_exists)
-				{
-					direntext_t try_dir;
-					memset(&try_dir, 0, sizeof(try_dir));
-					try_dir.de.d_type = DT_DIR;
-					strcpy(try_dir.de.d_name, "\x9B Try"); // Empty heart symbol + Try
-					strcpy(try_dir.altname, "\x9B Try");
-					try_dir.flags = 0x8000; // Special flag to identify virtual try folder
-					DirItem.push_back(try_dir);
-					
-					// Re-sort the directory to maintain proper ordering
-					std::sort(DirItem.begin(), DirItem.end(), DirentComp());
-				}
-			}
-			else if (had_try && !has_try)
-			{
-				printf("Removing virtual try folder dynamically\n");
-				
-				// Find and remove the virtual try folder
-				for (int i = 0; i < (int)DirItem.size(); i++)
-				{
-					if (DirItem[i].de.d_type == DT_DIR && strcmp(DirItem[i].altname, "\x9B Try") == 0)
-					{
-						DirItem.erase(DirItem.begin() + i);
-						printf("Virtual try folder removed\n");
-						break;
-					}
-				}
-			}
-		}
-		previous_try_count = try_count;
-	}
-	
-	TrySave(directory);
-	
-	in_toggle_operation = false;
-	in_mutual_exclusivity_call = false;
-}
-
-void TryRemove(const char *directory, const char *filename)
-{
-	// Load try list if directory changed
-	if (strcmp(directory, current_try_dir) != 0)
-	{
-		strncpy(current_try_dir, directory, sizeof(current_try_dir) - 1);
-		current_try_dir[sizeof(current_try_dir) - 1] = 0;
-		TryLoad(directory);
-	}
-	
-	char full_path[1024];
-	
-	// Check if we're in a virtual folder (favorites or try)
-	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-	{
-		// In virtual folders, use the stored full path from altname
-		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
-		full_path[sizeof(full_path) - 1] = 0;
-	}
-	else
-	{
-		// Use the current file list path to construct the complete path
-		char *current_path = flist_Path();
-		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	}
-	
-	// Find and remove from try list if present
-	int found_index = -1;
-	for (int i = 0; i < try_count; i++)
-	{
-		if (strcmp(try_cache[i], full_path) == 0)
-		{
-			found_index = i;
-			break;
-		}
-	}
-	
-	if (found_index >= 0)
-	{
-		printf("TryRemove: Removed from try list\n");
-		for (int i = found_index; i < try_count - 1; i++)
-		{
-			strcpy(try_cache[i], try_cache[i + 1]);
-		}
-		try_count--;
-		TrySave(directory);
-	}
-}
-
-void DeleteToggle(const char *directory, const char *filename)
-{
-	// Load delete list if directory changed
-	if (strcmp(directory, current_delete_dir) != 0)
-	{
-		strncpy(current_delete_dir, directory, sizeof(current_delete_dir) - 1);
-		current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
-		DeleteLoad(directory);
-	}
-	
-	char full_path[1024];
-	
-	// Check if we're in a virtual folder (favorites or try)
-	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-	{
-		// In virtual folders, use the stored full path from altname (not the filename parameter)
-		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
-		full_path[sizeof(full_path) - 1] = 0;
-	}
-	else
-	{
-		// Use the current file list path to construct the complete path
-		char *current_path = flist_Path();
-		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
-	}
-	
-	// Check if already in delete list
-	int found_index = -1;
-	for (int i = 0; i < delete_count; i++)
-	{
-		if (strcmp(delete_cache[i], full_path) == 0)
-		{
-			found_index = i;
-			break;
-		}
-	}
-	
-	if (found_index >= 0)
-	{
-		printf("Removed from delete\n");
-		printf("STATE: try=%s favorite=%s delete=false missing=%s\n", 
-			TryIsFullPath(directory, full_path) ? "true" : "false",
-			FavoritesIsFullPath(directory, full_path) ? "true" : "false",
-			FileExists(full_path) ? "false" : "true");
-		
-		for (int i = found_index; i < delete_count - 1; i++)
-		{
-			strcpy(delete_cache[i], delete_cache[i + 1]);
-		}
-		delete_count--;
-	}
-	else
-	{
-		printf("Added to delete\n");
-		
-		// Remove from favorites and try lists (mutual exclusivity)
-		if (FavoritesIsFullPath(directory, full_path))
-		{
-			printf("Removing from favorites to mark for delete\n");
-			FavoritesToggle(directory, filename);
-		}
-		
-		if (TryIsFullPath(directory, full_path))
-		{
-			printf("Removing from try to mark for delete\n");
-			TryRemove(directory, filename);
-		}
-		
-		// Remove broken heart if exists
-		RemoveBrokenHeart(full_path);
-		
-		if (delete_count < 256)
-		{
-			strncpy(delete_cache[delete_count], full_path, sizeof(delete_cache[0]) - 1);
-			delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
-			delete_count++;
-			printf("STATE: try=false favorite=false delete=true missing=%s\n", 
-				FileExists(full_path) ? "false" : "true");
-		}
-	}
-	
-	// Sort delete list alphabetically by filename
-	for (int i = 0; i < delete_count - 1; i++)
-	{
-		for (int j = i + 1; j < delete_count; j++)
-		{
-			// Extract filenames for comparison
-			char *filename_i = strrchr(delete_cache[i], '/');
-			char *filename_j = strrchr(delete_cache[j], '/');
-			if (filename_i) filename_i++; else filename_i = delete_cache[i];
-			if (filename_j) filename_j++; else filename_j = delete_cache[j];
-			
-			// Compare filenames (case insensitive)
-			if (strcasecmp(filename_i, filename_j) > 0)
-			{
-				// Swap full paths
-				char temp_path[1024];
-				strcpy(temp_path, delete_cache[i]);
-				strcpy(delete_cache[i], delete_cache[j]);
-				strcpy(delete_cache[j], temp_path);
-			}
-		}
-	}
-	
-	DeleteSave(directory);
 }
 
 int ScanVirtualFavorites(const char *core_path)
 {
+	printf("ScanVirtualFavorites: core_path='%s'\n", core_path);
 	
 	// Extract core name from path first
 	const char *games_pos = strstr(core_path, "games/");
-	const char *arcade_pos = strstr(core_path, "_Arcade");
-	if (!games_pos && !arcade_pos) return 0;
-	
-	char core_dir[256];
-	static char parent_path[1024];
-	
-	if (games_pos)
-	{
-		// Handle games directory
-		const char *core_name = games_pos + 6;
-		const char *slash_pos = strchr(core_name, '/');
-		
-		// Store the parent path (core directory) so ".." navigation returns to the correct directory
-		if (slash_pos)
-		{
-			// We're in a subdirectory, extract up to the core directory
-			int path_len = (games_pos + 6 + (slash_pos - core_name)) - core_path;
-			strncpy(parent_path, core_path, path_len);
-			parent_path[path_len] = 0;
-		}
-		else
-		{
-			// We're at the core root
-			strncpy(parent_path, core_path, sizeof(parent_path) - 1);
-			parent_path[sizeof(parent_path) - 1] = 0;
-		}
-		if (slash_pos)
-		{
-			int core_len = slash_pos - core_name;
-			strncpy(core_dir, core_name, core_len);
-			core_dir[core_len] = 0;
-		}
-		else
-		{
-			strcpy(core_dir, core_name);
-		}
-	}
-	else if (arcade_pos)
-	{
-		// Handle _Arcade directory
-		strcpy(core_dir, "_Arcade");
-		strncpy(parent_path, core_path, sizeof(parent_path) - 1);
-		parent_path[sizeof(parent_path) - 1] = 0;
+	if (!games_pos) {
+		printf("ScanVirtualFavorites: 'games/' not found in path\n");
+		return 0;
 	}
 	
-	// Force a fresh reload by clearing the cached directory
-	current_favorites_dir[0] = 0;
-	int count = FavoritesLoad(core_dir);
-	if (count == 0) return 0;
+	const char *core_name = games_pos + 6; // Skip "games/"
+	printf("ScanVirtualFavorites: core_name='%s'\n", core_name);
 	
+	// Clear current directory listing
+	printf("DirItem.clear() called in ScanVirtualFavorites\n");
 	DirItem.clear();
 	DirNames.clear();
 	iSelectedEntry = 0;
 	iFirstEntry = 0;
 	
-	// Update scanned_path to include the virtual favorites folder
-	snprintf(scanned_path, sizeof(scanned_path), "%s/\x97 Favorites", parent_path);
+	// Add ".." entry as first item to allow going back to parent directory
+	direntext_t parent_item;
+	memset(&parent_item, 0, sizeof(parent_item));
+	parent_item.de.d_type = DT_DIR;
+	strcpy(parent_item.de.d_name, "..");
+	strcpy(parent_item.altname, core_path); // Store parent path in altname
+	DirItem.push_back(parent_item);
 	
-	// Add ".." up navigation entry at the top
-	direntext_t up_dir;
-	memset(&up_dir, 0, sizeof(up_dir));
-	up_dir.de.d_type = DT_DIR;
-	strcpy(up_dir.de.d_name, "..");
-	strcpy(up_dir.altname, parent_path);  // Store parent path for navigation
-	DirItem.push_back(up_dir);
+	// Load the games list for this core
+	GamesList_Load(&g_games_list, core_name);
 	
-	for (int i = 0; i < favorites_count; i++)
+	// Add favorite items as virtual files
+	int count = 1; // Start at 1 to account for ".." entry
+	for (int i = 0; i < g_games_list.count; i++)
 	{
-		// Extract clean path, skipping X marking if present
-		const char *clean_path = (favorites_cache[i][0] == '\x9C') ? favorites_cache[i] + 2 : favorites_cache[i];
-		
-		// Use the exact path as stored - don't try to reconstruct it
-		if (!FileExists(clean_path, 1)) 
+		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE)
 		{
-			continue;
+			direntext_t item;
+			memset(&item, 0, sizeof(item));
+			
+			// Extract just the filename from the full path
+			const char *filename = strrchr(g_games_list.entries[i].path, '/');
+			if (filename) filename++; else filename = g_games_list.entries[i].path;
+			
+			// Create clean display name (remove file extension)
+			char clean_name[256];
+			strncpy(clean_name, filename, sizeof(clean_name) - 1);
+			clean_name[sizeof(clean_name) - 1] = 0;
+			
+			// Remove file extension from clean name
+			char *ext_pos = strrchr(clean_name, '.');
+			if (ext_pos) *ext_pos = 0;
+			
+			// Set as regular file with clean name (special character handled by PrintDirectory)
+			item.de.d_type = DT_REG;
+			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
+			
+			// For virtual items, altname contains the full path for loading
+			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
+			item.altname[sizeof(item.altname) - 1] = 0;
+			
+			item.flags = 0x8001; // Mark as virtual favorite item
+			
+			printf("ScanVirtualFavorites: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
+			       count, item.de.d_name, item.altname, item.flags);
+			
+			DirItem.push_back(item);
+			count++;
 		}
-		
-		// Extract filename from full path
-		char *filename = (char*)strrchr(clean_path, '/');
-		char clean_filename[256];
-		
-		if (filename) 
-		{
-			filename++; // skip the '/'
-			strncpy(clean_filename, filename, sizeof(clean_filename) - 1);
-		}
-		else
-		{
-			strncpy(clean_filename, clean_path, sizeof(clean_filename) - 1);
-		}
-		clean_filename[sizeof(clean_filename) - 1] = 0;
-		
-		// Remove file extension for display
-		char *last_dot = strrchr(clean_filename, '.');
-		if (last_dot) *last_dot = 0;
-		
-		// Create directory entry with the actual stored path
-		direntext_t item;
-		memset(&item, 0, sizeof(item));
-		item.de.d_type = DT_REG;
-		// For virtual favorites, store the original path (including X marking if present) in altname
-		// This allows the icon display logic to detect missing files
-		strncpy(item.altname, favorites_cache[i], sizeof(item.altname) - 1);
-		item.altname[sizeof(item.altname) - 1] = 0;
-		
-		// Try to store full clean name in d_name, but it might get truncated
-		strncpy(item.de.d_name, clean_filename, sizeof(item.de.d_name) - 1);
-		item.de.d_name[sizeof(item.de.d_name) - 1] = 0;
-		
-		// Store clean filename at the end of altname after a null separator for display
-		// Format: full_path\0clean_filename
-		int path_len = strlen(item.altname);
-		if (path_len + 1 + strlen(clean_filename) < sizeof(item.altname) - 1)
-		{
-			strcpy(item.altname + path_len + 1, clean_filename);
-		}
-		
-		// Mark this as a virtual favorites entry by setting a special flag
-		item.flags = 0x8001; // Special flag to identify virtual favorites files
-		
-		DirItem.push_back(item);
 	}
 	
-	return DirItem.size();
+	printf("ScanVirtualFavorites: Added %d favorite items\n", count);
+	return count;
 }
 
 int ScanVirtualTry(const char *core_path)
 {
+	printf("ScanVirtualTry: core_path='%s'\n", core_path);
 	
 	// Extract core name from path first
 	const char *games_pos = strstr(core_path, "games/");
-	const char *arcade_pos = strstr(core_path, "_Arcade");
-	if (!games_pos && !arcade_pos) return 0;
-
-	char core_dir[256] = "";
-	char parent_path[1024] = "";
-	
-	if (games_pos)
-	{
-		char *core_name = (char*)(games_pos + 6); // skip "games/"
-		char *slash_pos = strchr(core_name, '/');
-		
-		// Check if we're in the main core directory or a subdirectory
-		if (!slash_pos)
-		{
-			// We're at the core root
-			strncpy(parent_path, core_path, sizeof(parent_path) - 1);
-			parent_path[sizeof(parent_path) - 1] = 0;
-		}
-		if (slash_pos)
-		{
-			int core_len = slash_pos - core_name;
-			strncpy(core_dir, core_name, core_len);
-			core_dir[core_len] = 0;
-		}
-		else
-		{
-			strcpy(core_dir, core_name);
-		}
-	}
-	else if (arcade_pos)
-	{
-		// Handle _Arcade directory
-		strcpy(core_dir, "_Arcade");
-		strncpy(parent_path, core_path, sizeof(parent_path) - 1);
-		parent_path[sizeof(parent_path) - 1] = 0;
+	if (!games_pos) {
+		printf("ScanVirtualTry: 'games/' not found in path\n");
+		return 0;
 	}
 	
-	// Load try list for the core directory
-	printf("ScanVirtualTry: Loading try list for core_dir='%s'\n", core_dir);
-	// Force a fresh reload by clearing the cached directory
-	current_try_dir[0] = 0;
-	TryLoad(core_dir);
-	printf("ScanVirtualTry: TryLoad returned try_count=%d\n", try_count);
+	const char *core_name = games_pos + 6; // Skip "games/"
+	printf("ScanVirtualTry: core_name='%s'\n", core_name);
 	
-	if (try_count == 0) return 0;
-	
+	// Clear current directory listing
+	printf("DirItem.clear() called in ScanVirtualTry\n");
 	DirItem.clear();
 	DirNames.clear();
 	iSelectedEntry = 0;
 	iFirstEntry = 0;
 	
-	// Update scanned_path to include the virtual try folder
-	snprintf(scanned_path, sizeof(scanned_path), "%s/\x9B Try", parent_path);
+	// Add ".." entry as first item to allow going back to parent directory
+	direntext_t parent_item;
+	memset(&parent_item, 0, sizeof(parent_item));
+	parent_item.de.d_type = DT_DIR;
+	strcpy(parent_item.de.d_name, "..");
+	strcpy(parent_item.altname, core_path); // Store parent path in altname
+	DirItem.push_back(parent_item);
 	
-	// Add ".." up navigation entry at the top
-	direntext_t up_dir;
-	memset(&up_dir, 0, sizeof(up_dir));
-	up_dir.de.d_type = DT_DIR;
-	strcpy(up_dir.de.d_name, "..");
-	strcpy(up_dir.altname, parent_path);  // Store parent path for navigation
-	DirItem.push_back(up_dir);
+	// Load the games list for this core
+	GamesList_Load(&g_games_list, core_name);
 	
-	// Create directory entries for each try item
-	for (int i = 0; i < try_count; i++)
+	// Add try items as virtual files
+	int count = 1; // Start at 1 to account for ".." entry
+	for (int i = 0; i < g_games_list.count; i++)
 	{
-		// Extract clean path, skipping X marking if present
-		const char *clean_path = (try_cache[i][0] == '\x9C') ? try_cache[i] + 2 : try_cache[i];
-		
-		// Extract filename from full path
-		char *filename = (char*)strrchr(clean_path, '/');
-		if (!filename) continue;
-		filename++; // skip the '/'
-		
-		// Create a clean filename for display (without extension)
-		char clean_filename[256];
-		strncpy(clean_filename, filename, sizeof(clean_filename) - 1);
-		clean_filename[sizeof(clean_filename) - 1] = 0;
-		
-		// Remove file extension for display
-		char *last_dot = strrchr(clean_filename, '.');
-		if (last_dot) *last_dot = 0;
-		
-		// Create directory entry with the actual stored path
-		direntext_t item;
-		memset(&item, 0, sizeof(item));
-		item.de.d_type = DT_REG;
-		// For virtual try, store the original path (including X marking if present) in altname
-		// This allows the icon display logic to detect missing files
-		strncpy(item.altname, try_cache[i], sizeof(item.altname) - 1);
-		item.altname[sizeof(item.altname) - 1] = 0;
-		
-		// Try to store full clean name in d_name, but it might get truncated
-		strncpy(item.de.d_name, clean_filename, sizeof(item.de.d_name) - 1);
-		item.de.d_name[sizeof(item.de.d_name) - 1] = 0;
-		
-		// Store clean filename at the end of altname after a null separator for display
-		// Format: full_path\0clean_filename
-		int path_len = strlen(item.altname);
-		if (path_len + 1 + strlen(clean_filename) < sizeof(item.altname) - 1)
+		if (g_games_list.entries[i].type == GAME_TYPE_TRY)
 		{
-			strcpy(item.altname + path_len + 1, clean_filename);
+			direntext_t item;
+			memset(&item, 0, sizeof(item));
+			
+			// Extract just the filename from the full path
+			const char *filename = strrchr(g_games_list.entries[i].path, '/');
+			if (filename) filename++; else filename = g_games_list.entries[i].path;
+			
+			// Create clean display name (remove file extension)
+			char clean_name[256];
+			strncpy(clean_name, filename, sizeof(clean_name) - 1);
+			clean_name[sizeof(clean_name) - 1] = 0;
+			
+			// Remove file extension from clean name
+			char *ext_pos = strrchr(clean_name, '.');
+			if (ext_pos) *ext_pos = 0;
+			
+			// Set as regular file with clean name (special character handled by PrintDirectory)
+			item.de.d_type = DT_REG;
+			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
+			
+			// For virtual items, altname contains the full path for loading
+			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
+			item.altname[sizeof(item.altname) - 1] = 0;
+			
+			item.flags = 0x8002; // Mark as virtual try item
+			
+			printf("ScanVirtualTry: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
+			       count, item.de.d_name, item.altname, item.flags);
+			
+			DirItem.push_back(item);
+			count++;
 		}
-		
-		// Mark this as a virtual try entry by setting a special flag
-		item.flags = 0x8002; // Special flag to identify virtual try files
-		
-		DirItem.push_back(item);
 	}
 	
-	return try_count + 1; // +1 for the ".." entry
+	printf("ScanVirtualTry: Added %d try items\n", count);
+	return count;
 }
 
-// Debug state tracking function
-void PrintFileState(const char *directory, const char *filename)
+int ScanVirtualDelete(const char *core_path)
 {
-	char full_path[1024];
+	printf("ScanVirtualDelete: core_path='%s'\n", core_path);
 	
-	// Check if we're in a virtual folder (favorites or try)
-	if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002))
-	{
-		// In virtual folders, use the stored full path from altname (not the filename parameter)
-		strncpy(full_path, flist_SelectedItem()->altname, sizeof(full_path) - 1);
-		full_path[sizeof(full_path) - 1] = 0;
-	}
-	else
-	{
-		// Use the current file list path to construct the complete path
-		char *current_path = flist_Path();
-		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	// Extract core name from path first
+	const char *games_pos = strstr(core_path, "games/");
+	if (!games_pos) {
+		printf("ScanVirtualDelete: 'games/' not found in path\n");
+		return 0;
 	}
 	
-	bool is_try = TryIsFullPath(directory, full_path);
-	bool is_favorite = FavoritesIsFullPath(directory, full_path);
-	bool is_delete = DeleteIsFullPath(directory, full_path);
-	bool is_missing = !FileExists(full_path);
-	bool is_broken_heart = IsBrokenHeart(full_path);
+	const char *core_name = games_pos + 6; // Skip "games/"
+	printf("ScanVirtualDelete: core_name='%s'\n", core_name);
 	
-	printf("STATE: try=%s favorite=%s delete=%s missing=%s broken_heart=%s file=%s\n", 
-		is_try ? "true" : "false",
-		is_favorite ? "true" : "false",
-		is_delete ? "true" : "false",
-		is_missing ? "true" : "false",
-		is_broken_heart ? "true" : "false",
-		filename);
+	// Clear current directory listing
+	printf("DirItem.clear() called in ScanVirtualDelete\n");
+	DirItem.clear();
+	DirNames.clear();
+	iSelectedEntry = 0;
+	iFirstEntry = 0;
+	
+	// Add ".." entry as first item to allow going back to parent directory
+	direntext_t parent_item;
+	memset(&parent_item, 0, sizeof(parent_item));
+	parent_item.de.d_type = DT_DIR;
+	strcpy(parent_item.de.d_name, "..");
+	strcpy(parent_item.altname, core_path); // Store parent path in altname
+	DirItem.push_back(parent_item);
+	
+	// Load the games list for this core
+	GamesList_Load(&g_games_list, core_name);
+	
+	// Add delete items as virtual files
+	int count = 1; // Start at 1 to account for ".." entry
+	for (int i = 0; i < g_games_list.count; i++)
+	{
+		if (g_games_list.entries[i].type == GAME_TYPE_DELETE)
+		{
+			direntext_t item;
+			memset(&item, 0, sizeof(item));
+			
+			// Extract just the filename from the full path
+			const char *filename = strrchr(g_games_list.entries[i].path, '/');
+			if (filename) filename++; else filename = g_games_list.entries[i].path;
+			
+			// Create clean display name (remove file extension)
+			char clean_name[256];
+			strncpy(clean_name, filename, sizeof(clean_name) - 1);
+			clean_name[sizeof(clean_name) - 1] = 0;
+			
+			// Remove file extension from clean name
+			char *ext_pos = strrchr(clean_name, '.');
+			if (ext_pos) *ext_pos = 0;
+			
+			// Set as regular file with clean name (special character handled by PrintDirectory)
+			item.de.d_type = DT_REG;
+			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
+			
+			// For virtual items, altname contains the full path for loading
+			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
+			item.altname[sizeof(item.altname) - 1] = 0;
+			
+			item.flags = 0x8003; // Mark as virtual delete item
+			
+			printf("ScanVirtualDelete: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
+			       count, item.de.d_name, item.altname, item.flags);
+			
+			DirItem.push_back(item);
+			count++;
+		}
+	}
+	
+	printf("ScanVirtualDelete: Added %d delete items\n", count);
+	return count;
 }
+
