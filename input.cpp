@@ -5951,7 +5951,6 @@ int input_poll(int getchar)
 						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
 							selected->altname : selected->de.d_name;
 						DeleteToggle(core_dir, file_identifier);
-						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
 						PrintDirectory(1); // Refresh display to update visual indicators
 					}
 				}
@@ -5976,7 +5975,6 @@ int input_poll(int getchar)
 						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
 							selected->altname : selected->de.d_name;
 						TryToggle(core_dir, file_identifier);
-						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
 						PrintDirectory(1); // Refresh display to update visual indicators
 					}
 				}
@@ -6001,7 +5999,6 @@ int input_poll(int getchar)
 						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
 							selected->altname : selected->de.d_name;
 						FavoritesToggle(core_dir, file_identifier);
-						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
 						PrintDirectory(1); // Refresh display to update visual indicators
 					}
 				}
