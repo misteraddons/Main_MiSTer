@@ -2638,7 +2638,7 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 					list->entries[i].path, list->entries[i].type, 
 					list->entries[j].path, list->entries[j].type);
 				
-				// For cross-type duplicates (favorite vs try), prefer favorite
+				// For cross-type duplicates (favorite vs try), prefer try
 				// Ignore delete entries for cross-type checks (they keep full paths)
 				int keep_i = 1; // Default: keep entry i
 				
@@ -2646,14 +2646,15 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 				    list->entries[i].type != GAME_TYPE_DELETE && 
 				    list->entries[j].type != GAME_TYPE_DELETE)
 				{
-					// Cross-type duplicate: prefer favorite over try
-					if (list->entries[i].type == GAME_TYPE_FAVORITE) {
-						keep_i = 1; // Keep favorite (i)
-					} else if (list->entries[j].type == GAME_TYPE_FAVORITE) {
-						keep_i = 0; // Keep favorite (j)
+					// Cross-type duplicate: prefer try over favorite (user may need to verify again)
+					if (list->entries[i].type == GAME_TYPE_TRY) {
+						keep_i = 1; // Keep try (i)
+					} else if (list->entries[j].type == GAME_TYPE_TRY) {
+						keep_i = 0; // Keep try (j)
 					}
 					printf("Cross-type duplicate detected - preferring %s\n", 
-						(keep_i ? "favorite" : "try"));
+						(keep_i && list->entries[i].type == GAME_TYPE_TRY) || 
+						(!keep_i && list->entries[j].type == GAME_TYPE_TRY) ? "try" : "favorite");
 				}
 				else if (list->entries[i].type == list->entries[j].type)
 				{
