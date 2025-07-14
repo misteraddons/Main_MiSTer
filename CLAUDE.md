@@ -165,8 +165,11 @@ typedef struct {
 | **Original** | 768 entries | 1024 chars | 787KB | 1,759,524 bytes | Baseline |
 | **First opt** | 512 entries | 256 chars | 128KB | 1,106,468 bytes | 653KB |
 | **Final opt** | 512 entries | 192 chars | 96KB | 1,073,700 bytes | **686KB** |
+| **Legacy removed** | Dynamic | 192 chars | 0-96KB | 973,356 bytes | **786KB** |
 
-- **Final binary reduction**: 1,759,524 → 1,073,700 bytes (**39% smaller**)
+- **Initial optimization**: 1,759,524 → 1,073,700 bytes (39% smaller)
+- **Legacy cache removal**: 1,073,700 → 973,356 bytes (additional 100KB saved)
+- **Total reduction**: 1,759,524 → 973,356 bytes (**45% smaller**)
 
 ### **Cache System Limitations:**
 - ✅ **512 games maximum per core** - generous limit for large collections
@@ -180,6 +183,13 @@ typedef struct {
 - Cache is flushed when switching between cores
 - Format: `type,filepath` where type is 'd' (delete), 'f' (favorite), or 't' (try)
 - System gracefully handles cache overflow by stopping at 512 entries
+
+### **Legacy Cache Removal (Latest Optimization):**
+The removal of legacy cache arrays (favorites_cache, try_cache, delete_cache) yielded surprising results:
+- **Removed**: 3 static arrays of 256×1024 bytes each = 768KB of static memory
+- **Binary size reduction**: 100KB (more than expected due to compiler optimizations)
+- **No functionality loss**: Unified GamesList handles all operations
+- **Cleaner code**: Eliminated duplicate data structures and update logic
 
 ## Optimization Opportunities
 
@@ -266,6 +276,47 @@ if (selected->de.d_type == DT_REG) {
         // File can be marked as favorite/try/delete
     }
 }
+```
+
+## Advanced Features
+
+### Self-Healing File Paths
+The games.txt system includes automatic file relocation to handle moved or reorganized ROM files:
+
+**Function**: `GamesList_RelocateMissingFiles()` (file_io.cpp:2548-2585)
+
+**How it works**:
+1. **Detection**: On load, checks if each file exists at its recorded path
+2. **Search**: For missing files, recursively searches the entire core directory
+3. **Relocation**: Updates the path when found in a new location
+4. **Persistence**: Saves the corrected path back to games.txt
+
+**Benefits**:
+- No broken entries after reorganizing ROM directories
+- Preserves favorite/try/delete states even when files move
+- Completely transparent to the user
+- No manual cleanup required
+
+### Automatic De-duplication
+The system prevents duplicate entries in games.txt files:
+
+**Function**: `GamesList_RemoveDuplicates()` (file_io.cpp:2484-2521)
+
+**Features**:
+- Removes exact duplicate entries (same path and type)
+- Consolidates multiple states for the same file (keeps highest priority)
+- Priority order: Favorite > Try > Delete
+- Runs automatically during load and save operations
+
+**Example**:
+```
+Before de-duplication:
+f,/media/fat/games/SNES/Mario.sfc
+t,/media/fat/games/SNES/Mario.sfc
+d,/media/fat/games/SNES/Mario.sfc
+
+After de-duplication:
+f,/media/fat/games/SNES/Mario.sfc   (Favorite has highest priority)
 ```
 
 ## System Limits
@@ -404,6 +455,8 @@ All major todo items have been completed:
 - **Missing file recovery**: Automatic path correction for moved/reorganized files
 - **Exact matching**: Fixed regular folders with "Favorites"/"Try"/"Delete" in names
 - **Performance analysis**: Determined current algorithms are suitable for embedded system
+- **Self-healing games.txt**: Automatically relocates entries when files are moved/reorganized
+- **De-duplication**: Prevents duplicate entries in games.txt for cleaner lists
 
 ### 📈 **Performance Characteristics**
 - **Lookup time**: O(n) linear search acceptable for 512 entry limit

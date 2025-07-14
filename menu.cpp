@@ -7372,7 +7372,6 @@ void PrintDirectory(int expand)
 				{
 					char *core_name = games_pos + 6; // skip "games/"
 					char *slash_pos = strchr(core_name, '/');
-					printf("DEBUG: core_name='%s', slash_pos=%s\n", core_name, slash_pos ? "found" : "null");
 					
 					char core_dir[256];
 					if (slash_pos)

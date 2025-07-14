@@ -93,6 +93,7 @@ static void GamesList_RelocateMissingFiles(GamesList* list, const char* director
 static bool GamesList_SearchForFile(const char* search_dir, const char* filename, char* found_path, size_t path_size);
 static bool GamesList_EnsureCapacity(GamesList* list, int needed_capacity);
 static void GamesList_Free(GamesList* list);
+static void GamesList_RemoveDuplicates(GamesList* list);
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -2234,18 +2235,7 @@ const char *FileReadLine(fileTextReader *reader)
 #define GAMES_CACHE_DELAY_MS 60000  // 60 seconds (1 minute) delay before auto-save
 #define GAMES_CACHE_MAX_DIRTY_TIME_MS 120000 // 2 minutes max before forced save
 
-// Legacy compatibility - these will point to filtered subsets of the unified list
-static char favorites_cache[256][1024]; // Full paths
-static int favorites_count = 0;
-static char current_favorites_dir[1024] = "";
-
-static char try_cache[256][1024]; // Full paths
-static int try_count = 0;
-static char current_try_dir[1024] = "";
-
-static char delete_cache[256][1024]; // Full paths
-static int delete_count = 0;
-static char current_delete_dir[1024] = "";
+// Legacy cache arrays removed - unified GamesList is now the single source of truth
 
 // Broken heart feedback system
 char broken_heart_paths[256][1024];
@@ -2306,54 +2296,7 @@ static void GamesList_CheckAutoSave(GamesList* list, const char* directory)
 	}
 }
 
-// Unified GamesList Functions
-static void GamesList_UpdateLegacyCaches(GamesList* list)
-{
-	// Clear legacy caches
-	favorites_count = 0;
-	try_count = 0;
-	delete_count = 0;
-	
-	// Populate legacy caches from unified list
-	for (int i = 0; i < list->count; i++)
-	{
-		switch (list->entries[i].type)
-		{
-			case GAME_TYPE_FAVORITE:
-				if (favorites_count < 256)
-				{
-					strncpy(favorites_cache[favorites_count], list->entries[i].path, sizeof(favorites_cache[0]) - 1);
-					favorites_cache[favorites_count][sizeof(favorites_cache[0]) - 1] = 0;
-					favorites_count++;
-				}
-				break;
-			case GAME_TYPE_TRY:
-				if (try_count < 256)
-				{
-					strncpy(try_cache[try_count], list->entries[i].path, sizeof(try_cache[0]) - 1);
-					try_cache[try_count][sizeof(try_cache[0]) - 1] = 0;
-					try_count++;
-				}
-				break;
-			case GAME_TYPE_DELETE:
-				if (delete_count < 256)
-				{
-					strncpy(delete_cache[delete_count], list->entries[i].path, sizeof(delete_cache[0]) - 1);
-					delete_cache[delete_count][sizeof(delete_cache[0]) - 1] = 0;
-					delete_count++;
-				}
-				break;
-		}
-	}
-	
-	// Update legacy directory tracking
-	strncpy(current_favorites_dir, list->current_directory, sizeof(current_favorites_dir) - 1);
-	current_favorites_dir[sizeof(current_favorites_dir) - 1] = 0;
-	strncpy(current_try_dir, list->current_directory, sizeof(current_try_dir) - 1);
-	current_try_dir[sizeof(current_try_dir) - 1] = 0;
-	strncpy(current_delete_dir, list->current_directory, sizeof(current_delete_dir) - 1);
-	current_delete_dir[sizeof(current_delete_dir) - 1] = 0;
-}
+// Legacy GamesList_UpdateLegacyCaches function removed - no longer needed
 
 static int GamesList_Compare(const void* a, const void* b)
 {
@@ -2475,7 +2418,7 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	FILE *file = fopen(games_path, "r");
 	if (!file) 
 	{
-			GamesList_UpdateLegacyCaches(list);
+			// Legacy cache update removed
 		return;
 	}
 	
@@ -2533,16 +2476,20 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	// Check for missing files and attempt to relocate them
 	GamesList_RelocateMissingFiles(list, directory);
 	
+	// Remove duplicate entries (same file, same type)
+	GamesList_RemoveDuplicates(list);
+	
 	// Sort the unified list
 	GamesList_Sort(list);
 	
-	// Update legacy caches for backward compatibility
-	GamesList_UpdateLegacyCaches(list);
+	// Legacy cache update removed - unified GamesList is now the single source
 }
 
 // Function to search for missing files and update their paths if found
 static void GamesList_RelocateMissingFiles(GamesList* list, const char* directory)
 {
+	bool files_relocated = false;
+	
 	for (int i = 0; i < list->count; i++)
 	{
 		// Check if the file exists at its recorded path
@@ -2565,8 +2512,16 @@ static void GamesList_RelocateMissingFiles(GamesList* list, const char* director
 				
 				// Mark as dirty so the updated path gets saved
 				list->is_dirty = true;
+				files_relocated = true;
 			}
 		}
+	}
+	
+	// If files were relocated, mark for virtual folder refresh
+	if (files_relocated)
+	{
+		// This will be checked by the UI to know it needs to refresh virtual folders
+		list->last_change_time = time(NULL);
 	}
 }
 
@@ -2610,6 +2565,29 @@ static bool GamesList_SearchForFile(const char* search_dir, const char* filename
 	
 	closedir(dir);
 	return false;
+}
+
+// Remove duplicate entries (same path and type)
+static void GamesList_RemoveDuplicates(GamesList* list)
+{
+	for (int i = 0; i < list->count; i++)
+	{
+		for (int j = i + 1; j < list->count; j++)
+		{
+			// Check if entries i and j are duplicates (same path and type)
+			if (list->entries[i].type == list->entries[j].type && 
+			    strcmp(list->entries[i].path, list->entries[j].path) == 0)
+			{
+				// Remove entry j by shifting remaining entries left
+				for (int k = j; k < list->count - 1; k++)
+				{
+					list->entries[k] = list->entries[k + 1];
+				}
+				list->count--;
+				j--; // Check this position again since we shifted
+			}
+		}
+	}
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
@@ -2661,7 +2639,7 @@ static void GamesList_Save(GamesList* list, const char* directory)
 		printf("GamesList_Save: No entries, removing file\n");
 		remove(games_path);
 		GamesList_MarkClean(list);
-		GamesList_UpdateLegacyCaches(list);
+		// Legacy cache update removed
 		return;
 	}
 	
@@ -2687,8 +2665,7 @@ static void GamesList_Save(GamesList* list, const char* directory)
 	// Mark as clean after successful save
 	GamesList_MarkClean(list);
 	
-	// Update legacy caches
-	GamesList_UpdateLegacyCaches(list);
+	// Legacy cache update removed - unified GamesList handles everything
 }
 
 static bool GamesList_Contains(GamesList* list, const char* directory, const char* filename, GameType type)
