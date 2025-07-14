@@ -60,11 +60,7 @@ DirNameSet DirNames;
 // 1. Real directories vs virtual directories (different <DIR> display)
 // 2. Real files vs virtual files (different symbol display)  
 // 3. Different virtual file types (♥, ?, ✗ symbols)
-typedef enum {
-    GAME_TYPE_DELETE = 'd',
-    GAME_TYPE_FAVORITE = 'f', 
-    GAME_TYPE_TRY = 't'
-} GameType;
+// GameType enum moved to file_io.h for public access
 
 typedef struct {
     char path[192];        // 192 chars covers most paths with good headroom
@@ -3032,6 +3028,12 @@ int ExecuteDeleteAction(const char *directory)
 	GamesList_Save(&g_games_list, directory);
 	
 	return deleted;
+}
+
+int GamesList_GetCountByType(GameType type)
+{
+	// Call the static function with the global games list
+	return GamesList_CountByType(&g_games_list, type);
 }
 #endif
 

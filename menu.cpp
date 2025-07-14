@@ -2451,8 +2451,23 @@ void HandleUI(void)
 					int deleted = ExecuteDeleteAction(clean_core_name);
 					printf("Deleted %d files\n", deleted);
 					
-					// Refresh the virtual delete folder to show updated list
-					menustate = MENU_FILE_SELECT1;
+					// Check if there are any delete entries remaining
+					if (GamesList_GetCountByType(GAME_TYPE_DELETE) == 0)
+					{
+						// No delete entries remaining - navigate back to parent directory
+						char parent_path[1024];
+						snprintf(parent_path, sizeof(parent_path), "games/%s", clean_core_name);
+						printf("No delete entries remaining, navigating back to: %s\n", parent_path);
+						
+						// Navigate back to parent directory
+						ScanDirectory(parent_path, SCANF_INIT, fs_pFileExt, fs_Options);
+						PrintDirectory(1);
+					}
+					else
+					{
+						// Still have delete entries - refresh the virtual delete folder
+						menustate = MENU_FILE_SELECT1;
+					}
 					return;
 				}
 			}

@@ -152,6 +152,13 @@ const char* FileReadLine(fileTextReader *reader);
 
 void create_path(const char *base_dir, const char* sub_dir);
 
+// Game types for virtual folder system
+typedef enum {
+    GAME_TYPE_DELETE = 'd',
+    GAME_TYPE_FAVORITE = 'f', 
+    GAME_TYPE_TRY = 't'
+} GameType;
+
 // Favorites system
 bool FavoritesIsFile(const char *directory, const char *filename);
 bool FavoritesIsFullPath(const char *directory, const char *full_path);
@@ -176,6 +183,7 @@ int ScanVirtualDelete(const char *core_path);
 void GamesList_ProcessAutoSave();  // Call periodically to process delayed writes
 void GamesList_FlushChanges();     // Force immediate write of pending changes
 void GamesList_SetAutoSave(bool enabled); // Enable/disable auto-save (default: enabled)
+int GamesList_GetCountByType(GameType type); // Count entries of a specific type
 
 // Debug state tracking
 void PrintFileState(const char *directory, const char *filename);
