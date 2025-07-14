@@ -2692,15 +2692,10 @@ static bool GamesList_Contains(GamesList* list, const char* directory, const cha
 
 static void GamesList_Toggle(GamesList* list, const char* directory, const char* filename, GameType type)
 {
-	printf("GamesList_Toggle: directory='%s', filename='%s', type='%c'\n", directory, filename, type);
-	printf("Current list directory: '%s', count=%d\n", list->current_directory, list->count);
-	
 	// Load if directory changed
 	if (strcmp(list->current_directory, directory) != 0)
 	{
-		printf("Directory changed, loading new list...\n");
 		GamesList_Load(list, directory);
-		printf("After load: count=%d\n", list->count);
 	}
 	
 	// Build full path - we need the actual current path, not just the core directory
@@ -2715,60 +2710,37 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
 	}
 	
-	printf("GamesList_Toggle: full_path='%s'\n", full_path);
-	
-	// Find existing entry for this file (any type) for mutual exclusivity
-	int existing_index = -1;
-	GameType existing_type = GAME_TYPE_FAVORITE;
-	printf("Searching for existing entry in %d entries...\n", list->count);
+	// Single-pass toggle: find and modify/remove/add in one loop
 	for (int i = 0; i < list->count; i++)
 	{
-		printf("  Comparing '%s' with '%s'\n", list->entries[i].path, full_path);
 		if (strcmp(list->entries[i].path, full_path) == 0)
 		{
-			existing_index = i;
-			existing_type = list->entries[i].type;
-			printf("  FOUND existing entry at index %d, type=%c\n", i, existing_type);
-			break;
-		}
-	}
-	if (existing_index == -1) printf("  No existing entry found\n");
-	
-	if (existing_index >= 0)
-	{
-		// File already has a state
-		if (list->entries[existing_index].type == type)
-		{
-			// Same type - remove it (toggle off)
-			for (int i = existing_index; i < list->count - 1; i++)
+			// Found existing entry - handle toggle logic
+			if (list->entries[i].type == type)
 			{
-				list->entries[i] = list->entries[i + 1];
+				// Same type - remove it (toggle off) using swap-and-pop for O(1)
+				list->entries[i] = list->entries[list->count - 1];
+				list->count--;
 			}
-			list->count--;
-			printf("Removed from %c list\n", type);
-		}
-		else
-		{
-			// Different type - change the state
-			list->entries[existing_index].type = type;
-			printf("Changed from %c to %c list\n", existing_type, type);
-		}
-	}
-	else
-	{
-		// File has no state - add new entry
-		if (GamesList_EnsureCapacity(list, list->count + 1))
-		{
-			strncpy(list->entries[list->count].path, full_path, sizeof(list->entries[list->count].path) - 1);
-			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
-			list->entries[list->count].type = type;
-			list->count++;
-			printf("Added to %c list\n", type);
+			else
+			{
+				// Different type - change the state
+				list->entries[i].type = type;
+			}
+			GamesList_MarkDirty(list);
+			return; // Exit early - no need to continue loop
 		}
 	}
 	
-	// Mark dirty for delayed write instead of immediate save
-	GamesList_MarkDirty(list);
+	// No existing entry found - add new entry
+	if (GamesList_EnsureCapacity(list, list->count + 1))
+	{
+		strncpy(list->entries[list->count].path, full_path, sizeof(list->entries[list->count].path) - 1);
+		list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
+		list->entries[list->count].type = type;
+		list->count++;
+		GamesList_MarkDirty(list);
+	}
 }
 
 static int GamesList_CountByType(GamesList* list, GameType type)
