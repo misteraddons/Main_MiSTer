@@ -207,22 +207,22 @@ Optimized the toggle function from 3 separate operations to a single efficient p
 - **Performance**: Significantly faster for large game lists (up to 2x improvement)
 - **Algorithm**: O(n) best case (early exit), O(1) removal using swap-and-pop technique
 
-### **Exact Duplicate Filename Detection (Implemented):**
-Automatically detects and removes games with identical filenames from different paths:
+### **Smart Duplicate Filename Detection (Implemented):**
+Automatically detects and removes duplicate games, ignoring file extensions:
 ```
 Before: 
 [0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).n64
-[1] f: /media/fat/games/N64/1GMR/007 - GoldenEye (USA).n64
+[1] f: /media/fat/games/N64/1GMR/007 - GoldenEye (USA).z64
 
 After:
-(Both entries removed - user must choose which path to re-add)
+[0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).z64  (kept: 1G1R + .z64 preference)
 ```
 
 **Implementation details:**
-- **Exact matching**: Compares filenames character-for-character (case-sensitive)
-- **Strict removal**: When duplicates found, removes ALL duplicate entries
-- **User choice**: Forces user to re-select which path they prefer
-- **Automatic cleanup**: Runs during games.txt loading, transparent detection
+- **Extension-agnostic**: Compares base filenames ignoring extensions (.n64 vs .z64)
+- **Smart preferences**: Keeps best version based on path (1G1R) and format (.z64 > .n64)
+- **Single survivor**: Removes all duplicates except the preferred one
+- **Automatic cleanup**: Runs during games.txt loading, transparent to user
 - **Performance**: O(n²) but acceptable for 512-entry limit
 
 ## Optimization Opportunities

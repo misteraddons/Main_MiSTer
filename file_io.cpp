@@ -2612,46 +2612,78 @@ static void GamesList_ExtractBasename(const char* full_path, char* basename, siz
 	if (dot) *dot = 0;
 }
 
-// Remove filename duplicates (EXACT filename match, different paths only)
-// When exact filename duplicates are found, removes ALL duplicate entries
+// Remove filename duplicates (ignoring file extensions)
+// When duplicates found, keeps one entry and removes the rest
 static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 {
-	printf("GamesList: Checking for exact filename duplicates...\n");
+	printf("GamesList: Checking for filename duplicates (ignoring extensions)...\n");
 	
 	for (int i = 0; i < list->count; i++)
 	{
-		// Extract exact filename from path i
-		const char* filename_i = strrchr(list->entries[i].path, '/');
-		if (filename_i) filename_i++; else filename_i = list->entries[i].path;
+		char basename_i[256];
+		GamesList_ExtractBasename(list->entries[i].path, basename_i, sizeof(basename_i));
 		
+		// Look for duplicates of this basename
 		for (int j = i + 1; j < list->count; j++)
 		{
-			// Extract exact filename from path j
-			const char* filename_j = strrchr(list->entries[j].path, '/');
-			if (filename_j) filename_j++; else filename_j = list->entries[j].path;
+			char basename_j[256];
+			GamesList_ExtractBasename(list->entries[j].path, basename_j, sizeof(basename_j));
 			
-			// Check if filenames match EXACTLY (case-sensitive)
-			if (strcmp(filename_i, filename_j) == 0)
+			// Check if basenames match (ignoring file extensions)
+			if (strcmp(basename_i, basename_j) == 0)
 			{
-				printf("Found EXACT duplicate filename: '%s' vs '%s'\n", list->entries[i].path, list->entries[j].path);
-				printf("Removing BOTH duplicate entries with filename: '%s'\n", filename_i);
+				printf("Found duplicate basename: '%s' vs '%s'\n", list->entries[i].path, list->entries[j].path);
 				
-				// Remove entry j first (higher index)
-				list->entries[j] = list->entries[list->count - 1];
+				// Decide which one to keep based on preferences
+				int keep_i = 1; // Default: keep entry i
+				
+				// Prefer 1G1R (1 Game 1 ROM) paths
+				bool i_is_1g1r = (strstr(list->entries[i].path, "1G1R") != NULL);
+				bool j_is_1g1r = (strstr(list->entries[j].path, "1G1R") != NULL);
+				
+				if (!i_is_1g1r && j_is_1g1r) {
+					keep_i = 0; // Keep j (1G1R)
+				}
+				else if (i_is_1g1r && !j_is_1g1r) {
+					keep_i = 1; // Keep i (1G1R)
+				}
+				else {
+					// Both or neither are 1G1R, check file format preferences
+					const char* ext_i = strrchr(list->entries[i].path, '.');
+					const char* ext_j = strrchr(list->entries[j].path, '.');
+					
+					// N64: prefer .z64 over .n64
+					if (ext_i && ext_j) {
+						if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
+							keep_i = 0; // Keep .z64
+						}
+						else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
+							keep_i = 1; // Keep .z64
+						}
+					}
+				}
+				
+				// Remove the less preferred entry
+				int remove_idx = keep_i ? j : i;
+				printf("Removing duplicate: '%s' (keeping '%s')\n", 
+					list->entries[remove_idx].path, list->entries[keep_i ? i : j].path);
+				
+				// Use swap-and-pop for O(1) removal
+				list->entries[remove_idx] = list->entries[list->count - 1];
 				list->count--;
 				
-				// Remove entry i (swap with new last entry)
-				list->entries[i] = list->entries[list->count - 1];
-				list->count--;
-				
-				// Adjust loop indices since we removed both entries
-				i--; // Recheck this position since we swapped
-				break; // Break inner loop, will continue outer loop
+				// Adjust loop indices
+				if (remove_idx == i) {
+					i--; // Recheck this position since we swapped
+					break; // Break inner loop, will continue outer loop
+				} else {
+					j--; // Recheck this position since we swapped
+				}
 			}
 		}
 	}
 	
-	printf("GamesList: Exact duplicate check complete, %d entries remaining\n", list->count);
+	printf("GamesList: Duplicate check complete, %d entries remaining\n", list->count);
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
