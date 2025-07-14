@@ -2409,27 +2409,7 @@ void HandleUI(void)
 
 	case MENU_GENERIC_FILE_SELECTED:
 		{
-			if (!mgl->done)
-			{
-				// Check if this is a virtual favorites or try entry
-				if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003))
-				{
-					// Use the stored full path from virtual favorites/try, skipping X marking if present
-					const char *clean_path = (flist_SelectedItem()->altname[0] == '\x9C') ? 
-					                          flist_SelectedItem()->altname + 2 : 
-					                          flist_SelectedItem()->altname;
-					snprintf(selPath, sizeof(selPath), "%s", clean_path);
-					printf("Virtual try/favorites !mgl->done: selPath set to '%s'\n", selPath);
-				}
-				else
-				{
-					// Normal MGL path construction
-					if(mgl->item[mgl->current].path[0] == '/') snprintf(selPath, sizeof(selPath), "%s", mgl->item[mgl->current].path);
-					else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), mgl->item[mgl->current].path);
-				}
-			}
-
-			// Handle special delete action
+			// Handle special delete action FIRST - before any path construction
 			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8004)
 			{
 				// This is the "Delete All Games" action
@@ -2471,6 +2451,28 @@ void HandleUI(void)
 					return;
 				}
 			}
+			
+			if (!mgl->done)
+			{
+				// Check if this is a virtual favorites or try entry
+				if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003))
+				{
+					// Use the stored full path from virtual favorites/try, skipping X marking if present
+					const char *clean_path = (flist_SelectedItem()->altname[0] == '\x9C') ? 
+					                          flist_SelectedItem()->altname + 2 : 
+					                          flist_SelectedItem()->altname;
+					snprintf(selPath, sizeof(selPath), "%s", clean_path);
+					printf("Virtual try/favorites !mgl->done: selPath set to '%s'\n", selPath);
+				}
+				else
+				{
+					// Normal MGL path construction
+					if(mgl->item[mgl->current].path[0] == '/') snprintf(selPath, sizeof(selPath), "%s", mgl->item[mgl->current].path);
+					else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(), mgl->item[mgl->current].path);
+				}
+			}
+
+			// Delete action handling moved to top of function
 			
 			// Handle virtual favorites/try when mgl->done=1
 			if (mgl->done && flist_SelectedItem() && (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003))
