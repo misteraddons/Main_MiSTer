@@ -2793,22 +2793,23 @@ bool DeleteIsFullPath(const char *directory, const char *full_path)
 	return false;
 }
 
-int ScanVirtualFavorites(const char *core_path)
+// Unified virtual folder scanner for all game types
+static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t flags, const char *type_name)
 {
-	printf("ScanVirtualFavorites: core_path='%s'\n", core_path);
+	printf("ScanVirtual%s: core_path='%s'\n", type_name, core_path);
 	
 	// Extract core name from path first
 	const char *games_pos = strstr(core_path, "games/");
 	if (!games_pos) {
-		printf("ScanVirtualFavorites: 'games/' not found in path\n");
+		printf("ScanVirtual%s: 'games/' not found in path\n", type_name);
 		return 0;
 	}
 	
 	const char *core_name = games_pos + 6; // Skip "games/"
-	printf("ScanVirtualFavorites: core_name='%s'\n", core_name);
+	printf("ScanVirtual%s: core_name='%s'\n", type_name, core_name);
 	
 	// Clear current directory listing
-	printf("DirItem.clear() called in ScanVirtualFavorites\n");
+	printf("DirItem.clear() called in ScanVirtual%s\n", type_name);
 	DirItem.clear();
 	DirNames.clear();
 	iSelectedEntry = 0;
@@ -2825,11 +2826,11 @@ int ScanVirtualFavorites(const char *core_path)
 	// Load the games list for this core
 	GamesList_Load(&g_games_list, core_name);
 	
-	// Add favorite items as virtual files
+	// Add items of the specified type as virtual files
 	int count = 1; // Start at 1 to account for ".." entry
 	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE)
+		if (g_games_list.entries[i].type == game_type)
 		{
 			direntext_t item;
 			memset(&item, 0, sizeof(item));
@@ -2855,169 +2856,32 @@ int ScanVirtualFavorites(const char *core_path)
 			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
 			item.altname[sizeof(item.altname) - 1] = 0;
 			
-			item.flags = 0x8001; // Mark as virtual favorite item
+			item.flags = flags; // Mark as virtual item of specified type
 			
-			printf("ScanVirtualFavorites: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
-			       count, item.de.d_name, item.altname, item.flags);
+			printf("ScanVirtual%s: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
+			       type_name, count, item.de.d_name, item.altname, item.flags);
 			
 			DirItem.push_back(item);
 			count++;
 		}
 	}
 	
-	printf("ScanVirtualFavorites: Added %d favorite items\n", count);
+	printf("ScanVirtual%s: Added %d %s items\n", type_name, count, type_name);
 	return count;
+}
+
+int ScanVirtualFavorites(const char *core_path)
+{
+	return ScanVirtualFolder(core_path, GAME_TYPE_FAVORITE, 0x8001, "Favorites");
 }
 
 int ScanVirtualTry(const char *core_path)
 {
-	printf("ScanVirtualTry: core_path='%s'\n", core_path);
-	
-	// Extract core name from path first
-	const char *games_pos = strstr(core_path, "games/");
-	if (!games_pos) {
-		printf("ScanVirtualTry: 'games/' not found in path\n");
-		return 0;
-	}
-	
-	const char *core_name = games_pos + 6; // Skip "games/"
-	printf("ScanVirtualTry: core_name='%s'\n", core_name);
-	
-	// Clear current directory listing
-	printf("DirItem.clear() called in ScanVirtualTry\n");
-	DirItem.clear();
-	DirNames.clear();
-	iSelectedEntry = 0;
-	iFirstEntry = 0;
-	
-	// Add ".." entry as first item to allow going back to parent directory
-	direntext_t parent_item;
-	memset(&parent_item, 0, sizeof(parent_item));
-	parent_item.de.d_type = DT_DIR;
-	strcpy(parent_item.de.d_name, "..");
-	strcpy(parent_item.altname, core_path); // Store parent path in altname
-	DirItem.push_back(parent_item);
-	
-	// Load the games list for this core
-	GamesList_Load(&g_games_list, core_name);
-	
-	// Add try items as virtual files
-	int count = 1; // Start at 1 to account for ".." entry
-	for (int i = 0; i < g_games_list.count; i++)
-	{
-		if (g_games_list.entries[i].type == GAME_TYPE_TRY)
-		{
-			direntext_t item;
-			memset(&item, 0, sizeof(item));
-			
-			// Extract just the filename from the full path
-			const char *filename = strrchr(g_games_list.entries[i].path, '/');
-			if (filename) filename++; else filename = g_games_list.entries[i].path;
-			
-			// Create clean display name (remove file extension)
-			char clean_name[256];
-			strncpy(clean_name, filename, sizeof(clean_name) - 1);
-			clean_name[sizeof(clean_name) - 1] = 0;
-			
-			// Remove file extension from clean name
-			char *ext_pos = strrchr(clean_name, '.');
-			if (ext_pos) *ext_pos = 0;
-			
-			// Set as regular file with clean name (special character handled by PrintDirectory)
-			item.de.d_type = DT_REG;
-			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
-			
-			// For virtual items, altname contains the full path for loading
-			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
-			item.altname[sizeof(item.altname) - 1] = 0;
-			
-			item.flags = 0x8002; // Mark as virtual try item
-			
-			printf("ScanVirtualTry: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
-			       count, item.de.d_name, item.altname, item.flags);
-			
-			DirItem.push_back(item);
-			count++;
-		}
-	}
-	
-	printf("ScanVirtualTry: Added %d try items\n", count);
-	return count;
+	return ScanVirtualFolder(core_path, GAME_TYPE_TRY, 0x8002, "Try");
 }
 
 int ScanVirtualDelete(const char *core_path)
 {
-	printf("ScanVirtualDelete: core_path='%s'\n", core_path);
-	
-	// Extract core name from path first
-	const char *games_pos = strstr(core_path, "games/");
-	if (!games_pos) {
-		printf("ScanVirtualDelete: 'games/' not found in path\n");
-		return 0;
-	}
-	
-	const char *core_name = games_pos + 6; // Skip "games/"
-	printf("ScanVirtualDelete: core_name='%s'\n", core_name);
-	
-	// Clear current directory listing
-	printf("DirItem.clear() called in ScanVirtualDelete\n");
-	DirItem.clear();
-	DirNames.clear();
-	iSelectedEntry = 0;
-	iFirstEntry = 0;
-	
-	// Add ".." entry as first item to allow going back to parent directory
-	direntext_t parent_item;
-	memset(&parent_item, 0, sizeof(parent_item));
-	parent_item.de.d_type = DT_DIR;
-	strcpy(parent_item.de.d_name, "..");
-	strcpy(parent_item.altname, core_path); // Store parent path in altname
-	DirItem.push_back(parent_item);
-	
-	// Load the games list for this core
-	GamesList_Load(&g_games_list, core_name);
-	
-	// Add delete items as virtual files
-	int count = 1; // Start at 1 to account for ".." entry
-	for (int i = 0; i < g_games_list.count; i++)
-	{
-		if (g_games_list.entries[i].type == GAME_TYPE_DELETE)
-		{
-			direntext_t item;
-			memset(&item, 0, sizeof(item));
-			
-			// Extract just the filename from the full path
-			const char *filename = strrchr(g_games_list.entries[i].path, '/');
-			if (filename) filename++; else filename = g_games_list.entries[i].path;
-			
-			// Create clean display name (remove file extension)
-			char clean_name[256];
-			strncpy(clean_name, filename, sizeof(clean_name) - 1);
-			clean_name[sizeof(clean_name) - 1] = 0;
-			
-			// Remove file extension from clean name
-			char *ext_pos = strrchr(clean_name, '.');
-			if (ext_pos) *ext_pos = 0;
-			
-			// Set as regular file with clean name (special character handled by PrintDirectory)
-			item.de.d_type = DT_REG;
-			snprintf(item.de.d_name, sizeof(item.de.d_name), "%s", clean_name);
-			
-			// For virtual items, altname contains the full path for loading
-			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
-			item.altname[sizeof(item.altname) - 1] = 0;
-			
-			item.flags = 0x8003; // Mark as virtual delete item
-			
-			printf("ScanVirtualDelete: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
-			       count, item.de.d_name, item.altname, item.flags);
-			
-			DirItem.push_back(item);
-			count++;
-		}
-	}
-	
-	printf("ScanVirtualDelete: Added %d delete items\n", count);
-	return count;
+	return ScanVirtualFolder(core_path, GAME_TYPE_DELETE, 0x8003, "Delete");
 }
 
