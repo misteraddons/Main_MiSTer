@@ -220,6 +220,9 @@ static bool favorites_triggered = false;
 bool g_directory_rescan_requested = false;
 char g_rescan_directory_path[1024] = "";
 
+// Global flag to prevent file loading after delete action
+bool g_prevent_file_loading = false;
+
 // Try system variables
 static uint32_t try_select_timer = 0;
 static bool try_select_pressed = false;
@@ -2410,11 +2413,17 @@ void HandleUI(void)
 	case MENU_GENERIC_FILE_SELECTED:
 		{
 			// Handle special delete action FIRST - before any path construction
+			printf("DEBUG: MENU_GENERIC_FILE_SELECTED - mgl->done=%d, flist_SelectedItem()=%p\n", mgl->done, flist_SelectedItem());
+			if (flist_SelectedItem()) {
+				printf("DEBUG: Selected item flags=0x%X, altname='%s'\n", flist_SelectedItem()->flags, flist_SelectedItem()->altname);
+			}
+			
 			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x8004)
 			{
 				// This is the "Delete All Games" action
 				if (strcmp(flist_SelectedItem()->altname, "DELETE_ALL_GAMES_ACTION") == 0)
 				{
+					printf("DEBUG: Delete action detected - preventing file loading\n");
 					// Extract core name from current path
 					const char *core_path = flist_Path();
 					const char *core_name = strrchr(core_path, '/');
@@ -2435,19 +2444,28 @@ void HandleUI(void)
 					if (GamesList_GetCountByType(GAME_TYPE_DELETE) == 0)
 					{
 						// No delete entries remaining - navigate back to parent directory
+						printf("No delete entries remaining, setting menu state to go back\n");
+						menustate = MENU_FILE_SELECT1;
+						
+						// Set the path to the parent directory for next scan
 						char parent_path[1024];
 						snprintf(parent_path, sizeof(parent_path), "games/%s", clean_core_name);
-						printf("No delete entries remaining, navigating back to: %s\n", parent_path);
+						strcpy(selPath, parent_path);
 						
-						// Navigate back to parent directory
-						ScanDirectory(parent_path, SCANF_INIT, fs_pFileExt, fs_Options);
-						PrintDirectory(1);
+						// Trigger a directory scan on the next frame
+						extern bool g_directory_rescan_requested;
+						extern char g_rescan_directory_path[1024];
+						strncpy(g_rescan_directory_path, parent_path, sizeof(g_rescan_directory_path) - 1);
+						g_rescan_directory_path[sizeof(g_rescan_directory_path) - 1] = 0;
+						g_directory_rescan_requested = true;
 					}
 					else
 					{
 						// Still have delete entries - refresh the virtual delete folder
 						menustate = MENU_FILE_SELECT1;
 					}
+					printf("DEBUG: Delete action complete - setting prevent flag and returning early\n");
+					g_prevent_file_loading = true;
 					return;
 				}
 			}
@@ -2485,7 +2503,15 @@ void HandleUI(void)
 				printf("Virtual try/favorites mgl->done: selPath set to '%s'\n", selPath);
 			}
 			
+			// Check if we should prevent file loading
+			if (g_prevent_file_loading) {
+				printf("DEBUG: File loading prevented by delete action flag\n");
+				g_prevent_file_loading = false; // Reset the flag
+				return;
+			}
+			
 			MenuHide();
+			printf("DEBUG: About to print 'File selected' - this should NOT happen for delete button\n");
 			printf("File selected: %s\n", selPath);
 			// Flush any pending games list changes before loading the game
 			GamesList_FlushChanges();
