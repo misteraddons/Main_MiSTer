@@ -299,13 +299,58 @@ Tested with real-world path:
 
 ### Medium Priority  
 - [x] **Implement hash tables**: Replace linear search for better performance with large collections *(COMPLETED - determined unnecessary for 512 entry limit)*
-- [x] **Dynamic memory allocation**: Consider malloc/free instead of static 96KB allocation *(COMPLETED - static allocation preferred for embedded system)*
+- [x] **Dynamic memory allocation**: Consider malloc/free instead of static 96KB allocation *(COMPLETED - implemented with 64-entry chunk allocation)*
 - [ ] **Path compression**: Investigate shorter path storage for memory efficiency
 
 ### Low Priority
 - [x] **Code cleanup**: Remove debug printf statements from production builds *(COMPLETED)*
 - [x] **Documentation**: Add inline comments for complex virtual folder logic *(COMPLETED)*
 - [x] **Error handling**: Improve robustness for corrupted games.txt files *(COMPLETED)*
+
+## Future Optimization Considerations
+
+### High Impact, Low Risk:
+1. **Cache file existence checks** - Easy win for repeated FileExists() calls
+   - Implement simple cache for recently checked file paths
+   - Significant improvement for virtual folder display performance
+   - Low complexity, minimal memory overhead
+
+2. **Path analysis caching** - Avoid repeated string operations
+   - Cache parsed path components (core name, filename, extension)
+   - Reduce strlen/strcmp calls in tight loops
+   - Simple implementation with high performance gain
+
+3. **Remove legacy cache arrays** - Cleanup completed migration
+   - Remove old individual favorites/try/delete arrays
+   - Further reduce memory footprint
+   - Code simplification benefit
+
+### Medium Impact, Medium Risk:
+1. **String interning** - Reduce memory for duplicate paths
+   - Share common path prefixes between entries
+   - Complex implementation but significant memory savings for large collections
+   - Risk: Added complexity in string management
+
+2. **Function decomposition** - Break large functions into smaller ones
+   - Improve maintainability and testing
+   - Enable better compiler optimizations
+   - Moderate refactoring effort required
+
+3. **Batch toggle operations** - Group multiple state changes
+   - Allow multiple files to be marked simultaneously
+   - Reduce cache write frequency
+   - UI/UX changes required
+
+### High Impact, High Risk:
+1. **Data structure redesign** - More compact representations
+   - Bit fields for type storage (2 bits vs 8 bits)
+   - Custom string storage with length prefixes
+   - Significant development and testing effort
+
+2. **Lazy loading** - Only load games.txt when needed
+   - Defer loading until virtual folders are accessed
+   - Requires careful state management
+   - Risk: Increased UI latency on first access
 
 ## _Arcade Virtual Folder Fix
 
@@ -351,17 +396,22 @@ All major todo items have been completed:
 
 ### ✅ **Completed Optimizations**
 - **Binary size reduction**: 39% smaller (686KB saved) through GamesList optimization
-- **Virtual folder bug fixes**: Fixed path parsing, mutual exclusivity, symbol display
+- **Virtual folder bug fixes**: Fixed path parsing, mutual exclusivity, symbol display, _Arcade navigation
 - **UI improvements**: Removed `<DIR>` from virtual directories for cleaner display
 - **Code quality**: Removed debug statements, added comprehensive comments
 - **Error handling**: Improved robustness for corrupted games.txt files
+- **Dynamic memory allocation**: Implemented with 64-entry chunk allocation and 512-entry limit
+- **Missing file recovery**: Automatic path correction for moved/reorganized files
+- **Exact matching**: Fixed regular folders with "Favorites"/"Try"/"Delete" in names
 - **Performance analysis**: Determined current algorithms are suitable for embedded system
 
 ### 📈 **Performance Characteristics**
 - **Lookup time**: O(n) linear search acceptable for 512 entry limit
-- **Memory usage**: 96KB static allocation provides predictable performance
+- **Memory usage**: Dynamic allocation in 64-entry chunks (0-96KB based on usage)
 - **Flash wear**: Significantly reduced through cache-based delayed writes
 - **Binary size**: Optimized from 1.76MB to 1.07MB (39% reduction)
+- **Memory efficiency**: Scales from 0KB (no games) to 96KB (512 games)
+- **Error resilience**: Handles corrupted games.txt files gracefully
 
 ## Conclusion
 

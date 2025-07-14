@@ -5229,13 +5229,10 @@ void HandleUI(void)
 					
 					// Check if this is the virtual favorites folder
 					
-					// Try alternate checks
+					// Check for exact virtual folder match only
 					bool is_favorites = false;
 					if (!strcmp(name, "\x97 Favorites")) {
 						is_favorites = true;
-					} else if (strlen(name) >= 10 && !strcmp(name + strlen(name) - 9, "Favorites")) {
-						is_favorites = true;
-						printf("Matched by suffix 'Favorites'\n");
 					}
 					
 					if (is_favorites)
@@ -5265,9 +5262,6 @@ void HandleUI(void)
 						bool is_try = false;
 						if (!strcmp(name, "? Try")) {
 							is_try = true;
-						} else if (strlen(name) >= 3 && !strcmp(name + strlen(name) - 3, "Try")) {
-							is_try = true;
-							printf("Matched by suffix 'Try'\n");
 						}
 						
 						if (is_try)
@@ -5298,9 +5292,6 @@ void HandleUI(void)
 							bool is_delete = false;
 							if (!strcmp(name, "\x9C Delete")) {
 								is_delete = true;
-							} else if (strlen(name) >= 6 && !strcmp(name + strlen(name) - 6, "Delete")) {
-								is_delete = true;
-								printf("Matched by suffix 'Delete'\n");
 							}
 							
 							if (is_delete)

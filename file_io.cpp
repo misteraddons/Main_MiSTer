@@ -72,22 +72,27 @@ typedef struct {
 } GameEntry;               // = 193 bytes per entry
 
 typedef struct {
-    GameEntry entries[512]; // 512 entries per core
-    int count;
+    GameEntry *entries;     // Dynamically allocated entries (max 512)
+    int capacity;           // Current allocated capacity
+    int count;              // Current number of entries  
     char current_directory[256]; // Shorter directory path
     bool is_dirty;          // True if changes need to be saved
     uint32_t last_change_time; // Time of last change for delayed writing
     bool auto_save_enabled; // Enable/disable automatic delayed saves
 } GamesList;
 
-// Global unified games list
-static GamesList g_games_list = {{}, 0, "", false, 0, true};
+// Global unified games list  
+static GamesList g_games_list = {NULL, 0, 0, "", false, 0, true};
 
 // Forward declarations for functions used throughout the file
 static int GamesList_CountByType(GamesList* list, GameType type);
 static int GamesLoad(const char* directory);
 static void GamesList_Save(GamesList* list, const char* directory);
 static void GamesList_Load(GamesList* list, const char* directory);
+static void GamesList_RelocateMissingFiles(GamesList* list, const char* directory);
+static bool GamesList_SearchForFile(const char* search_dir, const char* filename, char* found_path, size_t path_size);
+static bool GamesList_EnsureCapacity(GamesList* list, int needed_capacity);
+static void GamesList_Free(GamesList* list);
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -2377,6 +2382,37 @@ static void GamesList_Sort(GamesList* list)
 		qsort(list->entries, list->count, sizeof(GameEntry), GamesList_Compare);
 }
 
+// Ensure the GamesList has enough capacity for the given number of entries
+static bool GamesList_EnsureCapacity(GamesList* list, int needed_capacity)
+{
+	// Cap at maximum of 512 entries
+	if (needed_capacity > 512) needed_capacity = 512;
+	
+	if (list->capacity >= needed_capacity) return true;
+	
+	// Allocate memory in chunks of 64 entries to reduce fragmentation
+	int new_capacity = ((needed_capacity + 63) / 64) * 64;
+	if (new_capacity > 512) new_capacity = 512;
+	
+	GameEntry *new_entries = (GameEntry*)realloc(list->entries, new_capacity * sizeof(GameEntry));
+	if (!new_entries) return false; // Allocation failed
+	
+	list->entries = new_entries;
+	list->capacity = new_capacity;
+	return true;
+}
+
+// Free the dynamically allocated memory
+static void GamesList_Free(GamesList* list)
+{
+	if (list->entries) {
+		free(list->entries);
+		list->entries = NULL;
+	}
+	list->capacity = 0;
+	list->count = 0;
+}
+
 static void GamesList_Load(GamesList* list, const char* directory)
 {
 	// If changing directories and we have unsaved changes, flush them first
@@ -2428,7 +2464,7 @@ static void GamesList_Load(GamesList* list, const char* directory)
 		snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", core_name);
 	}
 	
-	// Clear the list
+	// Clear the list (keep allocated memory to avoid frequent reallocation)
 	list->count = 0;
 	strncpy(list->current_directory, directory, sizeof(list->current_directory) - 1);
 	list->current_directory[sizeof(list->current_directory) - 1] = 0;
@@ -2447,7 +2483,7 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	int line_num = 0;
 	int corrupt_lines = 0;
 	
-	while (fgets(line, sizeof(line), file) && list->count < 512)
+	while (fgets(line, sizeof(line), file))
 	{
 		line_num++;
 		line[strcspn(line, "\r\n")] = 0;
@@ -2476,6 +2512,11 @@ static void GamesList_Load(GamesList* list, const char* directory)
 			continue; // Skip invalid paths
 		}
 		
+		// Ensure we have capacity for this entry
+		if (!GamesList_EnsureCapacity(list, list->count + 1)) {
+			break; // Out of memory or hit 512 limit
+		}
+		
 		// Add valid entry
 		strncpy(list->entries[list->count].path, filepath, sizeof(list->entries[list->count].path) - 1);
 		list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
@@ -2489,11 +2530,86 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	fclose(file);
 	
 	
+	// Check for missing files and attempt to relocate them
+	GamesList_RelocateMissingFiles(list, directory);
+	
 	// Sort the unified list
 	GamesList_Sort(list);
 	
 	// Update legacy caches for backward compatibility
 	GamesList_UpdateLegacyCaches(list);
+}
+
+// Function to search for missing files and update their paths if found
+static void GamesList_RelocateMissingFiles(GamesList* list, const char* directory)
+{
+	for (int i = 0; i < list->count; i++)
+	{
+		// Check if the file exists at its recorded path
+		if (!FileExists(list->entries[i].path))
+		{
+			// Extract just the filename with extension
+			const char *filename = strrchr(list->entries[i].path, '/');
+			if (filename) filename++; else filename = list->entries[i].path;
+			
+			// Search for the file in the core directory
+			char search_path[512];
+			snprintf(search_path, sizeof(search_path), "/media/fat/games/%s", directory);
+			
+			char found_path[512];
+			if (GamesList_SearchForFile(search_path, filename, found_path, sizeof(found_path)))
+			{
+				// File found at new location - update the path
+				strncpy(list->entries[i].path, found_path, sizeof(list->entries[i].path) - 1);
+				list->entries[i].path[sizeof(list->entries[i].path) - 1] = 0;
+				
+				// Mark as dirty so the updated path gets saved
+				list->is_dirty = true;
+			}
+		}
+	}
+}
+
+// Recursively search for a file by name and extension in a directory tree
+static bool GamesList_SearchForFile(const char* search_dir, const char* filename, char* found_path, size_t path_size)
+{
+	DIR *dir = opendir(search_dir);
+	if (!dir) return false;
+	
+	struct dirent *entry;
+	while ((entry = readdir(dir)) != NULL)
+	{
+		// Skip . and ..
+		if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+			continue;
+			
+		char full_path[512];
+		snprintf(full_path, sizeof(full_path), "%s/%s", search_dir, entry->d_name);
+		
+		if (entry->d_type == DT_REG)
+		{
+			// Check if this file matches the name we're looking for
+			if (!strcmp(entry->d_name, filename))
+			{
+				strncpy(found_path, full_path, path_size - 1);
+				found_path[path_size - 1] = 0;
+				closedir(dir);
+				return true;
+			}
+		}
+		else if (entry->d_type == DT_DIR)
+		{
+			// Recursively search subdirectories
+			if (GamesList_SearchForFile(full_path, filename, found_path, path_size))
+			{
+				closedir(dir);
+				return true;
+			}
+		}
+	}
+	
+	closedir(dir);
+	return false;
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
@@ -2664,7 +2780,7 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 	else
 	{
 		// File has no state - add new entry
-		if (list->count < 512)
+		if (GamesList_EnsureCapacity(list, list->count + 1))
 		{
 			strncpy(list->entries[list->count].path, full_path, sizeof(list->entries[list->count].path) - 1);
 			list->entries[list->count].path[sizeof(list->entries[list->count].path) - 1] = 0;
