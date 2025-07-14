@@ -56,9 +56,9 @@ typedef enum {
 } GameType;
 
 typedef struct {
-    char path[256];        // 256 chars covers even long paths
+    char path[192];        // 192 chars covers most paths with good headroom
     GameType type;         // 'd', 'f', or 't'
-} GameEntry;               // = 257 bytes per entry
+} GameEntry;               // = 193 bytes per entry
 
 typedef struct {
     GameEntry entries[512]; // 512 entries per core
