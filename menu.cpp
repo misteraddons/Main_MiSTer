@@ -216,6 +216,9 @@ static uint32_t favorites_start_timer = 0;
 static bool favorites_start_pressed = false;
 static bool favorites_triggered = false;
 
+// Global flag to remember if we came from Universal Favorites
+static bool came_from_universal_favorites = false;
+
 // Global flag for directory rescan requests from file_io.cpp
 bool g_directory_rescan_requested = false;
 char g_rescan_directory_path[1024] = "";
@@ -423,13 +426,25 @@ void SelectFile(const char* path, const char* pFileExt, int Options, unsigned ch
 	}
 	else
 	{
-		const char *home = is_menu() ? "Scripts" : user_io_get_core_path(
-			(is_pce() && !strncasecmp(pFileExt, "CUE", 3)) ? PCECD_DIR :
-			(is_neogeo() && !strncasecmp(pFileExt, "CUE", 3)) ? NEOCD_DIR :
-			NULL, 1);
-		home_dir = strrchr(home, '/');
-		if (home_dir) home_dir++;
-		else home_dir = home;
+		const char *home;
+		
+		// If we came from Universal Favorites, go back to Universal Favorites
+		if (came_from_universal_favorites && !is_menu())
+		{
+			home = "UNIVERSAL_FAVORITES";
+			home_dir = "♥ Favorites";
+			came_from_universal_favorites = false; // Reset the flag
+		}
+		else
+		{
+			home = is_menu() ? "Scripts" : user_io_get_core_path(
+				(is_pce() && !strncasecmp(pFileExt, "CUE", 3)) ? PCECD_DIR :
+				(is_neogeo() && !strncasecmp(pFileExt, "CUE", 3)) ? NEOCD_DIR :
+				NULL, 1);
+			home_dir = strrchr(home, '/');
+			if (home_dir) home_dir++;
+			else home_dir = home;
+		}
 
 		if (Options & SCANO_SAVES)
 		{
@@ -2420,43 +2435,9 @@ void HandleUI(void)
 			
 			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x9002)
 			{
-				// This is a Universal Favorites MGL file - generate it dynamically
-				printf("DEBUG: Universal Favorites MGL file detected\n");
-				
-				// Parse altname to get display name, core name and game path
-				char *altname = flist_SelectedItem()->altname;
-				char *separator1 = strchr(altname, '|');
-				if (separator1)
-				{
-					*separator1 = '\0'; // Temporarily null-terminate
-					const char *display_name = altname;
-					char *separator2 = strchr(separator1 + 1, '|');
-					if (separator2)
-					{
-						*separator2 = '\0'; // Temporarily null-terminate
-						const char *core_name = separator1 + 1;
-						const char *game_path = separator2 + 1;
-					
-						// Generate MGL file in /tmp/
-						char tmp_mgl_path[512];
-						snprintf(tmp_mgl_path, sizeof(tmp_mgl_path), "/tmp/universal_favorites_%s.mgl", core_name);
-						
-						printf("Generating MGL file: %s\n", tmp_mgl_path);
-						GenerateUniversalFavoritesMGL(core_name, game_path, tmp_mgl_path);
-						
-						// Update the selection path to point to the temporary MGL file
-						strcpy(selPath, tmp_mgl_path);
-						
-						*separator2 = '|'; // Restore separator
-					}
-					*separator1 = '|'; // Restore separator
-				}
-				else
-				{
-					printf("ERROR: Invalid altname format for Universal Favorites MGL: %s\n", altname);
-				}
-				
-				// Continue with normal file loading logic
+				// This is a Universal Favorites MGL file - it will be handled by the special section later
+				printf("DEBUG: Universal Favorites MGL file detected - will be handled by special section\n");
+				// Don't modify selPath here, let the special handling section do it
 			}
 			else if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x9003)
 			{
@@ -2576,6 +2557,9 @@ void HandleUI(void)
 		// Special handling for Universal Favorites files
 		if (flist_SelectedItem() && (flist_SelectedItem()->flags == 0x9002 || flist_SelectedItem()->flags == 0x9003))
 		{
+			// Remember that we came from Universal Favorites
+			came_from_universal_favorites = true;
+			
 			if (flist_SelectedItem()->flags == 0x9003)
 			{
 				// Universal Favorites MRA file - load directly
@@ -2588,14 +2572,42 @@ void HandleUI(void)
 			else
 			{
 				// Universal Favorites MGL file - generate and load
-				printf("Universal Favorites MGL file - isXmlName=%d, selPath=%s\n", isXmlName(selPath), selPath);
-				if (isXmlName(selPath) == 2 || strstr(selPath, ".mgl"))
+				printf("Generating and loading MGL from Universal Favorites\n");
+				
+				// Parse altname to get display name, core name and game path
+				char *altname = flist_SelectedItem()->altname;
+				char *separator1 = strchr(altname, '|');
+				if (separator1)
 				{
-					printf("Loading MGL from Universal Favorites: %s\n", selPath);
-					xml_load(selPath);
-					menustate = MENU_NONE1;
-					break;
+					*separator1 = '\0'; // Temporarily null-terminate
+					const char *display_name = altname;
+					char *separator2 = strchr(separator1 + 1, '|');
+					if (separator2)
+					{
+						*separator2 = '\0'; // Temporarily null-terminate
+						const char *core_name = separator1 + 1;
+						const char *game_path = separator2 + 1;
+					
+						// Generate MGL file in /tmp/
+						char tmp_mgl_path[512];
+						snprintf(tmp_mgl_path, sizeof(tmp_mgl_path), "/tmp/universal_favorites_%s.mgl", core_name);
+						
+						printf("Generating MGL file: %s\n", tmp_mgl_path);
+						GenerateUniversalFavoritesMGL(core_name, game_path, tmp_mgl_path);
+						
+						printf("Loading MGL from Universal Favorites: %s\n", tmp_mgl_path);
+						xml_load(tmp_mgl_path);
+						menustate = MENU_NONE1;
+						
+						*separator2 = '|'; // Restore separator
+					}
+					*separator1 = '|'; // Restore separator
 				}
+				else
+				{
+					printf("ERROR: Invalid altname format for Universal Favorites MGL: %s\n", altname);
+				}
+				break;
 			}
 		}
 
@@ -7392,9 +7404,9 @@ void ScrollLongName(void)
 	int off = 0;
 	int max_len;
 
-	// Use clean name from d_name for virtual favorites/try/delete
+	// Use clean name from d_name for virtual favorites/try/delete/universal favorites
 	char *scroll_name;
-	if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003)
+	if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003 || flist_SelectedItem()->flags == 0x9002 || flist_SelectedItem()->flags == 0x9003)
 	{
 		// Use the clean game name from d_name (special character handled separately)
 		scroll_name = flist_SelectedItem()->de.d_name;
@@ -7475,7 +7487,7 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9000 || flist_DirItem(k)->flags == 0x9002) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
+			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9000 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
 			&& !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0] && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x9000))
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
@@ -7527,7 +7539,7 @@ void PrintDirectory(int expand)
 
 				len = max_display_len; // trim display length
 				// For virtual favorites, always show right arrow at position 28
-				if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x9002)
+				if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003)
 				{
 					s[28] = 22; // right arrow at position 28 (27 chars + heart)
 				}
@@ -7696,7 +7708,7 @@ void PrintDirectory(int expand)
 			{
 				strncpy(s + 1, display_name+1, len-1);
 			}
-			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003) && (flist_DirItem(k)->flags != 0x9000))
+			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003) && (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9002) && (flist_DirItem(k)->flags != 0x9003))
 			{
 				strncpy(s + 1, display_name, len-4); // strip .zip extension, see below
 			}
@@ -7833,7 +7845,7 @@ void PrintDirectory(int expand)
 				len = strlen(flist_DirItem(k)->altname);
 				strcpy(s+1, flist_DirItem(k)->altname + len - len2);
 			}
-			OsdWriteOffset(i, s, sel, 0, 0, leftchar);
+			OsdWriteOffset(i, s, sel, 0, 0, 0); // No leftchar for expanded lines
 			i++;
 		}
 
