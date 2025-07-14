@@ -7390,29 +7390,28 @@ void PrintDirectory(int expand)
 					
 					// Now core_dir is set in both cases, continue with the logic
 					{
-						// Determine file state based on flags or lookup
+						
 						bool is_favorited = false;
 						bool is_try = false;
 						bool is_delete = false;
 						
-						if (flist_DirItem(k)->flags == 0x8001)
+						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003)
 						{
-							// Virtual favorite file - state is already known from flag
-							is_favorited = true;
-						}
-						else if (flist_DirItem(k)->flags == 0x8002)
-						{
-							// Virtual try file - state is already known from flag
-							is_try = true;
-						}
-						else if (flist_DirItem(k)->flags == 0x8003)
-						{
-							// Virtual delete file - state is already known from flag
-							is_delete = true;
+							// For virtual folders, check actual state (not just the flag) to show updated icons
+							is_favorited = FavoritesIsFullPath(core_dir, flist_DirItem(k)->altname);
+							is_try = TryIsFullPath(core_dir, flist_DirItem(k)->altname);
+							is_delete = DeleteIsFullPath(core_dir, flist_DirItem(k)->altname);
+							
+							// Debug output to track state detection
+							if (k == flist_iSelectedEntry())
+							{
+								printf("Virtual item '%s': is_favorited=%d, is_try=%d, flag=0x%x\n", 
+									flist_DirItem(k)->altname, is_favorited, is_try, flist_DirItem(k)->flags);
+							}
 						}
 						else
 						{
-							// Regular file - need to check actual state
+							// Regular file check
 							is_favorited = FavoritesIsFile(core_dir, flist_DirItem(k)->altname);
 							is_try = TryIsFile(core_dir, flist_DirItem(k)->altname);
 							is_delete = DeleteIsFile(core_dir, flist_DirItem(k)->altname);
@@ -7463,24 +7462,16 @@ void PrintDirectory(int expand)
 					bool is_try = false;
 					bool is_delete = false;
 					
-					if (flist_DirItem(k)->flags == 0x8001)
+					if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003)
 					{
-						// Virtual favorite file - state is already known from flag
-						is_favorited = true;
-					}
-					else if (flist_DirItem(k)->flags == 0x8002)
-					{
-						// Virtual try file - state is already known from flag
-						is_try = true;
-					}
-					else if (flist_DirItem(k)->flags == 0x8003)
-					{
-						// Virtual delete file - state is already known from flag
-						is_delete = true;
+						// For virtual folders, check actual state (not just the flag) to show updated icons
+						is_favorited = FavoritesIsFullPath("_Arcade", flist_DirItem(k)->altname);
+						is_try = TryIsFullPath("_Arcade", flist_DirItem(k)->altname);
+						is_delete = DeleteIsFullPath("_Arcade", flist_DirItem(k)->altname);
 					}
 					else
 					{
-						// Regular file - need to check actual state, use d_name for extension
+						// Regular file check - use d_name to match saved format with extension
 						is_favorited = FavoritesIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 						is_try = TryIsFile("_Arcade", flist_DirItem(k)->de.d_name);
 						is_delete = DeleteIsFile("_Arcade", flist_DirItem(k)->de.d_name);

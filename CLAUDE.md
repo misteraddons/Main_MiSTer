@@ -191,13 +191,6 @@ The removal of legacy cache arrays (favorites_cache, try_cache, delete_cache) yi
 - **No functionality loss**: Unified GamesList handles all operations
 - **Cleaner code**: Eliminated duplicate data structures and update logic
 
-### **Redundant Lookup Optimization:**
-Removed unnecessary state checks for virtual folder items in menu.cpp:
-- **Before**: Virtual files (flags 0x8001/0x8002/0x8003) triggered 3 additional lookups despite known state
-- **After**: Use flag value directly to determine state (favorite/try/delete)
-- **Performance gain**: Eliminates 3 function calls per virtual file during menu rendering
-- **Code clarity**: Makes the flag-based system's purpose more obvious
-
 ## Optimization Opportunities
 
 ### File I/O Optimizations
