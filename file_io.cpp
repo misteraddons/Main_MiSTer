@@ -2589,8 +2589,15 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 	
 	// Build full path - we need the actual current path, not just the core directory
 	char full_path[1024];
-	char *current_path = flist_Path();
-	snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	if (filename[0] == '/') {
+		// Already a full path (from virtual folder altname)
+		strncpy(full_path, filename, sizeof(full_path) - 1);
+		full_path[sizeof(full_path) - 1] = 0;
+	} else {
+		// Regular filename, construct full path
+		char *current_path = flist_Path();
+		snprintf(full_path, sizeof(full_path), "/media/fat/%s/%s", current_path, filename);
+	}
 	
 	printf("GamesList_Toggle: full_path='%s'\n", full_path);
 	
@@ -2851,8 +2858,12 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 	strcpy(parent_item.altname, core_path); // Store parent path in altname
 	DirItem.push_back(parent_item);
 	
-	// Load the games list for this core
-	GamesList_Load(&g_games_list, core_name);
+	// Load the games list for this core (only if not already loaded for this directory)
+	if (strcmp(g_games_list.current_directory, core_name) != 0) {
+		GamesList_Load(&g_games_list, core_name);
+	} else {
+		printf("ScanVirtual%s: Using cached games list for '%s'\n", type_name, core_name);
+	}
 	
 	// Add items of the specified type as virtual files
 	int count = 1; // Start at 1 to account for ".." entry

@@ -7290,6 +7290,34 @@ void ScrollLongName(void)
 	ScrollText(flist_iSelectedEntry() - flist_iFirstEntry(), scroll_name + off, 0, len, max_len, 1);
 }
 
+// Function to rescan virtual folder if we're currently in one
+void RescanVirtualFolderIfNeeded()
+{
+	if (flist_nDirEntries() > 0) {
+		// Check if any items have virtual flags
+		bool has_virtual_favorites = false, has_virtual_try = false, has_virtual_delete = false;
+		for (int i = 0; i < flist_nDirEntries(); i++) {
+			if (flist_DirItem(i)->flags == 0x8001) has_virtual_favorites = true;
+			if (flist_DirItem(i)->flags == 0x8002) has_virtual_try = true;
+			if (flist_DirItem(i)->flags == 0x8003) has_virtual_delete = true;
+		}
+		
+		// Rescan the appropriate virtual folder
+		if (has_virtual_favorites) {
+			printf("Rescanning virtual favorites folder\n");
+			ScanVirtualFavorites(flist_Path());
+		}
+		else if (has_virtual_try) {
+			printf("Rescanning virtual try folder\n");
+			ScanVirtualTry(flist_Path());
+		}
+		else if (has_virtual_delete) {
+			printf("Rescanning virtual delete folder\n");
+			ScanVirtualDelete(flist_Path());
+		}
+	}
+}
+
 // print directory contents
 void PrintDirectory(int expand)
 {
@@ -7300,6 +7328,7 @@ void PrintDirectory(int expand)
 	if (flist_nDirEntries() == 0) {
 		printf("PrintDirectory: WARNING - 0 entries detected!\n");
 	}
+
 
 	if (!cfg.browse_expand) expand = 0;
 
@@ -7380,12 +7409,25 @@ void PrintDirectory(int expand)
 				{
 					char *core_name = games_pos + 6; // skip "games/"
 					char *slash_pos = strchr(core_name, '/');
+					printf("DEBUG: core_name='%s', slash_pos=%s\n", core_name, slash_pos ? "found" : "null");
+					
+					char core_dir[256];
 					if (slash_pos)
 					{
-						char core_dir[256];
+						// Path like "games/SNES/subfolder" - extract core name
 						int core_len = slash_pos - core_name;
 						strncpy(core_dir, core_name, core_len);
 						core_dir[core_len] = 0;
+					}
+					else
+					{
+						// Path like "games/SNES" (virtual folder case) - use entire core name
+						strncpy(core_dir, core_name, sizeof(core_dir) - 1);
+						core_dir[sizeof(core_dir) - 1] = 0;
+					}
+					
+					// Now core_dir is set in both cases, continue with the logic
+					{
 						
 						bool is_favorited = false;
 						bool is_try = false;
@@ -7518,14 +7560,14 @@ void PrintDirectory(int expand)
 			{
 				strncpy(s + 1, display_name+1, len-1);
 			}
-			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001))
+			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003))
 			{
 				strncpy(s + 1, display_name, len-4); // strip .zip extension, see below
 			}
 			else
 			{
-				// For virtual favorites, ensure we copy the full name
-				if (flist_DirItem(k)->flags == 0x8001)
+				// For virtual folders (favorites, try, delete), ensure we copy the full name
+				if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003)
 				{
 					// Copy only up to 27 characters to not overwrite the arrow at position 28
 					int copy_len = strlen(display_name);

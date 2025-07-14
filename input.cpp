@@ -5939,9 +5939,22 @@ int input_poll(int getchar)
 			    lr_hold_start_time && CheckTimer(lr_hold_start_time) &&
 			    !lr_action_triggered)
 			{
-				printf("L+R DELETE triggered\n");
-				DeleteToggle(core_dir, selected->de.d_name);
-				PrintDirectory(1); // Refresh display to update visual indicators
+				// Only allow regular files (not directories or zip files)
+				if (selected->de.d_type == DT_REG) {
+					const char *filename = selected->de.d_name;
+					int name_len = strlen(filename);
+					bool is_zip = (name_len > 4 && !strcasecmp(filename + name_len - 4, ".zip"));
+					
+					if (!is_zip) {
+						printf("L+R DELETE triggered\n");
+						// For virtual folders, use altname (full path), otherwise use d_name
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+							selected->altname : selected->de.d_name;
+						DeleteToggle(core_dir, file_identifier);
+						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
+						PrintDirectory(1); // Refresh display to update visual indicators
+					}
+				}
 				lr_action_triggered = 1; // Prevent multiple triggers
 				lr_hold_start_time = 0; // Clear timer to prevent repeated triggers
 				lr_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period
@@ -5951,9 +5964,22 @@ int input_poll(int getchar)
 			    l_hold_start_time && CheckTimer(l_hold_start_time) && 
 			    !l_action_triggered && l_grace_period_end == 0)
 			{
-				printf("L TRY triggered\n");
-				TryToggle(core_dir, selected->de.d_name);
-				PrintDirectory(1); // Refresh display to update visual indicators
+				// Only allow regular files (not directories or zip files)
+				if (selected->de.d_type == DT_REG) {
+					const char *filename = selected->de.d_name;
+					int name_len = strlen(filename);
+					bool is_zip = (name_len > 4 && !strcasecmp(filename + name_len - 4, ".zip"));
+					
+					if (!is_zip) {
+						printf("L TRY triggered\n");
+						// For virtual folders, use altname (full path), otherwise use d_name
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+							selected->altname : selected->de.d_name;
+						TryToggle(core_dir, file_identifier);
+						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
+						PrintDirectory(1); // Refresh display to update visual indicators
+					}
+				}
 				l_action_triggered = 1; // Prevent multiple triggers
 				l_hold_start_time = 0; // Clear timer to prevent repeated triggers
 				l_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period
@@ -5963,9 +5989,22 @@ int input_poll(int getchar)
 			         r_hold_start_time && CheckTimer(r_hold_start_time) && 
 			         !r_action_triggered && r_grace_period_end == 0)
 			{
-				printf("R FAVORITE triggered\n");
-				FavoritesToggle(core_dir, selected->de.d_name);
-				PrintDirectory(1); // Refresh display to update visual indicators
+				// Only allow regular files (not directories or zip files)
+				if (selected->de.d_type == DT_REG) {
+					const char *filename = selected->de.d_name;
+					int name_len = strlen(filename);
+					bool is_zip = (name_len > 4 && !strcasecmp(filename + name_len - 4, ".zip"));
+					
+					if (!is_zip) {
+						printf("R FAVORITE triggered\n");
+						// For virtual folders, use altname (full path), otherwise use d_name
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+							selected->altname : selected->de.d_name;
+						FavoritesToggle(core_dir, file_identifier);
+						RescanVirtualFolderIfNeeded(); // Rescan virtual folder if needed
+						PrintDirectory(1); // Refresh display to update visual indicators
+					}
+				}
 				r_action_triggered = 1; // Prevent multiple triggers
 				r_hold_start_time = 0; // Clear timer to prevent repeated triggers
 				r_grace_period_end = GetTimer(GRACE_PERIOD_MS); // Start grace period

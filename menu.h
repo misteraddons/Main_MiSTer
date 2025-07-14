@@ -9,6 +9,7 @@ void HandleUI(void);
 void menu_key_set(unsigned int c);
 void menu_process_save();
 void PrintDirectory(int expand = 0);
+void RescanVirtualFolderIfNeeded();
 void ScrollLongName(void);
 
 void ProgressMessage(const char* title = 0, const char* text = 0, int current = 0, int max = 0);
