@@ -207,17 +207,23 @@ Optimized the toggle function from 3 separate operations to a single efficient p
 - **Performance**: Significantly faster for large game lists (up to 2x improvement)
 - **Algorithm**: O(n) best case (early exit), O(1) removal using swap-and-pop technique
 
-### **Duplicate Filename Issue:**
-Users can mark the same game in different file formats, creating redundant entries:
+### **Duplicate Filename Detection (Implemented):**
+Automatically detects and removes duplicate games with different file formats or paths:
 ```
+Before: 
 [0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).n64
 [1] f: /media/fat/games/N64/1GMR/1 US - A-M/007 - GoldenEye (USA).z64
+
+After:
+[0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).z64  (kept: 1G1R + .z64 preference)
 ```
-**Potential solutions:**
-- **Detection**: Strip file extensions and compare base filenames
-- **Consolidation**: Prefer certain formats (.z64 over .n64) or paths (1G1R over 1GMR)
-- **User choice**: Prompt when duplicates are detected
-- **Smart merging**: Keep the most recently accessed version
+
+**Implementation details:**
+- **Detection**: Strips file extensions and compares base filenames (`GamesList_ExtractBasename`)
+- **Path preference**: 1G1R (1 Game 1 ROM) collections preferred over others
+- **Format preference**: .z64 preferred over .n64 for N64 games
+- **Automatic cleanup**: Runs during games.txt loading, transparent to user
+- **Performance**: O(n²) but acceptable for 512-entry limit
 
 ## Optimization Opportunities
 

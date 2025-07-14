@@ -94,6 +94,8 @@ static bool GamesList_SearchForFile(const char* search_dir, const char* filename
 static bool GamesList_EnsureCapacity(GamesList* list, int needed_capacity);
 static void GamesList_Free(GamesList* list);
 static void GamesList_RemoveDuplicates(GamesList* list);
+static void GamesList_RemoveFilenameDuplicates(GamesList* list);
+static void GamesList_ExtractBasename(const char* full_path, char* basename, size_t basename_size);
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -2479,6 +2481,9 @@ static void GamesList_Load(GamesList* list, const char* directory)
 	// Remove duplicate entries (same file, same type)
 	GamesList_RemoveDuplicates(list);
 	
+	// Remove filename duplicates (same game, different format/path)
+	GamesList_RemoveFilenameDuplicates(list);
+	
 	// Sort the unified list
 	GamesList_Sort(list);
 	
@@ -2588,6 +2593,97 @@ static void GamesList_RemoveDuplicates(GamesList* list)
 			}
 		}
 	}
+}
+
+// Extract basename from full path (filename without extension)
+// "/media/fat/games/N64/007 - GoldenEye (USA).n64" -> "007 - GoldenEye (USA)"
+static void GamesList_ExtractBasename(const char* full_path, char* basename, size_t basename_size)
+{
+	// Find the last slash to get filename
+	const char* filename = strrchr(full_path, '/');
+	if (filename) filename++; else filename = full_path;
+	
+	// Copy filename and remove extension
+	strncpy(basename, filename, basename_size - 1);
+	basename[basename_size - 1] = 0;
+	
+	// Find last dot and truncate there
+	char* dot = strrchr(basename, '.');
+	if (dot) *dot = 0;
+}
+
+// Remove filename duplicates (same game, different file format/path)
+// Prefers 1G1R paths over others, and .z64 over .n64 for N64 games
+static void GamesList_RemoveFilenameDuplicates(GamesList* list)
+{
+	printf("GamesList: Checking for filename duplicates...\n");
+	
+	for (int i = 0; i < list->count; i++)
+	{
+		char basename_i[256];
+		GamesList_ExtractBasename(list->entries[i].path, basename_i, sizeof(basename_i));
+		
+		for (int j = i + 1; j < list->count; j++)
+		{
+			char basename_j[256];
+			GamesList_ExtractBasename(list->entries[j].path, basename_j, sizeof(basename_j));
+			
+			// Check if basenames match (same game, different format/path)
+			if (strcmp(basename_i, basename_j) == 0)
+			{
+				printf("Found duplicate: '%s' vs '%s'\n", list->entries[i].path, list->entries[j].path);
+				
+				// Choose which one to keep based on preferences
+				int keep_i = 1; // Default: keep entry i
+				
+				// Prefer 1G1R (1 Game 1 ROM) paths
+				bool i_is_1g1r = (strstr(list->entries[i].path, "1G1R") != NULL);
+				bool j_is_1g1r = (strstr(list->entries[j].path, "1G1R") != NULL);
+				
+				if (!i_is_1g1r && j_is_1g1r) {
+					keep_i = 0; // Keep j (1G1R)
+				}
+				else if (i_is_1g1r && !j_is_1g1r) {
+					keep_i = 1; // Keep i (1G1R)
+				}
+				else {
+					// Both or neither are 1G1R, check file format preferences
+					const char* ext_i = strrchr(list->entries[i].path, '.');
+					const char* ext_j = strrchr(list->entries[j].path, '.');
+					
+					// N64: prefer .z64 over .n64
+					if (ext_i && ext_j) {
+						if (!strcasecmp(ext_i, ".n64") && !strcasecmp(ext_j, ".z64")) {
+							keep_i = 0; // Keep .z64
+						}
+						else if (!strcasecmp(ext_i, ".z64") && !strcasecmp(ext_j, ".n64")) {
+							keep_i = 1; // Keep .z64
+						}
+						// Add more format preferences here as needed
+					}
+				}
+				
+				// Remove the less preferred entry
+				int remove_idx = keep_i ? j : i;
+				printf("Removing duplicate: '%s' (keeping '%s')\n", 
+					list->entries[remove_idx].path, list->entries[keep_i ? i : j].path);
+				
+				// Use swap-and-pop for O(1) removal
+				list->entries[remove_idx] = list->entries[list->count - 1];
+				list->count--;
+				
+				// Adjust loop indices
+				if (remove_idx == i) {
+					i--; // Recheck this position since we swapped
+					break; // Break inner loop, will continue outer loop
+				} else {
+					j--; // Recheck this position since we swapped
+				}
+			}
+		}
+	}
+	
+	printf("GamesList: Duplicate check complete, %d entries remaining\n", list->count);
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
