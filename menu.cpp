@@ -7402,12 +7402,7 @@ void PrintDirectory(int expand)
 							is_try = TryIsFullPath(core_dir, flist_DirItem(k)->altname);
 							is_delete = DeleteIsFullPath(core_dir, flist_DirItem(k)->altname);
 							
-							// Debug output to track state detection
-							if (k == flist_iSelectedEntry())
-							{
-								printf("Virtual item '%s': is_favorited=%d, is_try=%d, flag=0x%x\n", 
-									flist_DirItem(k)->altname, is_favorited, is_try, flist_DirItem(k)->flags);
-							}
+							// Debug output removed for cleaner console output
 						}
 						else
 						{

@@ -184,12 +184,19 @@ typedef struct {
 - Format: `type,filepath` where type is 'd' (delete), 'f' (favorite), or 't' (try)
 - System gracefully handles cache overflow by stopping at 512 entries
 
-### **Legacy Cache Removal (Latest Optimization):**
+### **Legacy Cache Removal:**
 The removal of legacy cache arrays (favorites_cache, try_cache, delete_cache) yielded surprising results:
 - **Removed**: 3 static arrays of 256×1024 bytes each = 768KB of static memory
 - **Binary size reduction**: 100KB (more than expected due to compiler optimizations)
 - **No functionality loss**: Unified GamesList handles all operations
 - **Cleaner code**: Eliminated duplicate data structures and update logic
+
+### **Debug Output Cleanup:**
+Removed verbose debug messages that were cluttering console output:
+- **Removed**: Duplicate virtual item debug messages during menu navigation
+- **Example removed**: `Virtual item '/path/to/game.z64': is_favorited=1, is_try=0, flag=0x8001`
+- **Benefit**: Cleaner console output for better user experience
+- **Maintained**: Essential debug output for troubleshooting when needed
 
 ### **Virtual Folder State Updates (Important Note):**
 The `is_favorited/is_try/is_delete` lookups in menu.cpp are **required** for real-time updates:
