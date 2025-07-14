@@ -2834,13 +2834,19 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 	printf("ScanVirtual%s: core_path='%s'\n", type_name, core_path);
 	
 	// Extract core name from path first
+	const char *core_name;
 	const char *games_pos = strstr(core_path, "games/");
-	if (!games_pos) {
-		printf("ScanVirtual%s: 'games/' not found in path\n", type_name);
+	if (games_pos) {
+		// Standard games path like "games/SNES"
+		core_name = games_pos + 6; // Skip "games/"
+	} else if (core_path[0] == '_') {
+		// _Arcade path like "_Arcade" 
+		core_name = core_path;
+	} else {
+		printf("ScanVirtual%s: 'games/' not found in path and not _Arcade format\n", type_name);
 		return 0;
 	}
 	
-	const char *core_name = games_pos + 6; // Skip "games/"
 	printf("ScanVirtual%s: core_name='%s'\n", type_name, core_name);
 	
 	// Clear current directory listing
