@@ -97,6 +97,7 @@ static void GamesList_RemoveDuplicates(GamesList* list);
 static void GamesList_RemoveFilenameDuplicates(GamesList* list);
 static void GamesList_ExtractBasename(const char* full_path, char* basename, size_t basename_size);
 static int GamesList_DeleteMarkedFiles(GamesList* list);
+static void GamesList_TriggerDirectoryRescan();
 
 // Directory scanning can cause the same zip file to be opened multiple times
 // due to testing file types to adjust the path
@@ -2765,6 +2766,23 @@ static int GamesList_DeleteMarkedFiles(GamesList* list)
 	return deleted_count;
 }
 
+static void GamesList_TriggerDirectoryRescan()
+{
+	// We need to trigger a rescan from menu.cpp context
+	// Since we can't call ScanDirectory directly from file_io.cpp,
+	// we'll use a global flag that menu.cpp can check
+	extern bool g_directory_rescan_requested;
+	extern char g_rescan_directory_path[1024];
+	
+	// Store the current directory path for the rescan
+	char *current_path = flist_Path();
+	strncpy(g_rescan_directory_path, current_path, sizeof(g_rescan_directory_path) - 1);
+	g_rescan_directory_path[sizeof(g_rescan_directory_path) - 1] = 0;
+	
+	g_directory_rescan_requested = true;
+	printf("GamesList: Requesting rescan of directory: %s\n", g_rescan_directory_path);
+}
+
 static void GamesList_Save(GamesList* list, const char* directory)
 {
 	char games_path[1024];
@@ -2873,6 +2891,9 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 		GamesList_Load(list, directory);
 	}
 	
+	// Track counts before changes to detect when virtual directories should appear/disappear
+	int count_before = GamesList_CountByType(list, type);
+	
 	// Build full path - we need the actual current path, not just the core directory
 	char full_path[1024];
 	if (filename[0] == '/') {
@@ -2903,6 +2924,15 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 				list->entries[i].type = type;
 			}
 			GamesList_MarkDirty(list);
+			
+			// Check if count change requires virtual directory update
+			int count_after = GamesList_CountByType(list, type);
+			if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after == 0))
+			{
+				// Virtual directory should appear or disappear - trigger rescan
+				printf("GamesList: Virtual directory change detected, triggering rescan\n");
+				GamesList_TriggerDirectoryRescan();
+			}
 			return; // Exit early - no need to continue loop
 		}
 	}
@@ -2915,6 +2945,15 @@ static void GamesList_Toggle(GamesList* list, const char* directory, const char*
 		list->entries[list->count].type = type;
 		list->count++;
 		GamesList_MarkDirty(list);
+		
+		// Check if count change requires virtual directory update
+		int count_after = GamesList_CountByType(list, type);
+		if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after == 0))
+		{
+			// Virtual directory should appear or disappear - trigger rescan
+			printf("GamesList: Virtual directory change detected, triggering rescan\n");
+			GamesList_TriggerDirectoryRescan();
+		}
 	}
 }
 

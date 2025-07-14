@@ -584,6 +584,37 @@ The delete mechanism seamlessly integrates with the existing virtual folder syst
 - Maintains the same per-core isolation (each core has its own delete list)
 - Follows the same delayed-write pattern for flash wear reduction
 
+### **Dynamic Virtual Directory Refresh**
+Implemented automatic refresh of virtual directory listings when games are marked:
+
+**Problem**: Virtual directories only appeared after navigating away and back when the first game of a type was marked for deletion/favorites/try.
+
+**Solution**: Added dynamic directory rescanning when virtual directories should appear/disappear:
+
+```cpp
+// In GamesList_Toggle() - detect when count changes from 0→1 or 1→0
+int count_before = GamesList_CountByType(list, type);
+// ... perform toggle operation ...
+int count_after = GamesList_CountByType(list, type);
+if ((count_before == 0 && count_after == 1) || (count_before == 1 && count_after == 0))
+{
+    // Virtual directory should appear or disappear - trigger rescan
+    GamesList_TriggerDirectoryRescan();
+}
+```
+
+**Implementation Details**:
+- Added `g_directory_rescan_requested` global flag for cross-module communication
+- `GamesList_TriggerDirectoryRescan()` sets the flag when virtual directories should update
+- `HandleUI()` checks the flag each frame and triggers `ScanDirectory()` + `PrintDirectory()`
+- Automatic cleanup prevents multiple rescans from the same toggle operation
+
+**Benefits**:
+- Virtual directories appear immediately when first game is marked
+- Virtual directories disappear immediately when last game is unmarked
+- No manual navigation required to see virtual folders
+- Maintains responsive UI feedback for all game state changes
+
 ## Conclusion
 
 **Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. The addition of the file deletion mechanism completes the virtual folder system, providing a full workflow for managing game collections: mark as favorite/try/delete → organize in virtual folders → actually delete unwanted games.

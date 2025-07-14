@@ -216,6 +216,10 @@ static uint32_t favorites_start_timer = 0;
 static bool favorites_start_pressed = false;
 static bool favorites_triggered = false;
 
+// Global flag for directory rescan requests from file_io.cpp
+bool g_directory_rescan_requested = false;
+char g_rescan_directory_path[1024] = "";
+
 // Try system variables
 static uint32_t try_select_timer = 0;
 static bool try_select_pressed = false;
@@ -942,6 +946,15 @@ static int page = 0;
 void HandleUI(void)
 {
 	PROFILE_FUNCTION();
+
+	// Check if a directory rescan was requested by the GamesList system
+	if (g_directory_rescan_requested)
+	{
+		g_directory_rescan_requested = false;
+		printf("HandleUI: Processing directory rescan request for %s\n", g_rescan_directory_path);
+		ScanDirectory(g_rescan_directory_path, SCANF_INIT, fs_pFileExt, fs_Options);
+		PrintDirectory(1);
+	}
 
 	if (bt_timer >= 0)
 	{
