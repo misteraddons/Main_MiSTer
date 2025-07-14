@@ -208,7 +208,9 @@ Optimized the toggle function from 3 separate operations to a single efficient p
 - **Algorithm**: O(n) best case (early exit), O(1) removal using swap-and-pop technique
 
 ### **Smart Duplicate Filename Detection (Implemented):**
-Automatically detects and removes duplicate games, ignoring file extensions:
+Automatically detects and removes duplicate games, with intelligent preference handling:
+
+**Same-type duplicates (ignoring file extensions):**
 ```
 Before: 
 [0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).n64
@@ -218,12 +220,23 @@ After:
 [0] f: /media/fat/games/N64/1G1R/007 - GoldenEye (USA).z64  (kept: 1G1R + .z64 preference)
 ```
 
+**Cross-type duplicates (favorite vs try):**
+```
+Before:
+[0] f: /media/fat/games/N64/1G1R/Super Mario 64.z64
+[1] t: /media/fat/games/N64/1GMR/Super Mario 64.z64
+
+After:
+[0] t: /media/fat/games/N64/1G1R/Super Mario 64.z64  (kept: try for re-verification workflow)
+```
+
 **Implementation details:**
 - **Extension-agnostic**: Compares base filenames ignoring extensions (.n64 vs .z64)
-- **Cross-type handling**: Same game can't be both favorite and try (prefers try for re-verification)
-- **Delete list immunity**: Delete entries are ignored for cross-type checks (keep full paths)
-- **Smart preferences**: Keeps best version based on path (1G1R) and format (.z64 > .n64)
-- **Persistent changes**: Marks list dirty to ensure games.txt is saved with removals
+- **Cross-type priority**: Try preferred over favorite (supports re-verification workflow)
+- **Delete list immunity**: Delete entries ignored for cross-type checks (need full paths)
+- **Path preferences**: 1G1R collections preferred over other paths  
+- **Format preferences**: .z64 preferred over .n64 for N64 games
+- **Persistent changes**: Marks list dirty to ensure games.txt saves with removals
 - **Performance**: O(n²) but acceptable for 512-entry limit
 
 ## Optimization Opportunities
