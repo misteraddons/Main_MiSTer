@@ -183,6 +183,7 @@ int ScanVirtualDelete(const char *core_path);
 
 // Universal Favorites system
 int ScanUniversalFavoritesMGL(const char* core_name);
+int ScanUniversalTryMGL(const char* core_name);
 void GenerateUniversalFavoritesMGL(const char* core_name, const char* game_path, const char* output_path);
 
 // Games list caching system (flash wear reduction)

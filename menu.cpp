@@ -5534,11 +5534,20 @@ void HandleUI(void)
 					// Check for exact virtual folder match only
 					bool is_favorites = false;
 					bool is_universal_favorites = false;
+					bool is_try = false;
+					bool is_universal_try = false;
 					if (!strcmp(name, "\x97 Favorites")) {
 						if (flist_SelectedItem()->flags == 0x9000) {
 							is_universal_favorites = true;
 						} else {
 							is_favorites = true;
+						}
+					}
+					else if (!strcmp(name, "? Try")) {
+						if (flist_SelectedItem()->flags == 0x9100) {
+							is_universal_try = true;
+						} else {
+							is_try = true;
 						}
 					}
 					
@@ -5555,6 +5564,20 @@ void HandleUI(void)
 						printf("Setting menustate to MENU_FILE_SELECT1 (Universal Favorites)\n");
 						menustate = MENU_FILE_SELECT1;
 						printf("Universal Favorites handling complete, menustate=%d\n", menustate);
+					}
+					else if (is_universal_try)
+					{
+						// Handle Universal Try folder - show core-specific folders
+						fs_MenuSelect = MENU_GENERIC_FILE_SELECTED;
+						
+						// Use ScanDirectory with special path to trigger Universal Try
+						strcpy(selPath, "UNIVERSAL_TRY");
+						int result = ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+						printf("ScanDirectory returned %d entries\n", result);
+						
+						printf("Setting menustate to MENU_FILE_SELECT1 (Universal Try)\n");
+						menustate = MENU_FILE_SELECT1;
+						printf("Universal Try handling complete, menustate=%d\n", menustate);
 					}
 					else if (is_favorites)
 					{
@@ -7664,6 +7687,11 @@ void PrintDirectory(int expand)
 				// Universal Favorites core directories use beautified altname
 				display_name = flist_DirItem(k)->altname;
 			}
+			else if (flist_DirItem(k)->flags == 0x9100)
+			{
+				// Universal Try core directories use beautified altname
+				display_name = flist_DirItem(k)->altname;
+			}
 			else if (flist_DirItem(k)->de.d_type == DT_DIR && !strcmp(flist_DirItem(k)->de.d_name, ".."))
 			{
 				// Special case for ".." entries - always use d_name
@@ -7863,7 +7891,8 @@ void PrintDirectory(int expand)
 			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && 
 			         (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003) && 
 			         (flist_DirItem(k)->flags != 0x8005) && (flist_DirItem(k)->flags != 0x8006) &&
-			         (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9002) && (flist_DirItem(k)->flags != 0x9003) && 
+			         (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9100) && 
+			         (flist_DirItem(k)->flags != 0x9002) && (flist_DirItem(k)->flags != 0x9003) && 
 			         (flist_DirItem(k)->flags != 0x9007) && (flist_DirItem(k)->flags != 0x9008))
 			{
 				strncpy(s + 1, display_name, len-4); // strip .zip extension, see below
@@ -7896,12 +7925,14 @@ void PrintDirectory(int expand)
 				}
 				else
 				{
-					if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x9000)) // mark ZIP archive with different suffix
+					if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9100)) // mark ZIP archive with different suffix
 						strcpy(&s[22], " <ZIP>");
 					else if (flist_DirItem(k)->flags == 0x8000 || flist_DirItem(k)->flags == 0x4000)
 						; // Don't add <DIR> for virtual directories (favorites, try, delete)
 					else if (flist_DirItem(k)->flags == 0x9000)
 						; // Don't add <DIR> for Universal Favorites directories
+					else if (flist_DirItem(k)->flags == 0x9100)
+						; // Don't add <DIR> for Universal Try directories
 					else
 						strcpy(&s[22], " <DIR>");
 				}

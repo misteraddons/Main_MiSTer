@@ -1665,6 +1665,181 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			
 			return flist_nDirEntries();
 		}
+		else if (strcmp(path, "UNIVERSAL_TRY") == 0)
+		{
+			printf("Scanning Universal Try directory\n");
+			
+			// Add parent directory entry for navigation
+			direntext_t parent_entry;
+			memset(&parent_entry, 0, sizeof(parent_entry));
+			parent_entry.de.d_type = DT_DIR;
+			strcpy(parent_entry.de.d_name, "..");
+			strcpy(parent_entry.altname, "..");
+			parent_entry.flags = 0;
+			DirItem.push_back(parent_entry);
+			
+			// Scan /media/fat/games for cores with try files
+			DIR* games_dir = opendir("/media/fat/games");
+			if (games_dir)
+			{
+				struct dirent* entry;
+				while ((entry = readdir(games_dir)) != NULL)
+				{
+					if (entry->d_type == DT_DIR && entry->d_name[0] != '.')
+					{
+						// Check if this core has try files
+						char games_txt_path[1024];
+						snprintf(games_txt_path, sizeof(games_txt_path), "/media/fat/games/%s/games.txt", entry->d_name);
+						
+						FILE* file = fopen(games_txt_path, "r");
+						if (file)
+						{
+							char line[1024];
+							bool has_try = false;
+							while (fgets(line, sizeof(line), file))
+							{
+								if ((line[0] == 't' && line[1] == ',') || (line[0] == 't' && line[1] == 'm' && line[2] == ','))
+								{
+									has_try = true;
+									break;
+								}
+							}
+							fclose(file);
+							
+							if (has_try)
+							{
+								// Add core folder entry
+								direntext_t core_entry;
+								memset(&core_entry, 0, sizeof(core_entry));
+								core_entry.de.d_type = DT_DIR;
+								strcpy(core_entry.de.d_name, entry->d_name);
+								strcpy(core_entry.altname, entry->d_name);
+								
+								// Beautify the core name using names.txt
+								static char *names = 0;
+								static int names_loaded = 0;
+								if (!names_loaded)
+								{
+									int size = FileLoad("names.txt", 0, 0);
+									if (size)
+									{
+										names = (char*)malloc(size + 1);
+										if (names)
+										{
+											names[0] = 0;
+											FileLoad("names.txt", names, 0);
+											names[size] = 0;
+										}
+									}
+									names_loaded = 1;
+								}
+								
+								if (names)
+								{
+									char lookup_key[128];
+									snprintf(lookup_key, sizeof(lookup_key), "%s:", entry->d_name);
+									char *transl = strstr(names, lookup_key);
+									if (transl)
+									{
+										int key_len = strlen(lookup_key);
+										transl += key_len;
+										int len = 0;
+										while (*transl && len < (int)sizeof(core_entry.altname) - 1)
+										{
+											if (*transl == '\n' || *transl == '\r') break;
+											if (*transl == ' ' && len == 0) {
+												transl++;
+												continue;
+											}
+											core_entry.altname[len++] = *transl++;
+										}
+										core_entry.altname[len] = 0;
+										
+										// Trim trailing spaces
+										while (len > 0 && core_entry.altname[len-1] == ' ')
+										{
+											core_entry.altname[--len] = 0;
+										}
+									}
+								}
+								
+								core_entry.flags = 0x9000; // Special flag for Universal Try core folder
+								core_entry.cookie = 0;
+								core_entry.datecode[0] = 0; // Ensure datecode is null-terminated
+								
+								DirItem.push_back(core_entry);
+							}
+						}
+					}
+				}
+				closedir(games_dir);
+			}
+			
+			// Check _Arcade for try files
+			char arcade_games_path[1024];
+			snprintf(arcade_games_path, sizeof(arcade_games_path), "/media/fat/_Arcade/games.txt");
+			
+			FILE* arcade_file = fopen(arcade_games_path, "r");
+			if (arcade_file)
+			{
+				char line[1024];
+				bool has_try = false;
+				while (fgets(line, sizeof(line), arcade_file))
+				{
+					if ((line[0] == 't' && line[1] == ',') || (line[0] == 't' && line[1] == 'm' && line[2] == ','))
+					{
+						has_try = true;
+						break;
+					}
+				}
+				fclose(arcade_file);
+				
+				if (has_try)
+				{
+					// Add _Arcade folder entry
+					direntext_t arcade_entry;
+					memset(&arcade_entry, 0, sizeof(arcade_entry));
+					arcade_entry.de.d_type = DT_DIR;
+					strcpy(arcade_entry.de.d_name, "_Arcade");
+					strcpy(arcade_entry.altname, "_Arcade");
+					arcade_entry.flags = 0x9000; // Special flag for Universal Try core folder
+					arcade_entry.cookie = 0;
+					arcade_entry.datecode[0] = 0; // Ensure datecode is null-terminated
+					
+					DirItem.push_back(arcade_entry);
+				}
+			}
+			
+			// Sort directories alphabetically by beautified name, keeping ".." at the top
+			if (DirItem.size() > 2) // More than just ".." entry
+			{
+				std::sort(DirItem.begin() + 1, DirItem.end(), 
+					[](const direntext_t& a, const direntext_t& b) {
+						// Sort directories alphabetically by beautified name (altname)
+						return strcasecmp(a.altname, b.altname) < 0;
+					});
+			}
+			
+			printf("Universal Try scan complete, total entries: %d\n", flist_nDirEntries());
+			for (int i = 0; i < flist_nDirEntries(); i++) {
+				direntext_t* item = flist_DirItem(i);
+				printf("Entry %d: name='%s', altname='%s', flags=0x%x, d_type=%d\n", 
+					i, item->de.d_name, item->altname, item->flags, item->de.d_type);
+			}
+			return flist_nDirEntries();
+		}
+		else if (strncmp(path, "UNIVERSAL_TRY/", 14) == 0)
+		{
+			// Handle core-specific Universal Try (e.g., "UNIVERSAL_TRY/N64")
+			const char* core_name = path + 14; // Skip "UNIVERSAL_TRY/"
+			printf("Scanning Universal Try for core: '%s'\n", core_name);
+			
+			// Call existing ScanUniversalTryMGL function (it adds its own parent entry)
+			int result = ScanUniversalTryMGL(core_name);
+			printf("ScanUniversalTryMGL returned %d entries\n", result);
+			
+			return flist_nDirEntries();
+		}
 
 		// Normal directory handling - check if path is a valid directory
 		if (!isPathDirectory(path)) return 0;
@@ -2210,6 +2385,79 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				strcpy(favorites_entry.altname, "\x97 Favorites");
 				favorites_entry.flags = 0x9000; // Special flag for Universal Favorites
 				DirItem.push_back(favorites_entry);
+			}
+			
+			// Check if any core has try files before adding the Universal Try entry
+			bool has_try = false;
+			
+			// Check all cores for try files
+			DIR *games_dir_try = opendir("/media/fat/games");
+			if (games_dir_try)
+			{
+				struct dirent *entry;
+				while ((entry = readdir(games_dir_try)) != NULL)
+				{
+					if (entry->d_type == DT_DIR && entry->d_name[0] != '.')
+					{
+						char games_path[1024];
+						snprintf(games_path, sizeof(games_path), "/media/fat/games/%s/games.txt", entry->d_name);
+						if (FileExists(games_path, 0))
+						{
+							FILE *file = fopen(games_path, "r");
+							if (file)
+							{
+								char line[1024];
+								while (fgets(line, sizeof(line), file))
+								{
+									if (line[0] == 't' && line[1] == ',')
+									{
+										has_try = true;
+										break;
+									}
+								}
+								fclose(file);
+								if (has_try) break;
+							}
+						}
+					}
+				}
+				closedir(games_dir_try);
+			}
+			
+			// Also check _Arcade for try files
+			if (!has_try)
+			{
+				char arcade_games_path[1024];
+				snprintf(arcade_games_path, sizeof(arcade_games_path), "/media/fat/_Arcade/games.txt");
+				if (FileExists(arcade_games_path, 0))
+				{
+					FILE *file = fopen(arcade_games_path, "r");
+					if (file)
+					{
+						char line[1024];
+						while (fgets(line, sizeof(line), file))
+						{
+							if (line[0] == 't' && line[1] == ',')
+							{
+								has_try = true;
+								break;
+							}
+						}
+						fclose(file);
+					}
+				}
+			}
+			
+			// Add Universal Try entry if any core has try files
+			if (has_try)
+			{
+				direntext_t try_entry;
+				memset(&try_entry, 0, sizeof(try_entry));
+				try_entry.de.d_type = DT_DIR;
+				strcpy(try_entry.de.d_name, "? Try");
+				strcpy(try_entry.altname, "? Try");
+				try_entry.flags = 0x9100; // Special flag for Universal Try
+				DirItem.push_back(try_entry);
 			}
 		}
 
@@ -3462,6 +3710,86 @@ int ScanUniversalFavoritesMGL(const char* core_name)
 	}
 	
 	printf("ScanUniversalFavoritesMGL: Found %d favorites for core '%s'\n", count - 1, core_name);
+	return count;
+}
+
+// Universal Try MGL file scanner
+// This scans try files from all cores and presents them as MGL files for launching
+int ScanUniversalTryMGL(const char* core_name)
+{
+	printf("ScanUniversalTryMGL: Scanning core '%s'\n", core_name);
+	
+	// Load the games list for this core
+	GamesLoad(core_name);
+	
+	// Add parent directory entry
+	direntext_t parent_item;
+	memset(&parent_item, 0, sizeof(parent_item));
+	parent_item.de.d_type = DT_DIR;
+	strcpy(parent_item.de.d_name, "..");
+	strcpy(parent_item.altname, ""); // Empty altname for parent
+	DirItem.push_back(parent_item);
+	
+	int count = 1; // Start with parent directory
+	
+	// Scan through all games and add try files as MGL files
+	for (int i = 0; i < g_games_list.count; i++)
+	{
+		if (g_games_list.entries[i].type == GAME_TYPE_TRY || g_games_list.entries[i].type == GAME_TYPE_TRY_MISSING)
+		{
+			// Create file entry
+			direntext_t item;
+			memset(&item, 0, sizeof(item));
+			item.de.d_type = DT_REG;
+			
+			// Extract just the filename from the full path
+			const char *filename = strrchr(g_games_list.entries[i].path, '/');
+			if (filename) filename++; else filename = g_games_list.entries[i].path;
+			
+			// Create display name without core prefix and without extension
+			char display_name[256];
+			strcpy(display_name, filename);
+			
+			// Check if this is an MRA file
+			bool is_mra = false;
+			int len = strlen(filename);
+			if (len > 4 && !strcasecmp(filename + len - 4, ".mra"))
+			{
+				is_mra = true;
+			}
+			
+			// Remove extension from game name
+			char *ext = strrchr(display_name, '.');
+			if (ext) *ext = '\0';
+			
+			strcpy(item.de.d_name, display_name);
+			
+			// Check if this is a missing file
+			bool is_missing = (g_games_list.entries[i].type == GAME_TYPE_TRY_MISSING);
+			
+			if (is_mra)
+			{
+				// For MRA files, store the path directly for loading
+				strcpy(item.altname, g_games_list.entries[i].path);
+				item.flags = is_missing ? 0x9007 : 0x9003; // 0x9007 for missing MRA, 0x9003 for normal MRA
+			}
+			else
+			{
+				// For regular games, store info for MGL generation
+				snprintf(item.altname, sizeof(item.altname), "%s|%s|%s", 
+				         display_name, core_name, g_games_list.entries[i].path);
+				item.flags = is_missing ? 0x9008 : 0x9002; // 0x9008 for missing MGL, 0x9002 for normal MGL
+			}
+			
+			printf("ScanUniversalTryMGL: Adding %s item '%s' for game '%s'\n", 
+			       is_mra ? "MRA" : "MGL", item.de.d_name, g_games_list.entries[i].path);
+			
+			DirItem.push_back(item);
+			count++;
+		}
+	}
+	
+	printf("ScanUniversalTryMGL: Found %d try files for core '%s'\n", count - 1, core_name);
 	return count;
 }
 
