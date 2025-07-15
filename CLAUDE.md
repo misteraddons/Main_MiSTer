@@ -675,12 +675,14 @@ Implement a universal favorites system that allows access to favorite games acro
 
 2. **Core Picker No Files**: ~~When launching a game from favorites, then switching cores, the core picker shows "No files!" warning instead of returning to Universal Favorites menu~~ **FIXED**: Added detection for Universal Favorites MGL paths in `SCANO_CORES` section of `SelectFile()` to properly redirect to `/media/fat` instead of scanning invalid MGL file paths
 
-3. **Missing Files Performance**: Missing files in games.txt causes expensive recursive file search (`GamesList_SearchForFile`) every time the database is scanned. This significantly impacts performance with large missing file counts.
-   - **Potential Solutions**:
-     - Cache missing file status to avoid repeated searches
-     - Remove missing files from games.txt after failed searches
-     - Add background cleanup process to verify file existence
-     - Implement incremental scanning instead of full rescan
+3. **Missing Files Performance**: ~~Missing files in games.txt causes expensive recursive file search (`GamesList_SearchForFile`) every time the database is scanned. This significantly impacts performance with large missing file counts.~~ **FIXED**: Implemented missing file tracking system
+   - **Solution Implemented**:
+     - Added `GAME_TYPE_FAVORITE_MISSING` (fm) and `GAME_TYPE_TRY_MISSING` (tm) types
+     - First scan converts missing `f` → `fm` and `t` → `tm` automatically  
+     - Subsequent scans skip expensive file searches for entries marked as missing
+     - Missing files display with `!` symbol instead of `♥` or `?`
+     - Delete entries with missing files are removed entirely (no dm type)
+     - User must manually repair or clean games.txt for missing entries
 
 4. **OSD Scanning Message**: Attempted to add "Scanning favorites database..." OSD message during long scan operations, but failed due to CPU being maxed out during scan preventing OSD updates
    - **Attempted Solutions**: 

@@ -2717,19 +2717,39 @@ static void GamesList_Load(GamesList* list, const char* directory)
 		// Skip empty lines gracefully
 		if (strlen(line) < 3) continue; 
 		
-		// Validate basic format: "type,path"
-		char type_char = line[0];
-		if (line[1] != ',') {
+		// Handle both single character and two character types (fm, tm)
+		char type_char;
+		char *filepath;
+		
+		if (line[1] == ',') {
+			// Single character type: "f,path" or "t,path" or "d,path"
+			type_char = line[0];
+			filepath = &line[2];
+			
+			// Validate type character
+			if (!(type_char == 'd' || type_char == 'f' || type_char == 't')) {
+				corrupt_lines++;
+				continue; // Skip invalid type
+			}
+		}
+		else if (line[2] == ',') {
+			// Two character type: "fm,path" or "tm,path"
+			if (line[0] == 'f' && line[1] == 'm') {
+				type_char = GAME_TYPE_FAVORITE_MISSING;
+				filepath = &line[3];
+			}
+			else if (line[0] == 't' && line[1] == 'm') {
+				type_char = GAME_TYPE_TRY_MISSING;
+				filepath = &line[3];
+			}
+			else {
+				corrupt_lines++;
+				continue; // Skip invalid two-character type
+			}
+		}
+		else {
 			corrupt_lines++;
 			continue; // Skip malformed lines
-		}
-		
-		char *filepath = &line[2];
-		
-		// Validate type character
-		if (!(type_char == 'd' || type_char == 'f' || type_char == 't')) {
-			corrupt_lines++;
-			continue; // Skip invalid type
 		}
 		
 		// Validate filepath is not empty and not too long
@@ -2778,6 +2798,18 @@ static void GamesList_RelocateMissingFiles(GamesList* list, const char* director
 	
 	for (int i = 0; i < list->count; i++)
 	{
+		// Skip files already marked as missing to avoid expensive searches
+		if (list->entries[i].type == GAME_TYPE_FAVORITE_MISSING || list->entries[i].type == GAME_TYPE_TRY_MISSING)
+		{
+			continue;
+		}
+		
+		// Only process favorites and try entries (delete entries are removed if missing)
+		if (list->entries[i].type != GAME_TYPE_FAVORITE && list->entries[i].type != GAME_TYPE_TRY)
+		{
+			continue;
+		}
+		
 		// Check if the file exists at its recorded path
 		if (!FileExists(list->entries[i].path))
 		{
@@ -2799,6 +2831,23 @@ static void GamesList_RelocateMissingFiles(GamesList* list, const char* director
 				// Mark as dirty so the updated path gets saved
 				list->is_dirty = true;
 				files_relocated = true;
+				printf("GamesList: Relocated missing file '%s' to '%s'\n", filename, found_path);
+			}
+			else
+			{
+				// File not found - mark as missing to avoid future searches
+				char original_type = list->entries[i].type;
+				if (original_type == GAME_TYPE_FAVORITE)
+				{
+					list->entries[i].type = GAME_TYPE_FAVORITE_MISSING;
+				}
+				else if (original_type == GAME_TYPE_TRY)
+				{
+					list->entries[i].type = GAME_TYPE_TRY_MISSING;
+				}
+				list->is_dirty = true;
+				printf("GamesList: Marked file as missing: '%s' (was %c, now %c)\n", 
+				       list->entries[i].path, original_type, list->entries[i].type);
 			}
 		}
 	}
@@ -3129,7 +3178,19 @@ static void GamesList_Save(GamesList* list, const char* directory)
 	// Write all entries (already sorted by type and filename)
 	for (int i = 0; i < list->count; i++)
 	{
-		fprintf(file, "%c,%s\n", list->entries[i].type, list->entries[i].path);
+		// Write missing entries with proper format (fm, tm)
+		if (list->entries[i].type == GAME_TYPE_FAVORITE_MISSING)
+		{
+			fprintf(file, "fm,%s\n", list->entries[i].path);
+		}
+		else if (list->entries[i].type == GAME_TYPE_TRY_MISSING)
+		{
+			fprintf(file, "tm,%s\n", list->entries[i].path);
+		}
+		else
+		{
+			fprintf(file, "%c,%s\n", list->entries[i].type, list->entries[i].path);
+		}
 	}
 	
 	fclose(file);
@@ -3274,7 +3335,10 @@ void GenerateUniversalFavoritesMGL(const char* core_name, const char* game_path,
 	} else if (strcmp(core_name, "SNES") == 0) {
 		strcpy(rbf_path, "_console/snes");
 	} else if (strcmp(core_name, "MegaDrive") == 0) {
-		strcpy(rbf_path, "_console/genesis");
+		strcpy(rbf_path, "_console/megadrive");
+	} else if (strcmp(core_name, "Genesis") == 0) {
+		// Legacy Genesis core - redirect to MegaDrive
+		strcpy(rbf_path, "_console/megadrive");
 	} else if (strcmp(core_name, "_Arcade") == 0) {
 		strcpy(rbf_path, "_arcade");
 	} else {
@@ -3343,7 +3407,7 @@ int ScanUniversalFavoritesMGL(const char* core_name)
 	// Scan through all games and add favorites as MGL files
 	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE)
+		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE || g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING)
 		{
 			// Create file entry
 			direntext_t item;
@@ -3372,18 +3436,21 @@ int ScanUniversalFavoritesMGL(const char* core_name)
 			
 			strcpy(item.de.d_name, display_name);
 			
+			// Check if this is a missing file
+			bool is_missing = (g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING);
+			
 			if (is_mra)
 			{
 				// For MRA files, store the path directly for loading
 				strcpy(item.altname, g_games_list.entries[i].path);
-				item.flags = 0x9003; // Special flag for Universal Favorites MRA file
+				item.flags = is_missing ? 0x9007 : 0x9003; // 0x9007 for missing MRA, 0x9003 for normal MRA
 			}
 			else
 			{
 				// For regular games, store info for MGL generation
 				snprintf(item.altname, sizeof(item.altname), "%s|%s|%s", 
 				         display_name, core_name, g_games_list.entries[i].path);
-				item.flags = 0x9002; // Special flag for Universal Favorites MGL file
+				item.flags = is_missing ? 0x9008 : 0x9002; // 0x9008 for missing MGL, 0x9002 for normal MGL
 			}
 			
 			printf("ScanUniversalFavoritesMGL: Adding %s item '%s' for game '%s'\n", 
@@ -3618,7 +3685,25 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 	int count = 1; // Start at 1 to account for ".." entry
 	for (int i = 0; i < g_games_list.count; i++)
 	{
-		if (g_games_list.entries[i].type == game_type)
+		// Match both the main type and its missing equivalent
+		bool matches = (g_games_list.entries[i].type == game_type);
+		if (game_type == GAME_TYPE_FAVORITE)
+		{
+			matches = matches || (g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING);
+		}
+		else if (game_type == GAME_TYPE_TRY)
+		{
+			matches = matches || (g_games_list.entries[i].type == GAME_TYPE_TRY_MISSING);
+		}
+		
+		// Debug output for missing files
+		if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING || g_games_list.entries[i].type == GAME_TYPE_TRY_MISSING)
+		{
+			printf("ScanVirtualFolder: Found missing file type=%c, matches=%d (scanning for type=%c)\n", 
+			       g_games_list.entries[i].type, matches, game_type);
+		}
+		
+		if (matches)
 		{
 			direntext_t item;
 			memset(&item, 0, sizeof(item));
@@ -3647,7 +3732,19 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
 			item.altname[sizeof(item.altname) - 1] = 0;
 			
-			item.flags = flags; // Mark as virtual item of specified type
+			// Set flags based on whether file is missing
+			if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING)
+			{
+				item.flags = 0x8005; // Flag for favorite missing
+			}
+			else if (g_games_list.entries[i].type == GAME_TYPE_TRY_MISSING)
+			{
+				item.flags = 0x8006; // Flag for try missing
+			}
+			else
+			{
+				item.flags = flags; // Regular virtual item flag
+			}
 			
 			printf("ScanVirtual%s: Adding item[%d] d_name='%s', altname='%s', flags=0x%X\n", 
 			       type_name, count, item.de.d_name, item.altname, item.flags);

@@ -5948,7 +5948,7 @@ int input_poll(int getchar)
 					if (!is_zip) {
 						printf("L+R DELETE triggered\n");
 						// For virtual folders, use altname (full path), otherwise use d_name
-						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003 || selected->flags == 0x8005 || selected->flags == 0x8006 || selected->flags == 0x9007 || selected->flags == 0x9008) ? 
 							selected->altname : selected->de.d_name;
 						DeleteToggle(core_dir, file_identifier);
 						PrintDirectory(1); // Refresh display to update visual indicators
@@ -5972,7 +5972,7 @@ int input_poll(int getchar)
 					if (!is_zip) {
 						printf("L TRY triggered\n");
 						// For virtual folders, use altname (full path), otherwise use d_name
-						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003 || selected->flags == 0x8005 || selected->flags == 0x8006 || selected->flags == 0x9007 || selected->flags == 0x9008) ? 
 							selected->altname : selected->de.d_name;
 						TryToggle(core_dir, file_identifier);
 						PrintDirectory(1); // Refresh display to update visual indicators
@@ -5996,7 +5996,7 @@ int input_poll(int getchar)
 					if (!is_zip) {
 						printf("R FAVORITE triggered\n");
 						// For virtual folders, use altname (full path), otherwise use d_name
-						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003) ? 
+						const char *file_identifier = (selected->flags == 0x8001 || selected->flags == 0x8002 || selected->flags == 0x8003 || selected->flags == 0x8005 || selected->flags == 0x8006 || selected->flags == 0x9007 || selected->flags == 0x9008) ? 
 							selected->altname : selected->de.d_name;
 						FavoritesToggle(core_dir, file_identifier);
 						PrintDirectory(1); // Refresh display to update visual indicators

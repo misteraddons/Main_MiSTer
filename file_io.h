@@ -156,7 +156,9 @@ void create_path(const char *base_dir, const char* sub_dir);
 typedef enum {
     GAME_TYPE_DELETE = 'd',
     GAME_TYPE_FAVORITE = 'f', 
-    GAME_TYPE_TRY = 't'
+    GAME_TYPE_TRY = 't',
+    GAME_TYPE_FAVORITE_MISSING = 'm',  // Used for fm (favorite missing) 
+    GAME_TYPE_TRY_MISSING = 'n'       // Used for tm (try missing)
 } GameType;
 
 // Favorites system

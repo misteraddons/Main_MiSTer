@@ -7744,9 +7744,11 @@ void PrintDirectory(int expand)
 						}
 						
 						
-						// Check if this is a missing file in virtual folders
-						bool is_missing = (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003) && 
-						                   !FileExists(flist_DirItem(k)->altname);
+						// Check if this is a missing file (either detected as missing or already marked as missing)
+						bool is_missing = (flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 || 
+						                   flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008) ||
+						                  ((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003) && 
+						                   !FileExists(flist_DirItem(k)->altname));
 						
 						if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003) {
  

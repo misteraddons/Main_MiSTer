@@ -67,12 +67,14 @@ Atari7800: Atari 2600/7800
 AY-3-8500: GI Pong
 C2650: Arcadia 2001
 ColecoVision: ColecoVision/SG-1000
+GameBoy: Nintendo Game Boy/Color
 Gameboy: Nintendo Game Boy/Color
 GBA: Nintendo Game Boy Advance
 Genesis: Sega Genesis
 Jaguar: Atari Jaguar
 MegaCD: Sega CD
 MegaDrive: Sega Mega Drive/Genesis
+N64: Nintendo 64
 NeoGeo: SNK Neo Geo MVS/AES/CD
 NES: Nintendo NES
 Odyssey2: Magnavox Odyssey2
