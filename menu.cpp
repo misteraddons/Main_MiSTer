@@ -7620,7 +7620,10 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
+			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || 
+			           flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 ||
+			           flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003 || 
+			           flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
 			&& !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0] && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x9000))
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
@@ -7644,7 +7647,10 @@ void PrintDirectory(int expand)
 		{
 			// For virtual favorites/try/delete, use the clean name from d_name
 			char *display_name;
-			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003)
+			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || 
+			    flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 ||
+			    flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003 || 
+			    flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008)
 			{
 				// Use the clean game name from d_name (special character handled separately)
 				display_name = flist_DirItem(k)->de.d_name;
@@ -7848,14 +7854,21 @@ void PrintDirectory(int expand)
 			{
 				strncpy(s + 1, display_name+1, len-1);
 			}
-			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003) && (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9002) && (flist_DirItem(k)->flags != 0x9003))
+			else if ((flist_DirItem(k)->flags & DT_EXT_ZIP) && 
+			         (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x8002) && (flist_DirItem(k)->flags != 0x8003) && 
+			         (flist_DirItem(k)->flags != 0x8005) && (flist_DirItem(k)->flags != 0x8006) &&
+			         (flist_DirItem(k)->flags != 0x9000) && (flist_DirItem(k)->flags != 0x9002) && (flist_DirItem(k)->flags != 0x9003) && 
+			         (flist_DirItem(k)->flags != 0x9007) && (flist_DirItem(k)->flags != 0x9008))
 			{
 				strncpy(s + 1, display_name, len-4); // strip .zip extension, see below
 			}
 			else
 			{
 				// For virtual folders (favorites, try, delete, universal favorites), ensure we copy the full name
-				if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003)
+				if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || 
+				    flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 ||
+				    flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003 || 
+				    flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008)
 				{
 					// Copy only up to 27 characters to not overwrite the arrow at position 28
 					int copy_len = strlen(display_name);
@@ -7979,6 +7992,15 @@ void PrintDirectory(int expand)
 					strncpy(s+1, flist_DirItem(k)->de.d_name + 27, len2);
 					s[1 + len2] = '\0';
 				}
+			}
+			else if (flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || 
+			         flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 ||
+			         flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008)
+			{
+				// For virtual try/delete files and missing files, use clean display name for scrolling
+				// Same approach as 0x9003 (Universal Favorites MRA files)
+				len = strlen(flist_DirItem(k)->de.d_name);
+				strcpy(s+1, flist_DirItem(k)->de.d_name + len - len2);
 			}
 			else
 			{
