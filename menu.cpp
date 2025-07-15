@@ -7672,6 +7672,7 @@ void PrintDirectory(int expand)
 			
 			len = strlen(display_name); // get name length
 			
+			
 			// For virtual favorites, use full available space (28 characters including heart)
 			int max_display_len = 27;
 			
@@ -7680,6 +7681,7 @@ void PrintDirectory(int expand)
 				len2 = len - max_display_len;
 				if (len2 > 27) len2 = 27;
 				if (!expand) len2 = 0;
+				
 
 				len = max_display_len; // trim display length
 				// For virtual favorites, always show right arrow at position 28
@@ -7948,6 +7950,7 @@ void PrintDirectory(int expand)
 
 		if (sel && len2)
 		{
+			
 			// For virtual favorites, use clean filename stored after the path in altname
 			if (flist_DirItem(k)->flags == 0x8001)
 			{
