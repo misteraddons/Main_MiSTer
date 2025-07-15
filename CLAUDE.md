@@ -662,6 +662,8 @@ Implement a universal favorites system that allows access to favorite games acro
 - Integrate with existing virtual folder infrastructure
 - Use names.txt for core name beautification
 - Maintain synchronization between per-core and universal favorites
+- Sort Universal Favorites directories alphabetically by beautified names (altname)
+- Display clean game names without paths/extensions for missing files
 
 **Integration with Existing System:**
 - Universal Favorites complements existing per-core favorites
@@ -691,10 +693,18 @@ Implement a universal favorites system that allows access to favorite games acro
      - `HandleUI()` calls caused recursive issues
    - **Alternative**: Console printf messages provide feedback but not visible to all users
 
+### **Recent Fixes**
+
+1. **Universal Favorites Beautification**: Fixed core name display and alphabetical sorting
+   - Added missing entries to names.txt (GameBoy, N64)
+   - Fixed case-sensitive lookup for GameBoy core
+   - Corrected sorting to use beautified names (altname) instead of raw directory names
+   - Result: Clean, properly sorted core list in Universal Favorites
+
 ### **Next Steps**
 1. Investigate GBA core filename display issue
-2. Fix core picker navigation after launching from favorites
-3. Implement missing files performance optimization
+2. ~~Fix core picker navigation after launching from favorites~~ ✓ Fixed
+3. ~~Implement missing files performance optimization~~ ✓ Fixed
 4. Consider alternative approaches for scan progress indication
 
 ## Conclusion

@@ -1635,13 +1635,13 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				}
 			}
 			
-			// Sort directories alphabetically, keeping ".." at the top
+			// Sort directories alphabetically by beautified name, keeping ".." at the top
 			if (DirItem.size() > 2) // More than just ".." entry
 			{
 				std::sort(DirItem.begin() + 1, DirItem.end(), 
 					[](const direntext_t& a, const direntext_t& b) {
-						// Sort directories alphabetically by display name
-						return strcasecmp(a.de.d_name, b.de.d_name) < 0;
+						// Sort directories alphabetically by beautified name (altname)
+						return strcasecmp(a.altname, b.altname) < 0;
 					});
 			}
 			
