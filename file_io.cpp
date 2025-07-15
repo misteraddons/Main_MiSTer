@@ -1534,11 +1534,58 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 									core_entry.de.d_type = DT_DIR;
 									strcpy(core_entry.de.d_name, entry->d_name);
 									strcpy(core_entry.altname, entry->d_name);
+									
+									// Beautify the core name using names.txt
+									static char *names = 0;
+									static int names_loaded = 0;
+									if (!names_loaded)
+									{
+										int size = FileLoad("names.txt", 0, 0);
+										if (size)
+										{
+											names = (char*)malloc(size + 1);
+											if (names)
+											{
+												names[0] = 0;
+												FileLoad("names.txt", names, 0);
+												names[size] = 0;
+											}
+										}
+										names_loaded = 1;
+									}
+									
+									if (names)
+									{
+										char lookup_key[128];
+										snprintf(lookup_key, sizeof(lookup_key), "%s:", entry->d_name);
+										char *transl = strstr(names, lookup_key);
+										if (transl)
+										{
+											int key_len = strlen(lookup_key);
+											transl += key_len;
+											int len = 0;
+											while (*transl && len < (int)sizeof(core_entry.altname) - 1)
+											{
+												if (*transl == '\n' || *transl == '\r') break;
+												if (*transl == ' ' && len == 0) {
+													transl++;
+													continue;
+												}
+												core_entry.altname[len++] = *transl++;
+											}
+											core_entry.altname[len] = 0;
+											
+											// Trim trailing spaces
+											while (len > 0 && core_entry.altname[len-1] == ' ')
+											{
+												core_entry.altname[--len] = 0;
+											}
+										}
+									}
+									
 									core_entry.flags = 0x9000; // Special flag for Universal Favorites core folder
 									core_entry.cookie = 0;
 									core_entry.datecode[0] = 0; // Ensure datecode is null-terminated
-									
-									// No need to call get_display_name for directories - it returns immediately for DT_DIR
 									
 									DirItem.push_back(core_entry);
 								}
@@ -1963,7 +2010,9 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 					if (FileExists(games_path, 0))
 					{
 						// Load games.txt to determine which virtual folders to create
+						printf("Scanning favorites database, please wait...\n");
 						GamesLoad(core_name);
+						printf("Favorites database scan complete.\n");
 						
 						// Add virtual favorites folder if there are favorites
 						// Only show the virtual folder if it contains items to avoid empty folders
@@ -2025,8 +2074,24 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				snprintf(games_path, sizeof(games_path), "%s/_Arcade/games.txt", getRootDir());
 				if (FileExists(games_path, 0))
 				{
+					// Check file size to determine if we need progress screen
+					struct stat st;
+					bool use_progress = false;
+					if (stat(games_path, &st) == 0 && st.st_size > 10000) // Files larger than ~10KB
+					{
+						use_progress = true;
+						StartFavoritesScanning("Loading arcade favorites...", 100);
+					}
+					
 					// Load games.txt to determine which virtual folders to create
+					if (use_progress) UpdateFavoritesProgress("Reading arcade favorites...", 25);
 					GamesLoad("_Arcade");
+					
+					if (use_progress)
+					{
+						UpdateFavoritesProgress("Finished loading database", 100);
+						FinishFavoritesScanning();
+					}
 					
 					// Add virtual favorites folder if there are favorites
 					if (GamesList_CountByType(&g_games_list, GAME_TYPE_FAVORITE) > 0)
@@ -2838,6 +2903,7 @@ static void GamesList_RemoveFilenameDuplicates(GamesList* list)
 	
 	for (int i = 0; i < list->count; i++)
 	{
+		
 		char basename_i[256];
 		GamesList_ExtractBasename(list->entries[i].path, basename_i, sizeof(basename_i));
 		

@@ -199,6 +199,9 @@ enum MENU
 	// MT32-pi
 	MENU_MT32PI_MAIN1,
 	MENU_MT32PI_MAIN2,
+	
+	// Favorites scanning/repair progress screen
+	MENU_FAVORITES_SCANNING,
 };
 
 static uint32_t menustate = MENU_NONE1;
@@ -218,6 +221,12 @@ static bool favorites_triggered = false;
 
 // Global flag to remember if we came from Universal Favorites
 static bool came_from_universal_favorites = false;
+
+// Favorites scanning progress tracking
+static char favorites_scan_message[64] = "";
+static int favorites_scan_progress = 0;
+static int favorites_scan_total = 0;
+static bool favorites_scan_active = false;
 
 // Global flag for directory rescan requests from file_io.cpp
 bool g_directory_rescan_requested = false;
@@ -401,20 +410,45 @@ static unsigned long filter_typing_timer = 0;
 void SelectFile(const char* path, const char* pFileExt, int Options, unsigned char MenuSelect, unsigned char MenuCancel)
 {
 	static char tmp[1024];
+	printf("SelectFile called with path='%s'\n", path ? path : "(null)");
 	printf("pFileExt = %s\n", pFileExt);
 	filter_typing_timer = 0;
 	filter[0] = 0;
 
 	strncpy(selPath, path, sizeof(selPath) - 1);
 	selPath[sizeof(selPath) - 1] = 0;
+	
+	// Handle invalid MGL paths from Universal Favorites
+	if (strstr(selPath, "universal_favorites_") && strstr(selPath, ".mgl"))
+	{
+		printf("SelectFile: Detected invalid MGL path '%s', redirecting to Universal Favorites\n", selPath);
+		strcpy(selPath, "UNIVERSAL_FAVORITES");
+	}
 
 	if (Options & SCANO_CORES)
 	{
 		strcpy(selPath, get_rbf_dir());
 		if (strlen(get_rbf_name()))
 		{
-			if(strlen(selPath)) strcat(selPath, "/");
-			strcat(selPath, get_rbf_name());
+			// Handle Universal Favorites MGL files
+			if (strstr(get_rbf_name(), "universal_favorites_") && strstr(get_rbf_name(), ".mgl"))
+			{
+				printf("SelectFile: SCANO_CORES detected Universal Favorites MGL, redirecting to Universal Favorites\n");
+				if (came_from_universal_favorites)
+				{
+					strcpy(selPath, "UNIVERSAL_FAVORITES");
+					came_from_universal_favorites = false;
+				}
+				else
+				{
+					strcpy(selPath, get_rbf_dir()); // Fall back to rbf directory
+				}
+			}
+			else
+			{
+				if(strlen(selPath)) strcat(selPath, "/");
+				strcat(selPath, get_rbf_name());
+			}
 		}
 		pFileExt = "RBFMRAMGL";
 		home_dir = NULL;
@@ -428,11 +462,15 @@ void SelectFile(const char* path, const char* pFileExt, int Options, unsigned ch
 	{
 		const char *home;
 		
+		printf("SelectFile: came_from_universal_favorites=%d, is_menu()=%d\n", came_from_universal_favorites, is_menu());
+		
 		// If we came from Universal Favorites, go back to Universal Favorites
 		if (came_from_universal_favorites && !is_menu())
 		{
+			printf("SelectFile: Redirecting to Universal Favorites (came_from_universal_favorites=true)\n");
 			home = "UNIVERSAL_FAVORITES";
 			home_dir = "♥ Favorites";
+			strcpy(selPath, "UNIVERSAL_FAVORITES"); // Override the path
 			came_from_universal_favorites = false; // Reset the flag
 		}
 		else
@@ -470,6 +508,44 @@ void SelectFile(const char* path, const char* pFileExt, int Options, unsigned ch
 	fs_MenuSelect = MenuSelect;
 	fs_MenuCancel = MenuCancel;
 
+	menustate = MENU_FILE_SELECT1;
+}
+
+// Favorites scanning progress screen functions
+void StartFavoritesScanning(const char* message, int total_items)
+{
+	strncpy(favorites_scan_message, message, sizeof(favorites_scan_message) - 1);
+	favorites_scan_message[sizeof(favorites_scan_message) - 1] = '\0';
+	favorites_scan_progress = 0;
+	favorites_scan_total = total_items;
+	favorites_scan_active = true;
+	menustate = MENU_FAVORITES_SCANNING;
+	
+	OsdSetSize(16);
+	OsdClear();
+	OsdEnable(DISABLE_KEYBOARD);
+}
+
+void UpdateFavoritesProgress(const char* current_task, int current_progress)
+{
+	if (favorites_scan_active)
+	{
+		favorites_scan_progress = current_progress;
+		if (current_task)
+		{
+			strncpy(favorites_scan_message, current_task, sizeof(favorites_scan_message) - 1);
+			favorites_scan_message[sizeof(favorites_scan_message) - 1] = '\0';
+		}
+		
+		// Force immediate screen update
+		HandleUI();
+		usleep(50000); // 50ms pause to allow screen update and reduce CPU load
+	}
+}
+
+void FinishFavoritesScanning()
+{
+	favorites_scan_active = false;
 	menustate = MENU_FILE_SELECT1;
 }
 
@@ -5186,6 +5262,63 @@ void HandleUI(void)
 		break;
 
 		/******************************************************************/
+		/* favorites scanning progress screen                             */
+		/******************************************************************/
+	case MENU_FAVORITES_SCANNING:
+		{
+			OsdSetTitle("Favorites", 0);
+			
+			char progress_text[64];
+			if (favorites_scan_total > 0)
+			{
+				int percentage = (favorites_scan_progress * 100) / favorites_scan_total;
+				snprintf(progress_text, sizeof(progress_text), "%s (%d%%)", favorites_scan_message, percentage);
+			}
+			else
+			{
+				strncpy(progress_text, favorites_scan_message, sizeof(progress_text) - 1);
+				progress_text[sizeof(progress_text) - 1] = '\0';
+			}
+			
+			OsdWrite(0, "", 0, 0);
+			OsdWrite(1, "  Scanning and repairing", 0, 0);
+			OsdWrite(2, "  favorites database...", 0, 0);
+			OsdWrite(3, "", 0, 0);
+			OsdWrite(4, progress_text, 0, 0);
+			OsdWrite(5, "", 0, 0);
+			
+			// Draw progress bar
+			if (favorites_scan_total > 0)
+			{
+				char progress_bar[32];
+				memset(progress_bar, ' ', 30);
+				progress_bar[30] = '\0';
+				
+				int bar_filled = (favorites_scan_progress * 28) / favorites_scan_total;
+				if (bar_filled > 28) bar_filled = 28;
+				
+				progress_bar[0] = '[';
+				for (int i = 1; i <= bar_filled; i++)
+				{
+					progress_bar[i] = '=';
+				}
+				progress_bar[29] = ']';
+				
+				OsdWrite(6, progress_bar, 0, 0);
+			}
+			
+			OsdWrite(7, "", 0, 0);
+			OsdWrite(8, "  Please wait...", 0, 0);
+			
+			// Auto-exit when scanning is complete
+			if (!favorites_scan_active)
+			{
+				menustate = MENU_FILE_SELECT1;
+			}
+		}
+		break;
+
+		/******************************************************************/
 		/* file selection menu                                            */
 		/******************************************************************/
 	case MENU_FILE_SELECT1:
@@ -7487,7 +7620,7 @@ void PrintDirectory(int expand)
 	{
 		int k = flist_iFirstEntry() + OsdGetSize() - 1;
 		if (flist_nDirEntries() && k == flist_iSelectedEntry() && k <= flist_nDirEntries()
-			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9000 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
+			&& strlen((flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003) ? flist_DirItem(k)->de.d_name : flist_DirItem(k)->altname) > 28 
 			&& !(!cfg.rbf_hide_datecode && flist_DirItem(k)->datecode[0] && (flist_DirItem(k)->flags != 0x8001) && (flist_DirItem(k)->flags != 0x9000))
 			&& flist_DirItem(k)->de.d_type != DT_DIR)
 		{
@@ -7511,10 +7644,15 @@ void PrintDirectory(int expand)
 		{
 			// For virtual favorites/try/delete, use the clean name from d_name
 			char *display_name;
-			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9000 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003)
+			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || flist_DirItem(k)->flags == 0x9002 || flist_DirItem(k)->flags == 0x9003)
 			{
 				// Use the clean game name from d_name (special character handled separately)
 				display_name = flist_DirItem(k)->de.d_name;
+			}
+			else if (flist_DirItem(k)->flags == 0x9000)
+			{
+				// Universal Favorites core directories use beautified altname
+				display_name = flist_DirItem(k)->altname;
 			}
 			else if (flist_DirItem(k)->de.d_type == DT_DIR && !strcmp(flist_DirItem(k)->de.d_name, ".."))
 			{

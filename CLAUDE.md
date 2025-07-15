@@ -669,13 +669,31 @@ Implement a universal favorites system that allows access to favorite games acro
 - Users can choose which view to use based on their needs
 - No disruption to existing workflows
 
+### **Known Issues**
+
+1. **GBA Core Display Issue**: GBA core doesn't show characters left of filename in file browser (needs investigation)
+
+2. **Core Picker No Files**: ~~When launching a game from favorites, then switching cores, the core picker shows "No files!" warning instead of returning to Universal Favorites menu~~ **FIXED**: Added detection for Universal Favorites MGL paths in `SCANO_CORES` section of `SelectFile()` to properly redirect to `/media/fat` instead of scanning invalid MGL file paths
+
+3. **Missing Files Performance**: Missing files in games.txt causes expensive recursive file search (`GamesList_SearchForFile`) every time the database is scanned. This significantly impacts performance with large missing file counts.
+   - **Potential Solutions**:
+     - Cache missing file status to avoid repeated searches
+     - Remove missing files from games.txt after failed searches
+     - Add background cleanup process to verify file existence
+     - Implement incremental scanning instead of full rescan
+
+4. **OSD Scanning Message**: Attempted to add "Scanning favorites database..." OSD message during long scan operations, but failed due to CPU being maxed out during scan preventing OSD updates
+   - **Attempted Solutions**: 
+     - `Info()` and `InfoMessage()` functions blocked by active file browser
+     - `ProgressMessage()` caused OSD to disappear entirely
+     - `HandleUI()` calls caused recursive issues
+   - **Alternative**: Console printf messages provide feedback but not visible to all users
+
 ### **Next Steps**
-1. Create `favorites-universal-dev` branch for development
-2. Implement main menu "♥ Favorites" entry
-3. Add core folder structure with names.txt beautification
-4. Implement dynamic MGL generation
-5. Add file filtering per core
-6. Integrate with existing GamesList synchronization
+1. Investigate GBA core filename display issue
+2. Fix core picker navigation after launching from favorites
+3. Implement missing files performance optimization
+4. Consider alternative approaches for scan progress indication
 
 ## Conclusion
 
