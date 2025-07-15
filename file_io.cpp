@@ -3732,6 +3732,16 @@ static int ScanVirtualFolder(const char *core_path, GameType game_type, uint32_t
 			strncpy(item.altname, g_games_list.entries[i].path, sizeof(item.altname) - 1);
 			item.altname[sizeof(item.altname) - 1] = 0;
 			
+			// For favorites (regular and missing), also store clean filename after null terminator for scrolling
+			if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE || g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING)
+			{
+				int path_len = strlen(item.altname);
+				if (path_len + strlen(clean_name) + 1 < sizeof(item.altname) - 1)
+				{
+					strcpy(item.altname + path_len + 1, clean_name);
+				}
+			}
+			
 			// Set flags based on whether file is missing
 			if (g_games_list.entries[i].type == GAME_TYPE_FAVORITE_MISSING)
 			{

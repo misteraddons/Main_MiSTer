@@ -7539,7 +7539,10 @@ void ScrollLongName(void)
 
 	// Use clean name from d_name for virtual favorites/try/delete/universal favorites
 	char *scroll_name;
-	if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003 || flist_SelectedItem()->flags == 0x9002 || flist_SelectedItem()->flags == 0x9003)
+	if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 || flist_SelectedItem()->flags == 0x8003 || 
+	    flist_SelectedItem()->flags == 0x8005 || flist_SelectedItem()->flags == 0x8006 ||
+	    flist_SelectedItem()->flags == 0x9002 || flist_SelectedItem()->flags == 0x9003 || 
+	    flist_SelectedItem()->flags == 0x9007 || flist_SelectedItem()->flags == 0x9008)
 	{
 		// Use the clean game name from d_name (special character handled separately)
 		scroll_name = flist_SelectedItem()->de.d_name;
@@ -7645,6 +7648,7 @@ void PrintDirectory(int expand)
 
 		if (k < flist_nDirEntries())
 		{
+			
 			// For virtual favorites/try/delete, use the clean name from d_name
 			char *display_name;
 			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || flist_DirItem(k)->flags == 0x8004 || 
@@ -7952,10 +7956,12 @@ void PrintDirectory(int expand)
 		{
 			
 			// For virtual favorites, use clean filename stored after the path in altname
-			if (flist_DirItem(k)->flags == 0x8001)
+			if (flist_DirItem(k)->flags == 0x8001 || flist_DirItem(k)->flags == 0x8005)
 			{
 				// Find the clean filename stored after the null terminator
 				char *clean_name = flist_DirItem(k)->altname + strlen(flist_DirItem(k)->altname) + 1;
+				
+				
 				len = strlen(clean_name);
 				strcpy(s+1, clean_name + len - len2);
 			}
@@ -7997,7 +8003,7 @@ void PrintDirectory(int expand)
 				}
 			}
 			else if (flist_DirItem(k)->flags == 0x8002 || flist_DirItem(k)->flags == 0x8003 || 
-			         flist_DirItem(k)->flags == 0x8005 || flist_DirItem(k)->flags == 0x8006 ||
+			         flist_DirItem(k)->flags == 0x8006 ||
 			         flist_DirItem(k)->flags == 0x9007 || flist_DirItem(k)->flags == 0x9008)
 			{
 				// For virtual try/delete files and missing files, use clean display name for scrolling

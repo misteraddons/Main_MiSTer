@@ -693,9 +693,61 @@ Implement a universal favorites system that allows access to favorite games acro
      - `HandleUI()` calls caused recursive issues
    - **Alternative**: Console printf messages provide feedback but not visible to all users
 
+### **Critical Pattern Documentation**
+
+**🚨 VIRTUAL FOLDER DISPLAY PATTERN - MUST FOLLOW FOR ALL NEW FLAGS 🚨**
+
+Every time we add a new virtual folder flag, we MUST update ALL of these locations in the codebase:
+
+1. **Display Name Selection** (`menu.cpp:~7655`): Choose between `d_name` (clean) vs `altname` (full path)
+2. **ZIP Extension Stripping** (`menu.cpp:~7857`): Exclude virtual flags from .zip extension removal  
+3. **Text Copying Logic** (`menu.cpp:~7864`): Handle virtual folder name copying
+4. **PrintDirectory Scrolling** (`menu.cpp:~7999`): len2-based scrolling mechanism
+5. **Selection Scrolling** (`menu.cpp:~7542`): **⚠️ CRITICAL** - `flist_SelectedItem()` scrolling system
+6. **Input Handling** (`input.cpp`): Controller button file identifier logic
+
+**Why This Keeps Breaking:**
+- MiSTer has **two separate scrolling systems**: PrintDirectory (len2-based) and Selection (flist_SelectedItem-based)
+- The Selection scrolling system is the primary one users see when highlighting files
+- Most debugging focuses on PrintDirectory scrolling, missing the real issue
+- Each system has its own flag condition that must be updated independently
+
+**Root Cause Pattern:**
+Every virtual folder display issue follows this pattern:
+1. New flag added (e.g., 0x8005 for missing favorites)
+2. Main display logic updated (uses d_name for clean names)
+3. **Selection scrolling logic NOT updated** → shows full altname path on hover
+4. Hours of debugging the wrong scrolling system
+
+**The Fix Pattern:**
+```cpp
+// ALWAYS update both these conditions when adding new virtual flags:
+
+// 1. Display name selection (menu.cpp)
+if (flags == 0x8001 || flags == 0x8002 || flags == 0x8003 || 
+    flags == 0x8005 || flags == 0x8006 ||  // ← ADD NEW FLAGS HERE
+    flags == 0x9002 || flags == 0x9003 || 
+    flags == 0x9007 || flags == 0x9008) {
+    display_name = flist_DirItem(k)->de.d_name;  // Clean name
+}
+
+// 2. Selection scrolling system (menu.cpp) 
+if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x8002 ||
+    flist_SelectedItem()->flags == 0x8005 ||  // ← ADD NEW FLAGS HERE TOO
+    /* ... other flags ... */) {
+    scroll_name = flist_SelectedItem()->de.d_name;  // Clean name
+}
+```
+
 ### **Recent Fixes**
 
-1. **Universal Favorites Beautification**: Fixed core name display and alphabetical sorting
+1. **Missing File Display Issue**: Fixed selection scrolling for missing favorites/try files
+   - **Root Cause**: Selection scrolling system (`flist_SelectedItem()`) missing flag 0x8005/0x8006
+   - **Symptoms**: Main display showed clean names, but selection scrolling showed full altname path
+   - **Fix**: Added missing file flags to selection scrolling condition in `menu.cpp:7542`
+   - **Lesson**: Always check BOTH scrolling systems when adding new virtual folder flags
+
+2. **Universal Favorites Beautification**: Fixed core name display and alphabetical sorting
    - Added missing entries to names.txt (GameBoy, N64)
    - Fixed case-sensitive lookup for GameBoy core
    - Corrected sorting to use beautified names (altname) instead of raw directory names
