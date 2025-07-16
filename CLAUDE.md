@@ -759,6 +759,59 @@ if (flist_SelectedItem()->flags == 0x8001 || flist_SelectedItem()->flags == 0x80
 3. ~~Implement missing files performance optimization~~ ✓ Fixed
 4. Consider alternative approaches for scan progress indication
 
+## Recent Bug Fixes
+
+### MRA File Loading Issue (Fixed)
+**Problem**: MRA (arcade) files were not loading correctly - they would drop to an empty screen instead of launching the game.
+
+**Root Cause**: The menu system was using `fs_MenuSelect = 13` (MENU_CORE_FILE_SELECTED1) for arcade files, but the case handling for this enum value didn't include the XML detection logic needed for MRA files. MRA files must be processed with `xml_load()` before other file handling logic.
+
+**Solution**: Combined the `MENU_CORE_FILE_SELECTED1` and `MENU_GENERIC_FILE_SELECTED` cases in menu.cpp, with XML detection logic at the beginning:
+```cpp
+case MENU_CORE_FILE_SELECTED1: // Arcade files
+case MENU_GENERIC_FILE_SELECTED:
+{
+    // Handle XML files (MRA/MGL) FIRST
+    if (selPath[0] && isXmlName(selPath))
+    {
+        xml_load(getFullPath(selPath));
+        menustate = MENU_NONE1;
+        break;
+    }
+    // ... rest of file handling logic
+}
+```
+
+**Key Insight**: The user's observation that "MRA files work from favorites/try folders" was crucial - it revealed that the favorites system was correctly using `xml_load()` while the regular file selection wasn't.
+
+### Cursor Position Reset Issue (Fixed)
+**Problem**: After marking the first game as favorite/try/delete, the cursor would jump back to the first position in the file list instead of maintaining its position.
+
+**Root Cause**: The `GamesList_TriggerDirectoryRescan()` function was causing a full directory rescan, which reset the cursor position variables (`iSelectedEntry` and `iFirstEntry`).
+
+**Solution**: Implemented cursor position preservation across directory rescans:
+```cpp
+// Added static variables to preserve cursor position
+static int iSavedSelectedEntry = -1;
+static int iSavedFirstEntry = -1;
+
+// In GamesList_TriggerDirectoryRescan()
+iSavedSelectedEntry = iSelectedEntry;
+iSavedFirstEntry = iFirstEntry;
+
+// In ScanDirectory() after SCANF_INIT
+if (iSavedSelectedEntry >= 0 && iSavedFirstEntry >= 0)
+{
+    iSelectedEntry = iSavedSelectedEntry;
+    iFirstEntry = iSavedFirstEntry;
+    // Validate and clear saved positions
+    iSavedSelectedEntry = -1;
+    iSavedFirstEntry = -1;
+}
+```
+
+This ensures the user's position in the file browser is maintained even when the directory listing is refreshed after marking games.
+
 ## Conclusion
 
 **Mystery solved and optimized!** The binary size increase was caused by an oversized static data structure (787KB) in the unified GamesList system. By right-sizing the cache to realistic limits (512 games per core, 192 char paths), we achieved a 39% binary size reduction while maintaining all virtual folder functionality and cache system benefits. The addition of the file deletion mechanism and planned Universal Favorites system completes the virtual folder ecosystem, providing a comprehensive workflow for managing game collections: mark as favorite/try/delete → organize in virtual folders → access universally across cores → actually delete unwanted games.
