@@ -4,6 +4,7 @@
 #include <inttypes.h>
 
 void SelectFile(const char* path, const char* pFileExt, int Options, unsigned char MenuSelect, unsigned char MenuCancel);
+void SelectFilePopup(const char* path, const char* pFileExt, int Options);
 
 void HandleUI(void);
 void menu_key_set(unsigned int c);
