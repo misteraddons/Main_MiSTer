@@ -114,6 +114,10 @@ static int scanned_opts = 0;
 static int iSelectedEntry = 0;       // selected entry index
 static int iFirstEntry = 0;
 
+// Variables to preserve cursor position during rescans
+static int iSavedSelectedEntry = -1;
+static int iSavedFirstEntry = -1;
+
 static char full_path[2100];
 uint8_t loadbuf[LOADBUF_SZ];
 
@@ -2489,6 +2493,24 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
 		}
+		
+		// Restore cursor position if this was a rescan triggered by favorites/try/delete marking
+		if (iSavedSelectedEntry >= 0 && iSavedFirstEntry >= 0)
+		{
+			printf("GamesList: Restoring cursor position - selected: %d, first: %d\n", iSavedSelectedEntry, iSavedFirstEntry);
+			iSelectedEntry = iSavedSelectedEntry;
+			iFirstEntry = iSavedFirstEntry;
+			
+			// Validate restored positions are still within bounds
+			if (iSelectedEntry >= flist_nDirEntries()) iSelectedEntry = flist_nDirEntries() - 1;
+			if (iFirstEntry >= flist_nDirEntries()) iFirstEntry = flist_nDirEntries() - OsdGetSize();
+			if (iFirstEntry < 0) iFirstEntry = 0;
+			
+			// Clear saved positions
+			iSavedSelectedEntry = -1;
+			iSavedFirstEntry = -1;
+		}
+		
 		return flist_nDirEntries();
 	}
 	else
@@ -3351,6 +3373,11 @@ static void GamesList_TriggerDirectoryRescan()
 	extern bool g_directory_rescan_requested;
 	extern char g_rescan_directory_path[1024];
 	
+	// Save current cursor position before triggering rescan
+	iSavedSelectedEntry = iSelectedEntry;
+	iSavedFirstEntry = iFirstEntry;
+	printf("GamesList: Saving cursor position - selected: %d, first: %d\n", iSavedSelectedEntry, iSavedFirstEntry);
+	
 	// Store the current directory path for the rescan
 	char *current_path = flist_Path();
 	strncpy(g_rescan_directory_path, current_path, sizeof(g_rescan_directory_path) - 1);
@@ -3358,6 +3385,7 @@ static void GamesList_TriggerDirectoryRescan()
 	
 	g_directory_rescan_requested = true;
 	printf("GamesList: Requesting rescan of directory: %s\n", g_rescan_directory_path);
+	printf("DEBUG: RESCAN TRIGGERED BY GamesList_TriggerDirectoryRescan()\n");
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
