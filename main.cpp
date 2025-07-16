@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#include "rom_patches.h"
 
 const char *version = "$VER:" VDATE;
 
@@ -70,6 +71,7 @@ int main(int argc, char *argv[])
 
 	FindStorage();
 	user_io_init((argc > 1) ? argv[1] : "",(argc > 2) ? argv[2] : NULL);
+	patches_init();
 
 #ifdef USE_SCHEDULER
 	scheduler_init();
