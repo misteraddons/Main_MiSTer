@@ -1782,39 +1782,40 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 		}
 		else if (mode == SCANF_NEXT_PAGE)
 		{
-			if (iSelectedEntry < iFirstEntry + OsdGetSize() - 2)
+			// Calculate cursor position relative to current page
+			int cursor_offset = iSelectedEntry - iFirstEntry;
+			
+			// Move to next page
+			iFirstEntry += OsdGetSize();
+			if (iFirstEntry >= flist_nDirEntries())
 			{
-				iSelectedEntry = iFirstEntry + OsdGetSize() - 1;
-				if (iSelectedEntry >= flist_nDirEntries()) iSelectedEntry = flist_nDirEntries() - 1;
+				// At end, stay on last page
+				iFirstEntry = flist_nDirEntries() - OsdGetSize();
+				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
-			else
+			
+			// Maintain relative cursor position on new page
+			iSelectedEntry = iFirstEntry + cursor_offset;
+			if (iSelectedEntry >= flist_nDirEntries())
 			{
-				iSelectedEntry += OsdGetSize();
-				iFirstEntry += OsdGetSize();
-				if (iSelectedEntry >= flist_nDirEntries())
-				{
-					iSelectedEntry = flist_nDirEntries() - 1;
-					iFirstEntry = iSelectedEntry - OsdGetSize() + 1;
-					if (iFirstEntry < 0) iFirstEntry = 0;
-				}
-				else if (iFirstEntry + OsdGetSize() > flist_nDirEntries())
-				{
-					iFirstEntry = flist_nDirEntries() - OsdGetSize();
-				}
+				iSelectedEntry = flist_nDirEntries() - 1;
 			}
 			return 0;
 		}
 		else if (mode == SCANF_PREV_PAGE)
 		{
-			if(iSelectedEntry != iFirstEntry)
+			// Calculate cursor position relative to current page
+			int cursor_offset = iSelectedEntry - iFirstEntry;
+			
+			// Move to previous page
+			iFirstEntry -= OsdGetSize();
+			if (iFirstEntry < 0) iFirstEntry = 0;
+			
+			// Maintain relative cursor position on new page
+			iSelectedEntry = iFirstEntry + cursor_offset;
+			if (iSelectedEntry >= flist_nDirEntries())
 			{
-				iSelectedEntry = iFirstEntry;
-			}
-			else
-			{
-				iFirstEntry -= OsdGetSize();
-				if (iFirstEntry < 0) iFirstEntry = 0;
-				iSelectedEntry = iFirstEntry;
+				iSelectedEntry = flist_nDirEntries() - 1;
 			}
 		}
 		else if (mode == SCANF_SET_ITEM)
