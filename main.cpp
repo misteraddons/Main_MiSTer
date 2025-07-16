@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <inttypes.h>
 #include <ctype.h>
 #include <string.h>
+#include <time.h>
 #include "menu.h"
 #include "user_io.h"
 #include "input.h"
@@ -33,8 +34,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#include "hardware.h"
 
 const char *version = "$VER:" VDATE;
+
+// 1ms input polling for responsive controls without uboot.txt dependency
+#define INPUT_POLL_INTERVAL_MS 1
 
 int main(int argc, char *argv[])
 {
@@ -75,6 +80,10 @@ int main(int argc, char *argv[])
 	scheduler_init();
 	scheduler_run();
 #else
+	// 1ms input polling for responsive controls without uboot.txt dependency
+	uint32_t next_poll_time = GetTimer(0);
+	struct timespec sleep_time = {0, 100000}; // 0.1ms sleep to reduce CPU usage
+	
 	while (1)
 	{
 		if (!is_fpga_ready(1))
@@ -82,10 +91,22 @@ int main(int argc, char *argv[])
 			fpga_wait_to_reset();
 		}
 
+		uint32_t current_time = GetTimer(0);
+		
+		// Input polling at configured intervals for responsive controls
+		if (current_time >= next_poll_time)
+		{
+			input_poll(0);
+			next_poll_time = current_time + INPUT_POLL_INTERVAL_MS;
+		}
+		
+		// Always run these
 		user_io_poll();
-		input_poll(0);
 		HandleUI();
 		OsdUpdate();
+		
+		// Small sleep to reduce CPU usage between polls
+		nanosleep(&sleep_time, NULL);
 	}
 #endif
 	return 0;

@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include <stdio.h>
+#include <time.h>
 #include "libco.h"
 #include "menu.h"
 #include "user_io.h"
@@ -7,11 +8,15 @@
 #include "fpga_io.h"
 #include "osd.h"
 #include "profiling.h"
+#include "hardware.h"
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
 static cothread_t co_ui = nullptr;
 static cothread_t co_last = nullptr;
+
+// 1ms input polling for responsive controls without uboot.txt dependency
+#define INPUT_POLL_INTERVAL_MS 1
 
 static void scheduler_wait_fpga_ready(void)
 {
@@ -23,6 +28,9 @@ static void scheduler_wait_fpga_ready(void)
 
 static void scheduler_co_poll(void)
 {
+	// 1ms input polling for responsive controls without uboot.txt dependency
+	uint32_t next_poll_time = GetTimer(0);
+	
 	for (;;)
 	{
 		scheduler_wait_fpga_ready();
@@ -30,7 +38,14 @@ static void scheduler_co_poll(void)
 		{
 			SPIKE_SCOPE("co_poll", 1000);
 			user_io_poll();
-			input_poll(0);
+			
+			// Input polling at configured intervals for responsive controls
+			uint32_t current_time = GetTimer(0);
+			if (current_time >= next_poll_time)
+			{
+				input_poll(0);
+				next_poll_time = current_time + INPUT_POLL_INTERVAL_MS;
+			}
 		}
 
 		scheduler_yield();
