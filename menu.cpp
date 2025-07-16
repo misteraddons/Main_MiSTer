@@ -205,11 +205,22 @@ enum MENU
 	// MT32-pi
 	MENU_MT32PI_MAIN1,
 	MENU_MT32PI_MAIN2,
+	
+	// ROM Patches
+	MENU_ROM_PATCH_SELECT1,
+	MENU_ROM_PATCH_SELECT2,
+	MENU_ROM_PATCH_SELECTED,
 };
 
 static uint32_t menustate = MENU_NONE1;
 static uint32_t parentstate;
 static uint32_t menusub = 0;
+
+// ROM patch menu variables
+static patch_info_t* rom_patches[32];
+static int rom_patch_count = 0;
+static int rom_patch_scroll_offset = 0;
+static int saved_file_selection_pos = 0;
 static uint32_t menusub_last = 0; //for when we allocate it dynamically and need to know last row
 static uint64_t menumask = 0; // Used to determine which rows are selectable...
 static uint32_t menu_timer = 0;
@@ -1050,7 +1061,7 @@ void HandleUI(void)
 	static char ioctl_index;
 	char *p;
 	static char s[256];
-	unsigned char m = 0, up, down, select, menu, back, right, left, plus, minus, recent;
+	unsigned char m = 0, up, down, select, menu, back, right, left, plus, minus, recent, esc;
 	char enable;
 	static int reboot_req = 0;
 	static uint32_t helptext_timer;
@@ -1156,6 +1167,7 @@ void HandleUI(void)
 	plus = false;
 	minus = false;
 	recent = false;
+	esc = false;
 
 	if (c && cfg.bootcore[0] != '\0') cfg.bootcore[0] = '\0';
 
@@ -1315,6 +1327,7 @@ void HandleUI(void)
 		{
 		case KEY_ESC | UPSTROKE:
 			menu = true;
+			esc = true;
 			break;
 		case KEY_UP:
 			up = true;
@@ -2529,6 +2542,24 @@ void HandleUI(void)
 					}
 					else
 					{
+						// Check for available ROM patches
+						patch_info_t* patches[32];
+						int patch_count = patches_find_for_rom(selPath, patches, 32);
+						
+						printf("ROM Patches: Found %d patches for %s\n", patch_count, selPath);
+						
+						if (patch_count > 0)
+						{
+							// Show patch selection menu
+							printf("ROM Patches: Showing patch selection menu\n");
+							saved_file_selection_pos = flist_iSelectedEntry(); // Save current file position
+							menusub = 0; // Reset selection
+							menustate = MENU_ROM_PATCH_SELECT1;
+							goto end_generic_file_selected; // Skip the rest of the case
+						}
+						
+						printf("ROM Patches: No patches found, loading ROM directly\n");
+						
 						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
 						if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
 					}
@@ -2539,6 +2570,7 @@ void HandleUI(void)
 
 			mgl->state = 3;
 		}
+end_generic_file_selected:
 		break;
 
 	case MENU_GENERIC_IMAGE_SELECTED:
@@ -5279,7 +5311,7 @@ void HandleUI(void)
 							OsdWrite(center_line + 1, "Press any key to continue", 0, 0);
 							
 							// Wait for key press
-							while (!get_key(1, 1)) {
+							while (!input_poll(1)) {
 								usleep(10000);
 							}
 							
@@ -5331,7 +5363,7 @@ void HandleUI(void)
 							OsdWrite(center_line + 1, "Press any key to continue", 0, 0);
 							
 							// Wait for key press
-							while (!get_key(1, 1)) {
+							while (!input_poll(1)) {
 								usleep(10000);
 							}
 							
@@ -7108,7 +7140,7 @@ void HandleUI(void)
 		// Handle escape/cancel
 		if (esc || (menu && (!flist_nDirEntries() || flist_SelectedItem()->de.d_type == DT_DIR)))
 		{
-			InfoDisable();  // Close popup
+			MenuHide();  // Close popup
 			menustate = MENU_POPUP_FILE_CANCELED;
 			break;
 		}
@@ -7124,7 +7156,7 @@ void HandleUI(void)
 			}
 			strcat(selPath, flist_SelectedItem()->de.d_name);
 			
-			InfoDisable();  // Close popup
+			MenuHide();  // Close popup
 			menustate = MENU_POPUP_FILE_SELECTED;
 			break;
 		}
@@ -7138,7 +7170,8 @@ void HandleUI(void)
 				if (strlen(flist_SelectedItem()->de.d_name) == 2)
 				{
 					// Go up one level
-					ParentDir(selPath);
+					char *p = strrchr(selPath, '/');
+					if (p) *p = 0;
 					ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
 					AdjustDirectory(selPath);
 					menustate = MENU_POPUP_FILE_SELECT1;
@@ -7157,15 +7190,15 @@ void HandleUI(void)
 
 		// Handle scrolling and other navigation
 		if (up) ScrollLongName();
-		HandleScrollEvents();
+		//HandleScrollEvents();
 		
-		if (scroll_timer && CheckTimer(scroll_timer))
+		/*if (scroll_timer && CheckTimer(scroll_timer))
 		{
 			scroll_timer = 0;
 			scroll_pos = 0;
 			if (cfg.vscale_border) video_menu_bg(1);
 			menustate = MENU_POPUP_FILE_SELECT1;
-		}
+		}*/
 		break;
 
 	case MENU_POPUP_FILE_SELECTED:
@@ -7177,12 +7210,12 @@ void HandleUI(void)
 		user_io_store_filename(selPath);
 		
 		// Send notification to core about file selection
-		if (cmd_bridge_is_mister_cmd_available())
+		/*if (cmd_bridge_is_mister_cmd_available())
 		{
 			char response[1024];
 			snprintf(response, sizeof(response), "popup_result %s", selPath);
 			cmd_bridge_send_to_mister(response);
-		}
+		}*/
 		
 		// Return to previous menu state or close menu
 		menustate = MENU_NONE1;
@@ -7193,13 +7226,239 @@ void HandleUI(void)
 		printf("CMD: Popup file selection canceled\n");
 		
 		// Send cancel notification to core
-		if (cmd_bridge_is_mister_cmd_available())
+		/*if (cmd_bridge_is_mister_cmd_available())
 		{
 			cmd_bridge_send_to_mister("popup_result CANCELED");
-		}
+		}*/
 		
 		// Return to previous menu state or close menu
 		menustate = MENU_NONE1;
+		break;
+
+	case MENU_ROM_PATCH_SELECT1:
+		{
+			// Show ROM patch selection menu
+			printf("ROM Patches: Entering MENU_ROM_PATCH_SELECT1\n");
+			OsdSetSize(16);
+			OsdEnable(DISABLE_KEYBOARD);
+			OsdSetTitle("ROM Patches", OSD_MSG);
+						
+			// Get patches for current ROM
+			rom_patch_count = patches_find_for_rom(selPath, rom_patches, 32);
+			rom_patch_scroll_offset = 0; // Reset scroll when entering patch menu
+			
+			printf("ROM Patches: Found %d patches in SELECT1\n", rom_patch_count);
+			
+			if (rom_patch_count == 0)
+			{
+				// No patches found - load original ROM
+				char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+				user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+				if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+				menustate = MENU_NONE1;
+				break;
+			}
+			
+			// Display patch options
+			OsdWrite(0, " Original ROM (No Patch)", menusub == 0, 0);
+			
+			// Calculate scrolling for patch list with pre-scroll of 3 items
+			int max_visible_patches = OsdGetSize() - 1; // Reserve 1 line for "Original ROM"
+			int start_patch = 0;
+			
+			// If we have more patches than can fit, scroll to keep selection visible
+			if (rom_patch_count > max_visible_patches) {
+				if (menusub > 0) { // Only scroll if a patch is selected
+					// Pre-scroll by 3 items so cursor doesn't reach bottom until last item
+					int cursor_pos = (menusub - 1) - start_patch;
+					int max_cursor_pos = max_visible_patches - 4; // Keep 3 items buffer from bottom
+					
+					if (cursor_pos > max_cursor_pos) {
+						start_patch = (menusub - 1) - max_cursor_pos;
+					}
+					
+					// Handle last few items - allow cursor to reach bottom
+					if (menusub > rom_patch_count - 3) {
+						start_patch = rom_patch_count - max_visible_patches;
+					}
+					
+					if (start_patch < 0) start_patch = 0;
+					if (start_patch > rom_patch_count - max_visible_patches) {
+						start_patch = rom_patch_count - max_visible_patches;
+					}
+				}
+			}
+			
+
+			
+			// Display patches with scroll arrows
+			for (int i = 0; i < max_visible_patches && (start_patch + i) < rom_patch_count; i++)
+			{
+				int patch_index = start_patch + i;
+				char line[64];
+				snprintf(line, sizeof(line), " %s", rom_patches[patch_index]->name);
+				
+				// Calculate arrow indicators like PrintDirectory
+				char leftchar = 0;
+				if (i == 0 && start_patch > 0) leftchar = 17; // Up arrow on first patch line if patches above
+				if (patch_index < rom_patch_count - 1) leftchar = 16; // Down arrow if more patches below
+				
+				OsdWriteOffset(1 + i, line, menusub == (patch_index + 1), 0, 0, leftchar);
+			}
+			
+			
+			// Clear remaining lines
+			int patches_shown = (rom_patch_count < max_visible_patches) ? rom_patch_count : max_visible_patches;
+			for (int i = 1 + patches_shown; i < OsdGetSize(); i++)
+			{
+				OsdWrite(i, "", 0, 0);
+			}
+			
+			OsdUpdate(); // Make the menu visible
+			menustate = MENU_ROM_PATCH_SELECT2;
+		}
+		break;
+
+	case MENU_ROM_PATCH_SELECT2:
+		{
+			// Use cached data from SELECT1 - don't call patches_find_for_rom again
+			
+			if (up)
+			{
+				if (menusub > 0) {
+					menusub--;
+				} else {
+					// Wrap to bottom
+					menusub = rom_patch_count;
+				}
+				menustate = MENU_ROM_PATCH_SELECT1;
+			}
+			else if (down)
+			{
+				if (menusub < rom_patch_count) {
+					menusub++;
+				} else {
+					// Wrap to top
+					menusub = 0;
+				}
+				menustate = MENU_ROM_PATCH_SELECT1;
+			}
+			else if (left)
+			{
+				// Page up - jump by visible page size
+				int max_visible_patches = OsdGetSize() - 3;
+				if (menusub > max_visible_patches) {
+					menusub -= max_visible_patches;
+				} else {
+					// Jump to top
+					menusub = 0;
+				}
+				menustate = MENU_ROM_PATCH_SELECT1;
+			}
+			else if (right)
+			{
+				// Page down - jump by visible page size
+				int max_visible_patches = OsdGetSize() - 3;
+				if (menusub + max_visible_patches <= rom_patch_count) {
+					menusub += max_visible_patches;
+				} else {
+					// Jump to bottom
+					menusub = rom_patch_count;
+				}
+				menustate = MENU_ROM_PATCH_SELECT1;
+			}
+			else if (menu || back)
+			{
+				// Exit ROM patch menu and return to the ROM's folder
+				OsdSetSize(OsdGetSize());
+				
+				// Get the directory of the selected ROM
+				char rom_dir[1024];
+				strncpy(rom_dir, selPath, sizeof(rom_dir) - 1);
+				rom_dir[sizeof(rom_dir) - 1] = '\0';
+				
+				// Find the last slash and truncate to get directory
+				char* last_slash = strrchr(rom_dir, '/');
+				if (last_slash && last_slash != rom_dir) {
+					*last_slash = '\0';
+				}
+				
+				// Update selPath to the directory and reinitialize directory scan
+				strncpy(selPath, rom_dir, sizeof(selPath) - 1);
+				selPath[sizeof(selPath) - 1] = '\0';
+				
+				filter[0] = 0;
+				filter_typing_timer = 0;
+				ScanDirectory(selPath, SCANF_INIT, fs_pFileExt, fs_Options);
+				
+				// Restore file selection position
+				for (int i = 0; i < saved_file_selection_pos && i < flist_nDirEntries(); i++) {
+					ScanDirectory(selPath, SCANF_NEXT, fs_pFileExt, fs_Options);
+				}
+				
+				menustate = MENU_FILE_SELECT1;
+			}
+			else if (select)
+			{
+				if (menusub == 0)
+				{
+					// Load original ROM
+					char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+					user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+					if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+				}
+				else
+				{
+					// Apply selected patch
+					patch_info_t* selected_patch = rom_patches[menusub - 1];
+					
+					// Generate temp path for patched ROM
+					char temp_path[1024];
+					char rom_ext[8] = "rom";
+					char* ext_start = strrchr(selPath, '.');
+					if (ext_start) {
+						strncpy(rom_ext, ext_start + 1, sizeof(rom_ext) - 1);
+						rom_ext[sizeof(rom_ext) - 1] = '\0';
+					}
+					
+					patches_get_descriptive_temp_path(selected_patch->name, selPath, temp_path, sizeof(temp_path));
+					
+					// Apply patch
+					if (patches_apply_patch(selPath, selected_patch->filepath, temp_path))
+					{
+						// Load patched ROM
+						char idx = user_io_ext_idx(temp_path, fs_pFileExt) << 6 | ioctl_index;
+						user_io_file_tx(temp_path, idx, opensave, 0, 0, load_addr);
+						if (user_io_use_cheats() && !store_name) cheats_init(temp_path, user_io_get_file_crc());
+						
+						Info("ROM patch applied successfully!", 3000);
+					}
+					else
+					{
+						Info("Failed to apply ROM patch!", 3000);
+						// Load original ROM as fallback
+						char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+						if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+					}
+				}
+				
+				MenuHide();
+				menusub = 0;
+				menustate = MENU_NONE1;
+			}
+			else if (menu)
+			{
+				// Cancel - load original ROM
+				char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+				user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+				if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+				
+				MenuHide();
+				menusub = 0;
+				menustate = MENU_NONE1;
+			}
+		}
 		break;
 
 		/******************************************************************/

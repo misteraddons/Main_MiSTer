@@ -110,12 +110,12 @@ static void arcade_nvm_load()
 	}
 }
 
-sw_struct *arcade_sw()
+sw_struct *arcade_sw(int n)
 {
 	return &switches;
 }
 
-void arcade_sw_send()
+void arcade_sw_send(int n)
 {
 	sw_struct *sw = arcade_sw();
 	if (sw->dip_num)
@@ -127,7 +127,7 @@ void arcade_sw_send()
 	}
 }
 
-void arcade_sw_save()
+void arcade_sw_save(int n)
 {
 	sw_struct *sw = arcade_sw();
 	if (sw->dip_num && sw->dip_saved != sw->dip_cur)

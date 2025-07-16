@@ -4,6 +4,26 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/*
+ * ROM Patching System
+ * 
+ * Expected directory structure:
+ * /media/fat/rom_patches/
+ * ├── SNES/
+ * │   ├── Super Mario World [12345678]/
+ * │   │   ├── level_hack.ips
+ * │   │   └── difficulty_mod.ips
+ * │   └── Zelda ALTTP [87654321]/
+ * │       └── randomizer.ips
+ * └── Genesis/
+ *     └── Sonic [ABCDEF12]/
+ *         └── speed_hack.ips
+ * 
+ * The CRC32 suffix in directory names should match the calculated
+ * CRC32 of the original ROM file (8 hex digits, uppercase).
+ * Format: "[GAME_NAME] [CRC32]" (brackets around CRC32)
+ */
+
 // ROM patch format types
 typedef enum {
     PATCH_FORMAT_IPS,
@@ -43,5 +63,6 @@ void patches_set_progress_callback(patch_progress_callback_t callback);
 void patches_extract_game_name(const char* patch_path, char* game_name, size_t game_name_size);
 void patches_get_temp_path(const char* patch_name, const char* rom_extension, char* temp_path, size_t temp_path_size);
 void patches_get_descriptive_temp_path(const char* patch_name, const char* rom_name, char* temp_path, size_t temp_path_size);
+char* patches_find_original_rom(const char* patch_path);
 
 #endif // ROM_PATCHES_H
