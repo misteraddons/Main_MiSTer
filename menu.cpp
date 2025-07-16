@@ -2553,6 +2553,13 @@ void HandleUI(void)
 							// Show patch selection menu
 							printf("ROM Patches: Showing patch selection menu\n");
 							saved_file_selection_pos = flist_iSelectedEntry(); // Save current file position
+							
+							// Copy patches to global array for menu display
+							rom_patch_count = patch_count;
+							for (int i = 0; i < patch_count; i++) {
+								rom_patches[i] = patches[i];
+							}
+							
 							menusub = 0; // Reset selection
 							menustate = MENU_ROM_PATCH_SELECT1;
 							goto end_generic_file_selected; // Skip the rest of the case
@@ -7259,57 +7266,50 @@ end_generic_file_selected:
 				break;
 			}
 			
-			// Display patch options
-			OsdWrite(0, " Original ROM (No Patch)", menusub == 0, 0);
+			// Calculate scrolling for unified list (Original ROM + patches)
+			int total_items = rom_patch_count + 1; // +1 for "Original ROM"
+			int max_visible_items = OsdGetSize();
+			int start_item = 0;
 			
-			// Calculate scrolling for patch list with pre-scroll of 3 items
-			int max_visible_patches = OsdGetSize() - 1; // Reserve 1 line for "Original ROM"
-			int start_patch = 0;
-			
-			// If we have more patches than can fit, scroll to keep selection visible
-			if (rom_patch_count > max_visible_patches) {
-				if (menusub > 0) { // Only scroll if a patch is selected
-					// Pre-scroll by 3 items so cursor doesn't reach bottom until last item
-					int cursor_pos = (menusub - 1) - start_patch;
-					int max_cursor_pos = max_visible_patches - 4; // Keep 3 items buffer from bottom
-					
-					if (cursor_pos > max_cursor_pos) {
-						start_patch = (menusub - 1) - max_cursor_pos;
-					}
-					
-					// Handle last few items - allow cursor to reach bottom
-					if (menusub > rom_patch_count - 3) {
-						start_patch = rom_patch_count - max_visible_patches;
-					}
-					
-					if (start_patch < 0) start_patch = 0;
-					if (start_patch > rom_patch_count - max_visible_patches) {
-						start_patch = rom_patch_count - max_visible_patches;
-					}
+			// Calculate scrolling - normal scrolling behavior
+			if (total_items > max_visible_items) {
+				// Scroll when cursor reaches the bottom of visible area
+				if (menusub >= max_visible_items) {
+					start_item = menusub - max_visible_items + 1;
 				}
+				// Don't scroll past the end
+				if (start_item + max_visible_items > total_items) {
+					start_item = total_items - max_visible_items;
+				}
+				if (start_item < 0) start_item = 0;
 			}
 			
-
-			
-			// Display patches with scroll arrows
-			for (int i = 0; i < max_visible_patches && (start_patch + i) < rom_patch_count; i++)
+			// Display items with scroll arrows
+			for (int i = 0; i < max_visible_items && (start_item + i) < total_items; i++)
 			{
-				int patch_index = start_patch + i;
+				int item_index = start_item + i;
 				char line[64];
-				snprintf(line, sizeof(line), " %s", rom_patches[patch_index]->name);
 				
 				// Calculate arrow indicators like PrintDirectory
 				char leftchar = 0;
-				if (i == 0 && start_patch > 0) leftchar = 17; // Up arrow on first patch line if patches above
-				if (patch_index < rom_patch_count - 1) leftchar = 16; // Down arrow if more patches below
+				if (!i && start_item) leftchar = 17; // Up arrow on first line if items above
+				if (i && item_index < total_items - 1) leftchar = 16; // Down arrow if more items below
 				
-				OsdWriteOffset(1 + i, line, menusub == (patch_index + 1), 0, 0, leftchar);
+				if (item_index == 0) {
+					// Original ROM option
+					snprintf(line, sizeof(line), " Original ROM (No Patch)");
+					OsdWriteOffset(i, line, menusub == 0, 0, 0, leftchar);
+				} else {
+					// Patch option
+					int patch_index = item_index - 1;
+					snprintf(line, sizeof(line), " %s", rom_patches[patch_index]->name);
+					OsdWriteOffset(i, line, menusub == item_index, 0, 0, leftchar);
+				}
 			}
 			
-			
 			// Clear remaining lines
-			int patches_shown = (rom_patch_count < max_visible_patches) ? rom_patch_count : max_visible_patches;
-			for (int i = 1 + patches_shown; i < OsdGetSize(); i++)
+			int items_shown = (total_items < max_visible_items) ? total_items : max_visible_items;
+			for (int i = items_shown; i < OsdGetSize(); i++)
 			{
 				OsdWrite(i, "", 0, 0);
 			}
@@ -7329,7 +7329,7 @@ end_generic_file_selected:
 					menusub--;
 				} else {
 					// Wrap to bottom
-					menusub = rom_patch_count;
+					menusub = rom_patch_count; // Total items - 1
 				}
 				menustate = MENU_ROM_PATCH_SELECT1;
 			}
@@ -7346,9 +7346,9 @@ end_generic_file_selected:
 			else if (left)
 			{
 				// Page up - jump by visible page size
-				int max_visible_patches = OsdGetSize() - 3;
-				if (menusub > max_visible_patches) {
-					menusub -= max_visible_patches;
+				int max_visible_items = OsdGetSize();
+				if (menusub > max_visible_items) {
+					menusub -= max_visible_items;
 				} else {
 					// Jump to top
 					menusub = 0;
@@ -7358,9 +7358,9 @@ end_generic_file_selected:
 			else if (right)
 			{
 				// Page down - jump by visible page size
-				int max_visible_patches = OsdGetSize() - 3;
-				if (menusub + max_visible_patches <= rom_patch_count) {
-					menusub += max_visible_patches;
+				int max_visible_items = OsdGetSize();
+				if (menusub + max_visible_items <= rom_patch_count) {
+					menusub += max_visible_items;
 				} else {
 					// Jump to bottom
 					menusub = rom_patch_count;
@@ -7460,6 +7460,7 @@ end_generic_file_selected:
 			}
 		}
 		break;
+	
 
 		/******************************************************************/
 		/* we should never come here                                      */
