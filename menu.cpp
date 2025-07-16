@@ -1040,6 +1040,10 @@ static int page = 0;
 void HandleUI(void)
 {
 	PROFILE_FUNCTION();
+	static int last_menustate = -1;
+	if (menustate != last_menustate) {
+		last_menustate = menustate;
+	}
 
 	// Check if a directory rescan was requested by the GamesList system
 	if (g_directory_rescan_requested)
@@ -1048,6 +1052,7 @@ void HandleUI(void)
 		printf("HandleUI: Processing directory rescan request for %s\n", g_rescan_directory_path);
 		ScanDirectory(g_rescan_directory_path, SCANF_INIT, fs_pFileExt, fs_Options);
 		PrintDirectory(1);
+		return; // Add return to prevent further processing this frame
 	}
 
 	if (bt_timer >= 0)
@@ -1491,8 +1496,7 @@ void HandleUI(void)
 		osd_lock_timer = GetTimer(cfg.osd_lock_time * 1000);
 		break;
 	}
-
-	// Switch to current menu screen
+	
 	switch (menustate)
 	{
 		/******************************************************************/
@@ -2501,24 +2505,78 @@ void HandleUI(void)
 
 		break;
 
+	case MENU_CORE_FILE_SELECTED1: // Incorrectly used for arcade files
 	case MENU_GENERIC_FILE_SELECTED:
 		{
-			// Handle special delete action FIRST - before any path construction
-			printf("DEBUG: MENU_GENERIC_FILE_SELECTED - mgl->done=%d, flist_SelectedItem()=%p\n", mgl->done, flist_SelectedItem());
-			if (flist_SelectedItem()) {
-				printf("DEBUG: Selected item flags=0x%X, altname='%s'\n", flist_SelectedItem()->flags, flist_SelectedItem()->altname);
+			
+			// Handle XML files (MRA/MGL) FIRST - similar to MENU_CORE_FILE_SELECTED1
+			if (selPath[0] && isXmlName(selPath))
+			{
+				xml_load(getFullPath(selPath));
+				menustate = MENU_NONE1;
+				break;
 			}
+			
+			// Handle core file selection logic (from original MENU_CORE_FILE_SELECTED1)
+			if (menustate == MENU_CORE_FILE_SELECTED1)
+			{
+				recent_update(SelectedDir, selPath, SelectedLabel, -1);
+				menustate = MENU_NONE1;
+				memcpy(Selected_tmp, selPath, sizeof(Selected_tmp));
+				if (!getStorage(0)) // multiboot is only on SD card.
+				{
+					selPath[strlen(selPath) - 4] = 0;
+					int off = strlen(SelectedDir);
+					if (off) off++;
+					int fnum = ScanDirectory(SelectedDir, SCANF_INIT, "TXT", 0, selPath + off);
+					if (fnum)
+					{
+						if (fnum == 1)
+						{
+							//Check if the only choice is <core>.txt
+							strcat(selPath, ".txt");
+							if (FileLoad(selPath, 0, 0))
+							{
+								menustate = MENU_CORE_FILE_SELECTED2;
+								break;
+							}
+						}
+
+						strcpy(selPath, Selected_tmp);
+						AdjustDirectory(selPath);
+						cp_MenuCancel = fs_MenuCancel;
+						strcpy(fs_pFileExt, "TXT");
+						fs_ExtLen = 3;
+						fs_Options = SCANO_CORES;
+						fs_MenuSelect = MENU_CORE_FILE_SELECTED2;
+						fs_MenuCancel = MENU_CORE_FILE_CANCELED;
+						menustate = MENU_FILE_SELECT1;
+						break;
+					}
+				}
+
+				if (isXmlName(Selected_tmp))
+				{
+					// find the RBF file from the XML
+					xml_load(getFullPath(Selected_tmp));
+				}
+				else
+				{
+					fpga_load_rbf(Selected_tmp);
+				}
+				break;
+			}
+			
+			// Handle special delete action SECOND - after MRA check
 			
 			if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x9002)
 			{
 				// This is a Universal Favorites MGL file - it will be handled by the special section later
-				printf("DEBUG: Universal Favorites MGL file detected - will be handled by special section\n");
 				// Don't modify selPath here, let the special handling section do it
 			}
 			else if (mgl->done && flist_SelectedItem() && flist_SelectedItem()->flags == 0x9003)
 			{
 				// This is a Universal Favorites MRA file - use path directly
-				printf("DEBUG: Universal Favorites MRA file detected\n");
 				strcpy(selPath, flist_SelectedItem()->altname);
 				// Continue with normal file loading logic
 			}
@@ -2527,7 +2585,6 @@ void HandleUI(void)
 				// This is the "Delete All Games" action
 				if (strcmp(flist_SelectedItem()->altname, "DELETE_ALL_GAMES_ACTION") == 0)
 				{
-					printf("DEBUG: Delete action detected - preventing file loading\n");
 					// Extract core name from current path
 					const char *core_path = flist_Path();
 					const char *core_name = strrchr(core_path, '/');
@@ -2568,7 +2625,6 @@ void HandleUI(void)
 						// Still have delete entries - refresh the virtual delete folder
 						menustate = MENU_FILE_SELECT1;
 					}
-					printf("DEBUG: Delete action complete - setting prevent flag and returning early\n");
 					g_prevent_file_loading = true;
 					return;
 				}
@@ -2609,13 +2665,11 @@ void HandleUI(void)
 			
 			// Check if we should prevent file loading
 			if (g_prevent_file_loading) {
-				printf("DEBUG: File loading prevented by delete action flag\n");
 				g_prevent_file_loading = false; // Reset the flag
 				return;
 			}
 			
 			MenuHide();
-			printf("DEBUG: About to print 'File selected' - this should NOT happen for delete button\n");
 			printf("File selected: %s\n", selPath);
 			// Flush any pending games list changes before loading the game
 			GamesList_FlushChanges();
@@ -2723,8 +2777,19 @@ void HandleUI(void)
 					}
 					else
 					{
-						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
-						if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+						// Check if this is an MRA file that should use xml_load instead of user_io_file_tx
+						if (isXmlName(selPath) == 1)
+						{
+							printf("Loading regular MRA file: %s\n", selPath);
+							xml_load(selPath);
+							menustate = MENU_NONE1;
+							break;
+						}
+						else
+						{
+							user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+							if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+						}
 					}
 				}
 
@@ -7380,52 +7445,8 @@ void HandleUI(void)
 		}
 		break;
 
-	case MENU_CORE_FILE_SELECTED1:
-		recent_update(SelectedDir, selPath, SelectedLabel, -1);
-		menustate = MENU_NONE1;
-		memcpy(Selected_tmp, selPath, sizeof(Selected_tmp));
-		if (!getStorage(0)) // multiboot is only on SD card.
-		{
-			selPath[strlen(selPath) - 4] = 0;
-			int off = strlen(SelectedDir);
-			if (off) off++;
-			int fnum = ScanDirectory(SelectedDir, SCANF_INIT, "TXT", 0, selPath + off);
-			if (fnum)
-			{
-				if (fnum == 1)
-				{
-					//Check if the only choice is <core>.txt
-					strcat(selPath, ".txt");
-					if (FileLoad(selPath, 0, 0))
-					{
-						menustate = MENU_CORE_FILE_SELECTED2;
-						break;
-					}
-				}
-
-				strcpy(selPath, Selected_tmp);
-				AdjustDirectory(selPath);
-				cp_MenuCancel = fs_MenuCancel;
-				strcpy(fs_pFileExt, "TXT");
-				fs_ExtLen = 3;
-				fs_Options = SCANO_CORES;
-				fs_MenuSelect = MENU_CORE_FILE_SELECTED2;
-				fs_MenuCancel = MENU_CORE_FILE_CANCELED;
-				menustate = MENU_FILE_SELECT1;
-				break;
-			}
-		}
-
-		if (isXmlName(Selected_tmp))
-		{
-			// find the RBF file from the XML
-			xml_load(getFullPath(Selected_tmp));
-		}
-		else
-		{
-			fpga_load_rbf(Selected_tmp);
-		}
-		break;
+	// case MENU_CORE_FILE_SELECTED1: - Now handled in combined case above
+		// (Original case moved to combined MENU_CORE_FILE_SELECTED1/MENU_GENERIC_FILE_SELECTED case)
 
 	case MENU_CORE_FILE_SELECTED2:
 		fpga_load_rbf(Selected_tmp, selPath);

@@ -2809,7 +2809,6 @@ static void GamesList_MarkDirty(GamesList* list)
 	{
 		printf("  [%d] %c: %s\n", i, list->entries[i].type, list->entries[i].path);
 	}
-	printf("=== END CACHE DEBUG ===\n");
 }
 
 static void GamesList_MarkClean(GamesList* list)
@@ -3385,7 +3384,6 @@ static void GamesList_TriggerDirectoryRescan()
 	
 	g_directory_rescan_requested = true;
 	printf("GamesList: Requesting rescan of directory: %s\n", g_rescan_directory_path);
-	printf("DEBUG: RESCAN TRIGGERED BY GamesList_TriggerDirectoryRescan()\n");
 }
 
 static void GamesList_Save(GamesList* list, const char* directory)
