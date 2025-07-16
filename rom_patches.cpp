@@ -16,6 +16,12 @@
 
 static patch_progress_callback_t progress_callback = NULL;
 
+// CRC32 cache to avoid recalculating for the same ROM
+static struct {
+    char cached_rom_path[1024];
+    uint32_t cached_crc32;
+} crc_cache = {"", 0};
+
 // CRC32 lookup table
 static uint32_t crc32_table[256];
 static bool crc32_table_initialized = false;
@@ -75,7 +81,8 @@ bool patches_is_patch_file(const char* filename)
     return (!strcasecmp(ext, ".ips") ||
             !strcasecmp(ext, ".bps") ||
             !strcasecmp(ext, ".ups") ||
-            !strcasecmp(ext, ".xdelta"));
+            !strcasecmp(ext, ".xdelta") ||
+            !strcasecmp(ext, ".delta"));
 }
 
 patch_format_t patches_detect_format(const char* patch_path)
@@ -86,7 +93,7 @@ patch_format_t patches_detect_format(const char* patch_path)
     if (!strcasecmp(ext, ".ips")) return PATCH_FORMAT_IPS;
     if (!strcasecmp(ext, ".bps")) return PATCH_FORMAT_BPS;
     if (!strcasecmp(ext, ".ups")) return PATCH_FORMAT_UPS;
-    if (!strcasecmp(ext, ".xdelta")) return PATCH_FORMAT_XDELTA;
+    if (!strcasecmp(ext, ".xdelta") || !strcasecmp(ext, ".delta")) return PATCH_FORMAT_XDELTA;
     
     return PATCH_FORMAT_UNKNOWN;
 }
@@ -187,7 +194,7 @@ static void create_empty_patch_folder(const char* core_name, const char* rom_nam
         fprintf(readme, "- .ips (International Patching System)\n");
         fprintf(readme, "- .bps (Binary Patching System)\n");
         fprintf(readme, "- .ups (Universal Patching System)\n");
-        fprintf(readme, "- .xdelta (Delta compression)\n\n");
+        fprintf(readme, "- .xdelta/.delta (Delta compression - requires xdelta3 binary)\n\n");
         fprintf(readme, "## Search tips:\n");
         fprintf(readme, "- Search by game name: \"%s\"\n", rom_name);
         fprintf(readme, "- Search by CRC32: \"%08X\"\n", romcrc);
@@ -711,6 +718,68 @@ static bool apply_bps_patch(const char* rom_path, const char* patch_path, const 
     return true;
 }
 
+// xdelta patch format implementation
+static bool apply_xdelta_patch(const char* rom_path, const char* patch_path, const char* output_path)
+{
+    // xdelta requires an external binary - try to use xdelta3 if available
+    char command[2048];
+    
+    // Check if xdelta3 is available
+    FILE* check = popen("which xdelta3 2>/dev/null", "r");
+    if (check) {
+        char xdelta_path[256];
+        if (fgets(xdelta_path, sizeof(xdelta_path), check) == NULL) {
+            pclose(check);
+            printf("ROM Patches: xdelta3 binary not found. Please install xdelta3 to use xdelta patches.\n");
+            return false;
+        }
+        pclose(check);
+    } else {
+        printf("ROM Patches: Could not check for xdelta3 binary.\n");
+        return false;
+    }
+    
+    report_progress(10, "Applying xdelta patch");
+    
+    // Build xdelta3 command: xdelta3 -d -s [source] [patch] [output]
+    snprintf(command, sizeof(command), "xdelta3 -d -s \"%s\" \"%s\" \"%s\" 2>&1", 
+             rom_path, patch_path, output_path);
+    
+    printf("ROM Patches: Executing: %s\n", command);
+    
+    // Execute xdelta3
+    FILE* pipe = popen(command, "r");
+    if (!pipe) {
+        printf("ROM Patches: Failed to execute xdelta3\n");
+        return false;
+    }
+    
+    // Read output
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+        printf("ROM Patches: xdelta3: %s", buffer);
+    }
+    
+    int result = pclose(pipe);
+    if (result != 0) {
+        printf("ROM Patches: xdelta3 failed with exit code %d\n", result);
+        // Clean up any partial output file
+        unlink(output_path);
+        return false;
+    }
+    
+    // Verify output file was created
+    FILE* verify = fopen(output_path, "rb");
+    if (!verify) {
+        printf("ROM Patches: xdelta patch failed - output file not created\n");
+        return false;
+    }
+    fclose(verify);
+    
+    report_progress(100, "xdelta patch applied successfully");
+    return true;
+}
+
 // IPS patch format implementation
 static bool apply_ips_patch(const char* rom_path, const char* patch_path, const char* output_path)
 {
@@ -904,9 +973,11 @@ bool patches_apply_patch(const char* rom_path, const char* patch_path, const cha
         case PATCH_FORMAT_BPS:
             return apply_bps_patch(rom_path, patch_path, output_path);
             
-        case PATCH_FORMAT_UPS:
         case PATCH_FORMAT_XDELTA:
-            printf("ROM Patches: Format not yet implemented: %d\n", format);
+            return apply_xdelta_patch(rom_path, patch_path, output_path);
+            
+        case PATCH_FORMAT_UPS:
+            printf("ROM Patches: UPS format not yet implemented\n");
             return false;
             
         default:
@@ -921,24 +992,34 @@ int patches_find_for_rom(const char* rom_path, patch_info_t** patches, int max_p
         return 0;
     }
     
-    // Calculate CRC32 of the ROM
-    FILE* rom_file = fopen(rom_path, "rb");
+    // Calculate CRC32 of the ROM (use cache if available)
     uint32_t rom_crc = 0;
-    if (rom_file) {
-        fseek(rom_file, 0, SEEK_END);
-        long file_size = ftell(rom_file);
-        fseek(rom_file, 0, SEEK_SET);
-        
-        if (file_size > 0 && file_size < 16*1024*1024) // Max 16MB for CRC calc
-        {
-            uint8_t* buffer = (uint8_t*)malloc(file_size);
-            if (buffer && fread(buffer, 1, file_size, rom_file) == (size_t)file_size) {
-                rom_crc = calculate_crc32(buffer, file_size);
-                printf("ROM Patches: Calculated CRC32: %08X for %s\n", rom_crc, rom_path);
+    if (strcmp(crc_cache.cached_rom_path, rom_path) == 0) {
+        rom_crc = crc_cache.cached_crc32;
+        printf("ROM Patches: Using cached CRC32: %08X for %s\n", rom_crc, rom_path);
+    } else {
+        FILE* rom_file = fopen(rom_path, "rb");
+        if (rom_file) {
+            fseek(rom_file, 0, SEEK_END);
+            long file_size = ftell(rom_file);
+            fseek(rom_file, 0, SEEK_SET);
+            
+            if (file_size > 0 && file_size <= 128*1024*1024) // Max 128MB for CRC calc
+            {
+                uint8_t* buffer = (uint8_t*)malloc(file_size);
+                if (buffer && fread(buffer, 1, file_size, rom_file) == (size_t)file_size) {
+                    rom_crc = calculate_crc32(buffer, file_size);
+                    printf("ROM Patches: Calculated CRC32: %08X for %s\n", rom_crc, rom_path);
+                    
+                    // Cache the result
+                    strncpy(crc_cache.cached_rom_path, rom_path, sizeof(crc_cache.cached_rom_path) - 1);
+                    crc_cache.cached_rom_path[sizeof(crc_cache.cached_rom_path) - 1] = '\0';
+                    crc_cache.cached_crc32 = rom_crc;
+                }
+                if (buffer) free(buffer);
             }
-            if (buffer) free(buffer);
+            fclose(rom_file);
         }
-        fclose(rom_file);
     }
     
     // Extract game name from ROM path
@@ -992,7 +1073,7 @@ int patches_find_for_rom(const char* rom_path, patch_info_t** patches, int max_p
     
     int count = 0;
     struct dirent* entry;
-    static patch_info_t patch_storage[32]; // Static storage for patch info
+    static patch_info_t patch_storage[256]; // Static storage for patch info
     
     while ((entry = readdir(dir)) != NULL && count < max_patches) {
         if (entry->d_type != DT_REG) {

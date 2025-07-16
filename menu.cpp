@@ -217,10 +217,57 @@ static uint32_t parentstate;
 static uint32_t menusub = 0;
 
 // ROM patch menu variables
-static patch_info_t* rom_patches[32];
+static patch_info_t* rom_patches[256];
 static int rom_patch_count = 0;
 static int rom_patch_scroll_offset = 0;
 static int saved_file_selection_pos = 0;
+static char cached_patch_rom_path[1024] = "";  // Track which ROM we've loaded patches for
+
+// Function to scroll long ROM patch names
+static void rom_patch_scroll_name()
+{
+	if (rom_patch_count == 0 || menusub == 0) return; // No patches or "Original ROM" selected
+	
+	int patch_index = menusub - 1;
+	if (patch_index >= rom_patch_count) return;
+	
+	const char* name = rom_patches[patch_index]->name;
+	int len = strlen(name);
+	int max_len = 29; // Leave space for leading space character
+	
+	// Only scroll if the name is longer than display width
+	if (len > max_len) {
+		// Calculate which line this patch is displayed on
+		int display_line = -1;
+		int max_visible_items = OsdGetSize();
+		int total_items = rom_patch_count + 1; // +1 for "Original ROM"
+		int start_item = 0;
+		
+		// Calculate scrolling - same logic as in the display function
+		if (total_items > max_visible_items) {
+			if (menusub >= max_visible_items) {
+				start_item = menusub - max_visible_items + 1;
+			}
+			if (start_item + max_visible_items > total_items) {
+				start_item = total_items - max_visible_items;
+			}
+			if (start_item < 0) start_item = 0;
+		}
+		
+		// Find the display line for the current selection
+		if (menusub >= start_item && menusub < start_item + max_visible_items) {
+			display_line = menusub - start_item;
+		}
+		
+		if (display_line >= 0) {
+			// Create the full display string with leading space
+			char display_name[256];
+			snprintf(display_name, sizeof(display_name), " %s", name);
+			int display_len = strlen(display_name);
+			ScrollText(display_line, display_name, 0, display_len, 30, 1);
+		}
+	}
+}
 static uint32_t menusub_last = 0; //for when we allocate it dynamically and need to know last row
 static uint64_t menumask = 0; // Used to determine which rows are selectable...
 static uint32_t menu_timer = 0;
@@ -2536,6 +2583,30 @@ void HandleUI(void)
 					if (!store_name) user_io_store_filename(selPath);
 					if (is_n64())
 					{
+						// Check for available ROM patches for N64
+						patch_info_t* patches[256];
+						int patch_count = patches_find_for_rom(selPath, patches, 256);
+						
+						printf("ROM Patches: Found %d patches for N64 ROM %s\n", patch_count, selPath);
+						
+						if (patch_count > 0)
+						{
+							// Show patch selection menu
+							printf("ROM Patches: Showing patch selection menu for N64\n");
+							saved_file_selection_pos = flist_iSelectedEntry(); // Save current file position
+							
+							// Copy patches to global array for menu display
+							rom_patch_count = patch_count;
+							for (int i = 0; i < patch_count; i++) {
+								rom_patches[i] = patches[i];
+							}
+							
+							menusub = 0; // Reset selection
+							menustate = MENU_ROM_PATCH_SELECT1;
+							goto end_generic_file_selected; // Skip the rest of the case
+						}
+						
+						printf("ROM Patches: No patches found for N64, loading ROM directly\n");
 						uint32_t n64_crc;
 						if (!n64_rom_tx(selPath, idx, load_addr, n64_crc)) Info("failed to load ROM");
 						else if (user_io_use_cheats() && !store_name) cheats_init(selPath, n64_crc);
@@ -2543,8 +2614,8 @@ void HandleUI(void)
 					else
 					{
 						// Check for available ROM patches
-						patch_info_t* patches[32];
-						int patch_count = patches_find_for_rom(selPath, patches, 32);
+						patch_info_t* patches[256];
+						int patch_count = patches_find_for_rom(selPath, patches, 256);
 						
 						printf("ROM Patches: Found %d patches for %s\n", patch_count, selPath);
 						
@@ -7250,9 +7321,16 @@ end_generic_file_selected:
 			OsdEnable(DISABLE_KEYBOARD);
 			OsdSetTitle("ROM Patches", OSD_MSG);
 						
-			// Get patches for current ROM
-			rom_patch_count = patches_find_for_rom(selPath, rom_patches, 32);
-			rom_patch_scroll_offset = 0; // Reset scroll when entering patch menu
+			// Only load patches if ROM path has changed
+			if (strcmp(cached_patch_rom_path, selPath) != 0) {
+				printf("ROM Patches: Loading patches for new ROM: %s\n", selPath);
+				rom_patch_count = patches_find_for_rom(selPath, rom_patches, 256);
+				rom_patch_scroll_offset = 0; // Reset scroll when entering patch menu
+				strncpy(cached_patch_rom_path, selPath, sizeof(cached_patch_rom_path) - 1);
+				cached_patch_rom_path[sizeof(cached_patch_rom_path) - 1] = '\0';
+			} else {
+				printf("ROM Patches: Using cached patch data for %s\n", selPath);
+			}
 			
 			printf("ROM Patches: Found %d patches in SELECT1\n", rom_patch_count);
 			
@@ -7302,7 +7380,16 @@ end_generic_file_selected:
 				} else {
 					// Patch option
 					int patch_index = item_index - 1;
-					snprintf(line, sizeof(line), " %s", rom_patches[patch_index]->name);
+					const char* patch_name = rom_patches[patch_index]->name;
+					int name_len = strlen(patch_name);
+					
+					// Handle long patch names similar to recent files menu
+					if (name_len > 28) {
+						// Truncate and add scroll indicator (character 22)
+						snprintf(line, sizeof(line), " %.27s%c", patch_name, 22);
+					} else {
+						snprintf(line, sizeof(line), " %s", patch_name);
+					}
 					OsdWriteOffset(i, line, menusub == item_index, 0, 0, leftchar);
 				}
 			}
@@ -7403,9 +7490,22 @@ end_generic_file_selected:
 				if (menusub == 0)
 				{
 					// Load original ROM
-					char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
-					user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
-					if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+					if (is_n64())
+					{
+						char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+						uint32_t n64_crc;
+						if (!n64_rom_tx(selPath, idx, load_addr, n64_crc)) {
+							Info("Failed to load N64 ROM");
+						} else if (user_io_use_cheats() && !store_name) {
+							cheats_init(selPath, n64_crc);
+						}
+					}
+					else
+					{
+						char idx = user_io_ext_idx(selPath, fs_pFileExt) << 6 | ioctl_index;
+						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+						if (user_io_use_cheats() && !store_name) cheats_init(selPath, user_io_get_file_crc());
+					}
 				}
 				else
 				{
@@ -7427,11 +7527,24 @@ end_generic_file_selected:
 					if (patches_apply_patch(selPath, selected_patch->filepath, temp_path))
 					{
 						// Load patched ROM
-						char idx = user_io_ext_idx(temp_path, fs_pFileExt) << 6 | ioctl_index;
-						user_io_file_tx(temp_path, idx, opensave, 0, 0, load_addr);
-						if (user_io_use_cheats() && !store_name) cheats_init(temp_path, user_io_get_file_crc());
-						
-						Info("ROM patch applied successfully!", 3000);
+						if (is_n64())
+						{
+							char idx = user_io_ext_idx(temp_path, fs_pFileExt) << 6 | ioctl_index;
+							uint32_t n64_crc;
+							if (!n64_rom_tx(temp_path, idx, load_addr, n64_crc)) {
+								Info("Failed to load patched N64 ROM");
+							} else {
+								if (user_io_use_cheats() && !store_name) cheats_init(temp_path, n64_crc);
+								Info("N64 ROM patch applied successfully!", 3000);
+							}
+						}
+						else
+						{
+							char idx = user_io_ext_idx(temp_path, fs_pFileExt) << 6 | ioctl_index;
+							user_io_file_tx(temp_path, idx, opensave, 0, 0, load_addr);
+							if (user_io_use_cheats() && !store_name) cheats_init(temp_path, user_io_get_file_crc());
+							Info("ROM patch applied successfully!", 3000);
+						}
 					}
 					else
 					{
@@ -7459,6 +7572,8 @@ end_generic_file_selected:
 				menustate = MENU_NONE1;
 			}
 		}
+		
+		rom_patch_scroll_name();
 		break;
 	
 
