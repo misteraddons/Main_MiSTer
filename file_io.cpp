@@ -1758,7 +1758,8 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			if(iSelectedEntry + 1 < flist_nDirEntries()) // scroll within visible items
 			{
 				iSelectedEntry++;
-				if (iSelectedEntry > iFirstEntry + OsdGetSize() - 1) iFirstEntry = iSelectedEntry - OsdGetSize() + 1;
+				// Start scrolling when cursor is 3 positions from bottom
+				if (iSelectedEntry > iFirstEntry + OsdGetSize() - 4) iFirstEntry = iSelectedEntry - OsdGetSize() + 4;
 			}
             else
             {
@@ -1773,7 +1774,9 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			if (iSelectedEntry > 0) // scroll within visible items
 			{
 				iSelectedEntry--;
-				if (iSelectedEntry < iFirstEntry) iFirstEntry = iSelectedEntry;
+				// Start scrolling when cursor is 3 positions from top
+				if (iSelectedEntry < iFirstEntry + 3) iFirstEntry = iSelectedEntry - 3;
+				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
             return 0;
 		}
