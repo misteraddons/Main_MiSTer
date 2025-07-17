@@ -1785,20 +1785,51 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			// Calculate cursor position relative to current page
 			int cursor_offset = iSelectedEntry - iFirstEntry;
 			
-			// Move to next page
-			iFirstEntry += OsdGetSize();
-			if (iFirstEntry >= flist_nDirEntries())
+			// Check if we're already on the last page (less than a full page left)
+			int remaining_entries = flist_nDirEntries() - iFirstEntry;
+			if (remaining_entries <= OsdGetSize())
 			{
-				// At end, stay on last page
+				// On last page - allow cursor to go to actual last row
+				iSelectedEntry = flist_nDirEntries() - 1;
 				iFirstEntry = flist_nDirEntries() - OsdGetSize();
 				if (iFirstEntry < 0) iFirstEntry = 0;
 			}
-			
-			// Maintain relative cursor position on new page
-			iSelectedEntry = iFirstEntry + cursor_offset;
-			if (iSelectedEntry >= flist_nDirEntries())
+			else
 			{
-				iSelectedEntry = flist_nDirEntries() - 1;
+				// Move to next page
+				iFirstEntry += OsdGetSize();
+				if (iFirstEntry >= flist_nDirEntries())
+				{
+					// At end, stay on last page
+					iFirstEntry = flist_nDirEntries() - OsdGetSize();
+					if (iFirstEntry < 0) iFirstEntry = 0;
+					iSelectedEntry = flist_nDirEntries() - 1;
+				}
+				else
+				{
+					// Special handling for top row - jump to 3rd from bottom
+					if (cursor_offset == 0)
+					{
+						iSelectedEntry = iFirstEntry + OsdGetSize() - 4;
+					}
+					else
+					{
+						// Maintain relative cursor position, but respect 3-line buffer from bottom
+						iSelectedEntry = iFirstEntry + cursor_offset;
+						
+						// If cursor would be on bottom 3 rows of page, keep it at 3rd from bottom
+						if (cursor_offset >= OsdGetSize() - 3)
+						{
+							iSelectedEntry = iFirstEntry + OsdGetSize() - 4;
+						}
+					}
+					
+					// Ensure we don't go past the end
+					if (iSelectedEntry >= flist_nDirEntries())
+					{
+						iSelectedEntry = flist_nDirEntries() - 1;
+					}
+				}
 			}
 			return 0;
 		}
@@ -1807,15 +1838,41 @@ int ScanDirectory(char* path, int mode, const char *extension, int options, cons
 			// Calculate cursor position relative to current page
 			int cursor_offset = iSelectedEntry - iFirstEntry;
 			
-			// Move to previous page
-			iFirstEntry -= OsdGetSize();
-			if (iFirstEntry < 0) iFirstEntry = 0;
-			
-			// Maintain relative cursor position on new page
-			iSelectedEntry = iFirstEntry + cursor_offset;
-			if (iSelectedEntry >= flist_nDirEntries())
+			// Check if we're already on the first page (less than a full page to go back)
+			if (iFirstEntry <= OsdGetSize())
 			{
-				iSelectedEntry = flist_nDirEntries() - 1;
+				// On first page - allow cursor to go to actual first row
+				iSelectedEntry = 0;
+				iFirstEntry = 0;
+			}
+			else
+			{
+				// Move to previous page
+				iFirstEntry -= OsdGetSize();
+				if (iFirstEntry < 0) iFirstEntry = 0;
+				
+				// Special handling for bottom row - jump to 3rd from top
+				if (cursor_offset == OsdGetSize() - 1)
+				{
+					iSelectedEntry = iFirstEntry + 3;
+				}
+				else
+				{
+					// Maintain relative cursor position, but respect 3-line buffer from top
+					iSelectedEntry = iFirstEntry + cursor_offset;
+					
+					// If cursor would be on top 3 rows of page, keep it at 3rd from top
+					if (cursor_offset <= 2)
+					{
+						iSelectedEntry = iFirstEntry + 3;
+					}
+				}
+				
+				// Ensure we don't go past the end
+				if (iSelectedEntry >= flist_nDirEntries())
+				{
+					iSelectedEntry = flist_nDirEntries() - 1;
+				}
 			}
 		}
 		else if (mode == SCANF_SET_ITEM)
