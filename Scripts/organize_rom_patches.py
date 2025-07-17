@@ -14,6 +14,55 @@ from pathlib import Path
 from difflib import SequenceMatcher
 import argparse
 from datetime import datetime
+import subprocess
+
+def check_extraction_tools(verbose=False):
+    """Check which archive extraction tools are available"""
+    tools = {
+        '7z': False,
+        'unrar': False,
+        'rar': False,
+        'py7zr': False,
+        'rarfile': False
+    }
+    
+    # Check command line tools
+    for tool in ['7z', 'unrar', 'rar']:
+        try:
+            result = subprocess.run([tool, '--help'], capture_output=True, timeout=5)
+            tools[tool] = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    
+    # Check Python libraries
+    try:
+        import py7zr
+        tools['py7zr'] = True
+    except ImportError:
+        pass
+    
+    try:
+        import rarfile
+        tools['rarfile'] = True
+    except ImportError:
+        pass
+    
+    if verbose:
+        print("Archive extraction tools available:")
+        for tool, available in tools.items():
+            status = "✓" if available else "✗"
+            print(f"  {status} {tool}")
+        
+        if not any(tools.values()):
+            print("\nNo extraction tools found! Please install:")
+            print("  - 7z: apt install p7zip-full (Linux) or download from 7-zip.org")
+            print("  - Python libraries: pip install py7zr rarfile")
+        elif not tools['7z'] and not tools['py7zr']:
+            print("\nRecommendation: Install 7z for better archive support")
+            print("  - Command line: apt install p7zip-full (Linux)")
+            print("  - Python library: pip install py7zr")
+    
+    return tools
 
 def similarity(a, b):
     """Calculate similarity between two strings"""
@@ -300,47 +349,115 @@ def extract_patch_files(archive_path, dest_dir, verbose=False):
                     raise Exception("7z extraction tool not available")
         
         elif archive_ext == '.rar':
-            # Try to use rarfile library first, fall back to command line
+            # Try multiple methods to extract RAR files
+            rar_extracted = False
+            
+            # Method 1: Try 7z command line (most reliable for RAR)
+            import subprocess
             try:
-                import rarfile
-                with rarfile.RarFile(archive_path) as rf:
-                    for fname in rf.namelist():
-                        if Path(fname).suffix.lower() in patch_extensions:
-                            # Extract to dest_dir but flatten the path
-                            filename = os.path.basename(fname)
-                            # Extract the file to dest_dir
-                            rf.extract(fname, dest_dir)
-                            # Move the extracted file to the root if it's in a subdirectory
-                            extracted_path = os.path.join(dest_dir, fname)
-                            final_path = os.path.join(dest_dir, filename)
-                            if extracted_path != final_path:
-                                os.rename(extracted_path, final_path)
-                                # Clean up any empty directories
-                                dir_path = os.path.dirname(extracted_path)
-                                while dir_path != dest_dir and dir_path:
-                                    try:
-                                        os.rmdir(dir_path)
-                                        dir_path = os.path.dirname(dir_path)
-                                    except OSError:
-                                        break
-                            extracted_files.append(final_path)
-            except ImportError:
-                # Fall back to command line tool
-                import subprocess
-                try:
-                    # Extract only patch files using unrar
-                    for ext in patch_extensions:
-                        subprocess.run(['unrar', 'e', archive_path, f'*{ext}', dest_dir], 
-                                     capture_output=True)
+                # First, try to list contents to see if 7z can handle this RAR file
+                result = subprocess.run(['7z', 'l', archive_path], 
+                                      capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    # Extract all files to temp directory first, then filter
+                    temp_extract_dir = os.path.join(dest_dir, 'temp_rar_extract')
+                    os.makedirs(temp_extract_dir, exist_ok=True)
                     
-                    # Check what was extracted
-                    for file in os.listdir(dest_dir):
-                        if Path(file).suffix.lower() in patch_extensions:
-                            extracted_files.append(os.path.join(dest_dir, file))
-                except FileNotFoundError:
+                    extract_result = subprocess.run(['7z', 'x', archive_path, f'-o{temp_extract_dir}', '-y'], 
+                                                  capture_output=True, text=True, timeout=60)
+                    
+                    if extract_result.returncode == 0:
+                        # Find and move patch files
+                        for root, dirs, files in os.walk(temp_extract_dir):
+                            for file in files:
+                                if Path(file).suffix.lower() in patch_extensions:
+                                    src_path = os.path.join(root, file)
+                                    dest_path = os.path.join(dest_dir, file)
+                                    shutil.move(src_path, dest_path)
+                                    extracted_files.append(dest_path)
+                        
+                        # Clean up temp directory
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                        rar_extracted = True
+                        if verbose:
+                            print(f"          Successfully extracted RAR using 7z")
+                    
+            except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+                if verbose:
+                    print(f"          7z extraction failed: {e}")
+                
+                # Method 2: Try rarfile library
+                try:
+                    import rarfile
+                    # Set the path to unrar executable if needed
+                    rarfile.UNRAR_TOOL = "unrar"  # or try "rar" if unrar doesn't work
+                    
+                    with rarfile.RarFile(archive_path) as rf:
+                        for fname in rf.namelist():
+                            if Path(fname).suffix.lower() in patch_extensions:
+                                # Extract to dest_dir but flatten the path
+                                filename = os.path.basename(fname)
+                                # Extract the file to dest_dir
+                                rf.extract(fname, dest_dir)
+                                # Move the extracted file to the root if it's in a subdirectory
+                                extracted_path = os.path.join(dest_dir, fname)
+                                final_path = os.path.join(dest_dir, filename)
+                                if extracted_path != final_path:
+                                    if os.path.exists(extracted_path):
+                                        os.rename(extracted_path, final_path)
+                                        # Clean up any empty directories
+                                        dir_path = os.path.dirname(extracted_path)
+                                        while dir_path != dest_dir and dir_path and os.path.exists(dir_path):
+                                            try:
+                                                os.rmdir(dir_path)
+                                                dir_path = os.path.dirname(dir_path)
+                                            except OSError:
+                                                break
+                                extracted_files.append(final_path)
+                    rar_extracted = True
                     if verbose:
-                        print(f"          Warning: RAR not available. Install rarfile (pip install rarfile) or unrar command")
-                    raise Exception("RAR extraction tool not available")
+                        print(f"          Successfully extracted RAR using rarfile library")
+                    
+                except (ImportError, Exception) as e:
+                    if verbose:
+                        print(f"          rarfile library failed: {e}")
+                    
+                    # Method 3: Try unrar command line
+                    try:
+                        # First, try to list contents to see if unrar is working
+                        result = subprocess.run(['unrar', 'l', archive_path], 
+                                              capture_output=True, text=True, timeout=30)
+                        if result.returncode == 0:
+                            # Extract all files to temp directory first, then filter
+                            temp_extract_dir = os.path.join(dest_dir, 'temp_rar_extract')
+                            os.makedirs(temp_extract_dir, exist_ok=True)
+                            
+                            extract_result = subprocess.run(['unrar', 'x', archive_path, temp_extract_dir + '/'], 
+                                                          capture_output=True, text=True, timeout=60)
+                            
+                            if extract_result.returncode == 0:
+                                # Find and move patch files
+                                for root, dirs, files in os.walk(temp_extract_dir):
+                                    for file in files:
+                                        if Path(file).suffix.lower() in patch_extensions:
+                                            src_path = os.path.join(root, file)
+                                            dest_path = os.path.join(dest_dir, file)
+                                            shutil.move(src_path, dest_path)
+                                            extracted_files.append(dest_path)
+                                
+                                # Clean up temp directory
+                                shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                                rar_extracted = True
+                                if verbose:
+                                    print(f"          Successfully extracted RAR using unrar")
+                            
+                    except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+                        if verbose:
+                            print(f"          unrar command failed: {e}")
+            
+            # If all methods failed, raise an informative error
+            if not rar_extracted:
+                raise Exception("Cannot extract RAR file. Please install 7z, rarfile (pip install rarfile), or unrar")
                 
     except Exception as e:
         # Re-raise for upper level error handling - let caller decide how to handle
@@ -486,7 +603,13 @@ def organize_rom_patches(rom_patches_dir, games_csv, output_dir, dry_run=False, 
                 
                 current_patch += 1
                 if not verbose:
-                    print(f"\rProcessing: {current_patch}/{patch_count} - {core_dir}/{rom_dir}/{patch_dir[:30]}...", end='', flush=True)
+                    # Truncate long names for progress display
+                    display_patch = patch_dir[:25] + "..." if len(patch_dir) > 25 else patch_dir
+                    progress_line = f"Processing: {current_patch}/{patch_count} - {core_dir}/{rom_dir}/{display_patch}"
+                    # Truncate entire line if too long
+                    if len(progress_line) > 75:
+                        progress_line = progress_line[:75] + "..."
+                    print(f"\r{progress_line:<80}", end='', flush=True)
                 else:
                     print(f"\n[{current_patch}/{patch_count}] {core_dir} / {rom_dir} / {patch_dir}")
                 
@@ -681,14 +804,28 @@ def organize_rom_patches(rom_patches_dir, games_csv, output_dir, dry_run=False, 
 
 def main():
     parser = argparse.ArgumentParser(description='Organize ROM patches for MiSTer')
-    parser.add_argument('rom_patches_dir', help='Source ROM patches directory')
-    parser.add_argument('games_csv', help='Games CSV database file')
-    parser.add_argument('output_dir', help='Output directory for organized patches')
+    parser.add_argument('rom_patches_dir', nargs='?', help='Source ROM patches directory')
+    parser.add_argument('games_csv', nargs='?', help='Games CSV database file')
+    parser.add_argument('output_dir', nargs='?', help='Output directory for organized patches')
     parser.add_argument('--dry-run', action='store_true', help='Show what would be done without actually doing it')
     parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed debug output')
+    parser.add_argument('--check-tools', action='store_true', help='Check available archive extraction tools')
     parser.add_argument('--min-similarity', type=float, default=0.7, help='Minimum similarity for ROM matching (0.0-1.0)')
     
     args = parser.parse_args()
+    
+    if args.check_tools:
+        check_extraction_tools(verbose=True)
+        return
+    
+    if not args.rom_patches_dir or not args.games_csv or not args.output_dir:
+        parser.error("rom_patches_dir, games_csv, and output_dir are required unless using --check-tools")
+    
+    # Quick tool check at start
+    tools = check_extraction_tools(verbose=False)
+    if args.verbose:
+        check_extraction_tools(verbose=True)
+        print()
     
     organize_rom_patches(
         args.rom_patches_dir,
