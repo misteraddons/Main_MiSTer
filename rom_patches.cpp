@@ -80,9 +80,7 @@ bool patches_is_patch_file(const char* filename)
     
     return (!strcasecmp(ext, ".ips") ||
             !strcasecmp(ext, ".bps") ||
-            !strcasecmp(ext, ".ups") ||
-            !strcasecmp(ext, ".xdelta") ||
-            !strcasecmp(ext, ".delta"));
+            !strcasecmp(ext, ".ups"));
 }
 
 patch_format_t patches_detect_format(const char* patch_path)
@@ -93,7 +91,6 @@ patch_format_t patches_detect_format(const char* patch_path)
     if (!strcasecmp(ext, ".ips")) return PATCH_FORMAT_IPS;
     if (!strcasecmp(ext, ".bps")) return PATCH_FORMAT_BPS;
     if (!strcasecmp(ext, ".ups")) return PATCH_FORMAT_UPS;
-    if (!strcasecmp(ext, ".xdelta") || !strcasecmp(ext, ".delta")) return PATCH_FORMAT_XDELTA;
     
     return PATCH_FORMAT_UNKNOWN;
 }
