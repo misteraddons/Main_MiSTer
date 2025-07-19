@@ -1,0 +1,47 @@
+# Favorite Games List for GPIO Rotary Encoder
+#
+# Format: core,id_type,identifier,title
+# This file is used by the rotary encoder to browse through games
+#
+
+# PSX Games
+PSX,serial,SLUS-00067,Castlevania: Symphony of the Night
+PSX,serial,SLUS-00594,Final Fantasy VII
+PSX,serial,SLUS-00892,Metal Gear Solid
+PSX,serial,SLUS-00640,Resident Evil 2
+PSX,serial,SLUS-00743,Silent Hill
+
+# SNES Games  
+SNES,title,Super Metroid,Super Metroid
+SNES,title,The Legend of Zelda: A Link to the Past,Zelda: A Link to the Past
+SNES,title,Super Mario World,Super Mario World
+SNES,title,Chrono Trigger,Chrono Trigger
+SNES,title,Final Fantasy VI,Final Fantasy VI
+
+# Genesis Games
+Genesis,title,Sonic the Hedgehog,Sonic the Hedgehog
+Genesis,title,Streets of Rage 2,Streets of Rage 2
+Genesis,title,Phantasy Star IV,Phantasy Star IV
+Genesis,title,Gunstar Heroes,Gunstar Heroes
+Genesis,title,Castlevania: Bloodlines,Castlevania Bloodlines
+
+# Game Boy Games
+Gameboy,title,Tetris,Tetris
+Gameboy,title,The Legend of Zelda: Link's Awakening,Zelda: Link's Awakening
+Gameboy,title,Metroid II: Return of Samus,Metroid II
+Gameboy,title,Super Mario Land 2: 6 Golden Coins,Mario Land 2
+Gameboy,title,Pokemon Red,Pokemon Red
+
+# Saturn Games
+Saturn,serial,T-8106G,NiGHTS into Dreams
+Saturn,serial,T-8113G,Panzer Dragoon Saga
+Saturn,serial,T-8101G,Virtua Fighter 2
+Saturn,serial,T-8119G,Radiant Silvergun
+Saturn,serial,T-8109G,Sega Rally Championship
+
+# Arcade Games
+Arcade,title,Street Fighter II,Street Fighter II
+Arcade,title,The King of Fighters '98,KOF '98
+Arcade,title,Metal Slug 3,Metal Slug 3
+Arcade,title,1942,1942
+Arcade,title,Galaga,Galaga

@@ -1,0 +1,14 @@
+[Unit]
+Description=MiSTer CD-ROM Daemon
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=forking
+ExecStart=/media/fat/utils/cdrom_daemon
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

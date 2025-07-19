@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiSTer Remote Game Launcher</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .examples {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        .examples h3 {
+            margin-top: 0;
+        }
+        .game-preset {
+            background: #e9ecef;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .game-preset:hover {
+            background: #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 MiSTer Remote Game Launcher</h1>
+        
+        <form id="launchForm">
+            <div class="form-group">
+                <label for="misterIp">MiSTer IP Address:</label>
+                <input type="text" id="misterIp" value="192.168.1.100" placeholder="192.168.1.100">
+            </div>
+            
+            <div class="form-group">
+                <label for="core">Core:</label>
+                <select id="core">
+                    <option value="PSX">PlayStation (PSX)</option>
+                    <option value="Saturn">Sega Saturn</option>
+                    <option value="MegaCD">Sega CD / Mega CD</option>
+                    <option value="Arcade">Arcade</option>
+                    <option value="NES">Nintendo Entertainment System</option>
+                    <option value="SNES">Super Nintendo</option>
+                    <option value="Genesis">Sega Genesis / Mega Drive</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="idType">ID Type:</label>
+                <select id="idType">
+                    <option value="serial">Serial Number</option>
+                    <option value="title">Game Title</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="identifier">Game Identifier:</label>
+                <input type="text" id="identifier" placeholder="SLUS-00067 or game title">
+            </div>
+            
+            <div class="form-group">
+                <label for="apiKey">API Key (if required):</label>
+                <input type="password" id="apiKey" placeholder="Leave empty if no authentication">
+            </div>
+            
+            <button type="submit">🚀 Launch Game</button>
+        </form>
+        
+        <div id="status" class="status"></div>
+        
+        <div class="examples">
+            <h3>📚 Example Games (Click to Auto-Fill)</h3>
+            <div class="game-preset" onclick="fillForm('PSX', 'serial', 'SLUS-00067')">
+                PlayStation: Castlevania Symphony of the Night (SLUS-00067)
+            </div>
+            <div class="game-preset" onclick="fillForm('PSX', 'serial', 'SCUS-94455')">
+                PlayStation: Final Fantasy VII (SCUS-94455)
+            </div>
+            <div class="game-preset" onclick="fillForm('Saturn', 'serial', 'T-8107G')">
+                Saturn: Panzer Dragoon (T-8107G)
+            </div>
+            <div class="game-preset" onclick="fillForm('MegaCD', 'serial', 'T-25013')">
+                Sega CD: Sonic CD (T-25013)
+            </div>
+            <div class="game-preset" onclick="fillForm('PSX', 'title', 'Metal Gear Solid')">
+                PlayStation: Metal Gear Solid (by title)
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function fillForm(core, idType, identifier) {
+            document.getElementById('core').value = core;
+            document.getElementById('idType').value = idType;
+            document.getElementById('identifier').value = identifier;
+        }
+
+        function showStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${isError ? 'error' : 'success'}`;
+            status.style.display = 'block';
+            
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+
+        document.getElementById('launchForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const misterIp = document.getElementById('misterIp').value;
+            const core = document.getElementById('core').value;
+            const idType = document.getElementById('idType').value;
+            const identifier = document.getElementById('identifier').value;
+            const apiKey = document.getElementById('apiKey').value;
+            
+            if (!misterIp || !core || !idType || !identifier) {
+                showStatus('Please fill in all required fields', true);
+                return;
+            }
+            
+            const payload = {
+                core: core,
+                id_type: idType,
+                identifier: identifier
+            };
+            
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (apiKey) {
+                headers['Authorization'] = apiKey;
+            }
+            
+            try {
+                showStatus('Sending launch request...');
+                
+                const response = await fetch(`http://${misterIp}:8080/launch`, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus(`Game launch successful! ${result.message}`);
+                } else {
+                    showStatus(`Error: ${result.error}`, true);
+                }
+            } catch (error) {
+                showStatus(`Connection error: ${error.message}`, true);
+            }
+        });
+        
+        // Auto-detect MiSTer IP on page load
+        window.addEventListener('load', async () => {
+            try {
+                // Try common MiSTer IP addresses
+                const commonIPs = ['192.168.1.100', '192.168.0.100', '10.0.0.100'];
+                
+                for (const ip of commonIPs) {
+                    try {
+                        const response = await fetch(`http://${ip}:8080/status`, {
+                            method: 'GET',
+                            signal: AbortSignal.timeout(2000)
+                        });
+                        
+                        if (response.ok) {
+                            document.getElementById('misterIp').value = ip;
+                            showStatus(`Auto-detected MiSTer at ${ip}`);
+                            break;
+                        }
+                    } catch (e) {
+                        // Continue to next IP
+                    }
+                }
+            } catch (e) {
+                // Auto-detection failed, use default
+            }
+        });
+    </script>
+</body>
+</html>

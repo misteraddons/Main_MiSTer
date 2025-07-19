@@ -1,0 +1,13 @@
+# MiSTer CD-ROM Daemon Configuration
+#
+# Copy this file to cdrom_daemon.conf to customize settings
+# All settings are optional - defaults are shown below
+#
+# This daemon uses the game_launcher service for GameDB operations
+# Configure GameDB settings in /media/fat/utils/game_launcher.conf
+
+# Show OSD notifications for CD events
+show_notifications = true
+
+# OSD message display time in milliseconds
+osd_timeout = 3000
