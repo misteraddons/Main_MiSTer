@@ -18,6 +18,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 #define CD_DEVICE "/dev/sr0"
 #define CD_CHECK_INTERVAL 2
@@ -102,7 +103,7 @@ bool send_game_launcher_command(const char* system, const char* id_type, const c
 const char* detect_cd_system() {
     int fd = open(CD_DEVICE, O_RDONLY);
     if (fd < 0) {
-        return NULL;
+        return "Unknown";
     }
     
     char buffer[2048];
@@ -125,11 +126,30 @@ const char* detect_cd_system() {
         }
     }
     
-    // Check for PSX (look for "PLAYSTATION" string)
-    if (lseek(fd, 0, SEEK_SET) == 0 && read(fd, buffer, 1024) == 1024) {
-        if (strstr(buffer, "PLAYSTATION") != NULL) {
-            close(fd);
-            return "PSX";
+    // Check for PSX (look for "PLAYSTATION" string in sector 16)
+    if (lseek(fd, 16 * 2048, SEEK_SET) == 16 * 2048) {
+        int bytes_read = read(fd, buffer, 512);
+        printf("cdrom_daemon: Read %d bytes from sector 16\n", bytes_read);
+        fflush(stdout);
+        
+        if (bytes_read >= 256) {
+            // Debug: print first 64 chars
+            printf("cdrom_daemon: First 64 chars: ");
+            for (int i = 0; i < 64 && i < bytes_read; i++) {
+                printf("%c", isprint(buffer[i]) ? buffer[i] : '.');
+            }
+            printf("\n");
+            fflush(stdout);
+            
+            // Manual search for PLAYSTATION string (in case of null bytes)
+            for (int i = 0; i < bytes_read - 11; i++) {
+                if (memcmp(&buffer[i], "PLAYSTATION", 11) == 0) {
+                    printf("cdrom_daemon: Found PLAYSTATION string at offset %d - PSX disc detected\n", i);
+                    fflush(stdout);
+                    close(fd);
+                    return "PSX";
+                }
+            }
         }
     }
     
@@ -139,48 +159,106 @@ const char* detect_cd_system() {
 
 // Extract PSX disc serial
 bool extract_psx_serial(char* serial, size_t serial_size) {
-    int fd = open(CD_DEVICE, O_RDONLY);
-    if (fd < 0) {
+    printf("cdrom_daemon: Extracting PSX serial\n");
+    fflush(stdout);
+    
+    // Ensure disc is mounted
+    system("mkdir -p /tmp/cdrom 2>/dev/null");
+    system("umount /tmp/cdrom 2>/dev/null");
+    system("mount -t iso9660 /dev/sr0 /tmp/cdrom 2>/dev/null");
+    
+    // Check if mount succeeded or was already mounted
+    FILE* test_fp = fopen("/tmp/cdrom/system.cnf", "r");
+    if (!test_fp) {
+        // Try uppercase
+        test_fp = fopen("/tmp/cdrom/SYSTEM.CNF", "r");
+    }
+    if (test_fp) {
+        fclose(test_fp);
+        printf("cdrom_daemon: PSX disc mounted successfully\n");
+        fflush(stdout);
+    } else {
+        printf("cdrom_daemon: Failed to access PSX disc\n");
+        fflush(stdout);
         return false;
     }
     
-    char buffer[2048];
-    
-    // Read sector 16 (where PSX serial is typically located)
-    if (lseek(fd, 16 * 2048, SEEK_SET) != 16 * 2048) {
-        close(fd);
-        return false;
-    }
-    
-    if (read(fd, buffer, 2048) != 2048) {
-        close(fd);
-        return false;
-    }
-    
-    // Look for serial pattern (SLUS, SCUS, SCES, SLED, etc.)
-    for (int i = 0; i < 2048 - 12; i++) {
-        if ((strncmp(&buffer[i], "SLUS", 4) == 0 ||
-             strncmp(&buffer[i], "SCUS", 4) == 0 ||
-             strncmp(&buffer[i], "SCES", 4) == 0 ||
-             strncmp(&buffer[i], "SLED", 4) == 0) &&
-            buffer[i + 4] == '-' || buffer[i + 4] == '_') {
+    // Method 1: Look for PSX executable files in root directory
+    FILE* fp = popen("ls /tmp/cdrom/ 2>/dev/null | grep -iE '^(S[CLU][EUPM][SMS])[_-]?[0-9]{3}\\.?[0-9]{2}' | head -1", "r");
+    if (fp) {
+        char filename[256];
+        if (fgets(filename, sizeof(filename), fp) != NULL) {
+            filename[strcspn(filename, "\n")] = '\0';
+            printf("cdrom_daemon: Found PSX file: %s\n", filename);
+            fflush(stdout);
             
-            // Extract serial (format: SLUS-00067)
+            // Format serial: remove dots and convert _ to -
+            char formatted[32];
             int j = 0;
-            while (j < 11 && i + j < 2048 && 
-                   (buffer[i + j] != ' ' && buffer[i + j] != '\0' && 
-                    buffer[i + j] != '\n' && buffer[i + j] != '\r')) {
-                serial[j] = buffer[i + j];
-                j++;
+            for (int i = 0; filename[i] && j < 31; i++) {
+                if (filename[i] != '.') {
+                    formatted[j++] = toupper((unsigned char)filename[i]);
+                }
             }
-            serial[j] = '\0';
+            formatted[j] = '\0';
             
-            close(fd);
+            // Replace _ with -
+            for (int i = 0; formatted[i]; i++) {
+                if (formatted[i] == '_') {
+                    formatted[i] = '-';
+                }
+            }
+            
+            strncpy(serial, formatted, serial_size - 1);
+            serial[serial_size - 1] = '\0';
+            
+            pclose(fp);
+            system("umount /tmp/cdrom 2>/dev/null");
             return true;
         }
+        pclose(fp);
     }
     
-    close(fd);
+    // Method 2: Try system.cnf
+    fp = fopen("/tmp/cdrom/system.cnf", "r");
+    if (fp) {
+        char line[256];
+        while (fgets(line, sizeof(line), fp) != NULL) {
+            if (strncmp(line, "BOOT", 4) == 0) {
+                char* exe_start = strstr(line, ":\\");
+                if (!exe_start) exe_start = strstr(line, ":/");
+                
+                if (exe_start) {
+                    exe_start += 2;
+                    char temp[32];
+                    int i = 0;
+                    while (exe_start[i] && exe_start[i] != ';' && exe_start[i] != '\n' && 
+                           exe_start[i] != '\r' && exe_start[i] != ' ' && i < 31) {
+                        if (exe_start[i] != '.') {
+                            temp[i] = toupper((unsigned char)exe_start[i]);
+                        }
+                        i++;
+                    }
+                    temp[i] = '\0';
+                    
+                    // Replace _ with -
+                    for (i = 0; temp[i]; i++) {
+                        if (temp[i] == '_') temp[i] = '-';
+                    }
+                    
+                    strncpy(serial, temp, serial_size - 1);
+                    serial[serial_size - 1] = '\0';
+                    
+                    fclose(fp);
+                    system("umount /tmp/cdrom 2>/dev/null");
+                    return true;
+                }
+            }
+        }
+        fclose(fp);
+    }
+    
+    system("umount /tmp/cdrom 2>/dev/null");
     return false;
 }
 
@@ -368,10 +446,10 @@ int main(int argc, char* argv[]) {
             
             // Detect system
             const char* system = detect_cd_system();
-            printf("cdrom_daemon: Detected system: %s\n", system);
+            printf("cdrom_daemon: Detected system: %s\n", system ? system : "NULL");
             fflush(stdout);
             
-            if (strcmp(system, "Unknown") != 0) {
+            if (system && strcmp(system, "Unknown") != 0) {
                 char system_msg[128];
                 snprintf(system_msg, sizeof(system_msg), "Detected: %s disc", system);
                 send_osd_message(system_msg);

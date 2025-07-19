@@ -24,6 +24,7 @@
 #include <time.h>
 #include <errno.h>
 #include <cstdint>
+#include <termios.h>
 
 #define GAME_LAUNCHER_FIFO "/dev/MiSTer_game_launcher"
 #define MISTER_CMD_FIFO "/dev/MiSTer_cmd"
@@ -155,6 +156,12 @@ void load_config() {
         char* newline = strchr(value, '\n');
         if (newline) *newline = '\0';
         
+        // Trim trailing whitespace from key and value
+        char* end = key + strlen(key) - 1;
+        while (end > key && (*end == ' ' || *end == '\t')) *end-- = '\0';
+        end = value + strlen(value) - 1;
+        while (end > value && (*end == ' ' || *end == '\t')) *end-- = '\0';
+        
         if (strcmp(key, "poll_interval_ms") == 0) {
             config.poll_interval_ms = atoi(value);
         } else if (strcmp(key, "show_notifications") == 0) {
@@ -167,6 +174,7 @@ void load_config() {
             config.tag_cooldown_sec = atoi(value);
         } else if (strcmp(key, "interface") == 0) {
             strncpy(config.interface_path, value, sizeof(config.interface_path) - 1);
+            printf("nfc_daemon: Set interface_path to '%s'\n", config.interface_path);
         }
     }
     
@@ -244,9 +252,12 @@ bool pn532_send_command(uint8_t command, const uint8_t* data, size_t data_len, u
         frame[frame_len++] = 0x00;  // Postamble
         
         // Send via I2C
-        if (write(pn532_fd, frame, frame_len) != (ssize_t)frame_len) {
+        ssize_t written = write(pn532_fd, frame, frame_len);
+        if (written != (ssize_t)frame_len) {
+            printf("nfc_daemon: Failed to write UART frame (wrote %zd of %zu bytes)\n", written, frame_len);
             return false;
         }
+        printf("nfc_daemon: Sent %zu bytes to UART\n", frame_len);
         
     } else {
         // UART frame format (similar but with different framing)
@@ -269,16 +280,37 @@ bool pn532_send_command(uint8_t command, const uint8_t* data, size_t data_len, u
         frame[frame_len++] = (~checksum) + 1;
         frame[frame_len++] = 0x00;
         
-        if (write(pn532_fd, frame, frame_len) != (ssize_t)frame_len) {
+        ssize_t written = write(pn532_fd, frame, frame_len);
+        if (written != (ssize_t)frame_len) {
+            printf("nfc_daemon: Failed to write UART frame (wrote %zd of %zu bytes)\n", written, frame_len);
             return false;
         }
+        printf("nfc_daemon: Sent %zu bytes to UART\n", frame_len);
     }
     
     // Read response (simplified - should handle ACK, then actual response)
-    usleep(100000);  // Wait 100ms for response
+    usleep(50000);  // Wait 50ms for ACK
     
     uint8_t resp_buffer[256];
     ssize_t bytes_read = read(pn532_fd, resp_buffer, sizeof(resp_buffer));
+    
+    // First read is usually ACK (6 bytes: 00 00 FF 00 FF 00)
+    if (bytes_read == 6) {
+        // Got ACK, now wait for actual response
+        usleep(200000);  // Wait 200ms for tag detection
+        bytes_read = read(pn532_fd, resp_buffer, sizeof(resp_buffer));
+    }
+    
+    if (bytes_read > 0) {
+        // Debug output
+        if (command == PN532_COMMAND_INLISTPASSIVETARGET) {
+            printf("nfc_daemon: InListPassiveTarget response: %zd bytes\n", bytes_read);
+            for (int i = 0; i < bytes_read && i < 16; i++) {
+                printf("%02X ", resp_buffer[i]);
+            }
+            printf("\n");
+        }
+    }
     
     if (bytes_read > 6) {
         // Basic response parsing - extract data portion
@@ -295,36 +327,89 @@ bool test_pn532_interface(pn532_interface_t* interface) {
     int fd = -1;
     
     if (interface->type == INTERFACE_I2C) {
-        fd = open(interface->device_path, O_RDWR);
-        if (fd < 0) return false;
+        fd = open(interface->device_path, O_RDWR | O_NONBLOCK);
+        if (fd < 0) {
+            printf("nfc_daemon: Failed to open %s\n", interface->device_path);
+            return false;
+        }
         
         if (ioctl(fd, I2C_SLAVE, interface->config.i2c.address) < 0) {
+            printf("nfc_daemon: Failed to set I2C slave address on %s\n", interface->device_path);
             close(fd);
             return false;
         }
     } else {
-        fd = open(interface->device_path, O_RDWR | O_NOCTTY);
-        if (fd < 0) return false;
+        fd = open(interface->device_path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (fd < 0) {
+            printf("nfc_daemon: Failed to open %s\n", interface->device_path);
+            return false;
+        }
         
-        // Configure UART (simplified)
-        // In real implementation, would set baud rate, parity, etc.
+        // Configure UART with timeout
+        struct termios tio;
+        if (tcgetattr(fd, &tio) == 0) {
+            cfsetispeed(&tio, B115200);
+            cfsetospeed(&tio, B115200);
+            tio.c_cflag = B115200 | CS8 | CLOCAL | CREAD;
+            tio.c_iflag = 0;
+            tio.c_oflag = 0;
+            tio.c_lflag = 0;
+            tio.c_cc[VTIME] = 10; // 1 second timeout
+            tio.c_cc[VMIN] = 0;   // Non-blocking read
+            tcsetattr(fd, TCSANOW, &tio);
+            printf("nfc_daemon: UART configured on %s (115200 baud)\n", interface->device_path);
+        }
     }
     
-    // Try to get firmware version
-    uint8_t response[4];
-    size_t response_len;
+    printf("nfc_daemon: Testing PN532 communication on %s...\n", interface->device_path);
     
-    // Temporarily set global fd for command function
-    int old_fd = pn532_fd;
-    pn532_fd = fd;
-    config.interface_type = interface->type;
+    // Try to get firmware version with timeout
+    uint8_t response[16];
+    size_t response_len = 0;
     
-    bool success = pn532_send_command(PN532_COMMAND_GETFIRMWAREVERSION, NULL, 0, response, &response_len);
+    printf("nfc_daemon: Attempting PN532 wake-up and initialization...\n");
     
-    pn532_fd = old_fd;
+    // Send PN532 wake-up sequence first
+    uint8_t wakeup[] = {0x55, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    write(fd, wakeup, sizeof(wakeup));
+    usleep(50000); // 50ms delay
+    
+    // Clear any response from wake-up
+    uint8_t dummy[32];
+    read(fd, dummy, sizeof(dummy));
+    
+    // Now send GetFirmwareVersion command
+    uint8_t test_frame[] = {0x00, 0x00, 0xFF, 0x02, 0xFE, 0xD4, 0x02, 0x2A, 0x00};
+    
+    if (write(fd, test_frame, sizeof(test_frame)) < 0) {
+        printf("nfc_daemon: Failed to write test frame to %s\n", interface->device_path);
+        close(fd);
+        return false;
+    }
+    
+    printf("nfc_daemon: Test frame sent, waiting for response...\n");
+    usleep(100000); // 100ms delay
+    
+    // Try to read response
+    ssize_t bytes_read = read(fd, response, sizeof(response));
+    if (bytes_read > 0) {
+        printf("nfc_daemon: Received %zd bytes response\n", bytes_read);
+        for (int i = 0; i < bytes_read && i < 8; i++) {
+            printf("%02X ", response[i]);
+        }
+        printf("\n");
+        
+        // Basic check for PN532 response pattern
+        if (bytes_read >= 6 && response[0] == 0x00 && response[2] == 0xFF) {
+            printf("nfc_daemon: PN532-like response detected\n");
+            close(fd);
+            return true;
+        }
+    }
+    
+    printf("nfc_daemon: No valid PN532 response from %s\n", interface->device_path);
     close(fd);
-    
-    return success && response_len >= 4;
+    return false;
 }
 
 // Auto-detect PN532
@@ -386,6 +471,7 @@ bool auto_detect_pn532() {
 
 // Initialize PN532
 bool init_pn532() {
+    printf("nfc_daemon: Config interface_path = '%s'\n", config.interface_path);
     if (strcmp(config.interface_path, "auto") == 0) {
         return auto_detect_pn532();
     } else {
@@ -401,7 +487,33 @@ bool init_pn532() {
             }
         } else {
             config.interface_type = INTERFACE_UART;
-            pn532_fd = open(config.interface_path, O_RDWR | O_NOCTTY);
+            pn532_fd = open(config.interface_path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+            
+            if (pn532_fd >= 0) {
+                // Configure UART
+                struct termios tio;
+                if (tcgetattr(pn532_fd, &tio) == 0) {
+                    cfsetispeed(&tio, B115200);
+                    cfsetospeed(&tio, B115200);
+                    tio.c_cflag = B115200 | CS8 | CLOCAL | CREAD;
+                    tio.c_iflag = 0;
+                    tio.c_oflag = 0;
+                    tio.c_lflag = 0;
+                    tio.c_cc[VTIME] = 10; // 1 second timeout
+                    tio.c_cc[VMIN] = 0;   // Non-blocking read
+                    tcsetattr(pn532_fd, TCSANOW, &tio);
+                    printf("nfc_daemon: UART configured on %s\n", config.interface_path);
+                }
+                
+                // Send wake-up sequence
+                uint8_t wakeup[] = {0x55, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                write(pn532_fd, wakeup, sizeof(wakeup));
+                usleep(50000); // 50ms delay
+                
+                // Clear any response
+                uint8_t dummy[32];
+                read(pn532_fd, dummy, sizeof(dummy));
+            }
         }
         
         return pn532_fd >= 0;
@@ -417,10 +529,17 @@ bool configure_pn532() {
     uint8_t response[16];
     size_t response_len;
     
+    printf("nfc_daemon: Sending SAM configuration...\n");
     if (!pn532_send_command(PN532_COMMAND_SAMCONFIGURATION, sam_config, sizeof(sam_config), response, &response_len)) {
         printf("nfc_daemon: Failed to configure SAM\n");
         return false;
     }
+    
+    printf("nfc_daemon: SAM configuration response: %zu bytes\n", response_len);
+    for (size_t i = 0; i < response_len && i < 8; i++) {
+        printf("%02X ", response[i]);
+    }
+    printf("\n");
     
     printf("nfc_daemon: PN532 configured for tag detection\n");
     return true;
@@ -443,6 +562,16 @@ bool detect_nfc_tag(nfc_tag_data_t* tag_data) {
         return false; // No targets found
     }
     
+    // Tag detected! Extract UID for verbose logging
+    printf("nfc_daemon: NFC tag detected!\n");
+    if (response_len >= 10) {
+        printf("nfc_daemon: Tag UID: ");
+        for (size_t i = 6; i < response_len && i < 14; i++) {
+            printf("%02X:", response[i]);
+        }
+        printf("\n");
+    }
+    
     // Tag detected - now read NDEF data
     // This is simplified - real implementation would:
     // 1. Read NDEF capability container
@@ -452,18 +581,86 @@ bool detect_nfc_tag(nfc_tag_data_t* tag_data) {
     // For demonstration, simulate reading our custom format
     uint8_t read_data[] = {0x01, 0x30, 0x04};  // Read block 4 (where our data starts)
     if (!pn532_send_command(PN532_COMMAND_INDATAEXCHANGE, read_data, sizeof(read_data), response, &response_len)) {
+        printf("nfc_daemon: Failed to read tag data\n");
         return false;
     }
     
     if (response_len >= sizeof(nfc_tag_data_t)) {
         memcpy(tag_data, response + 1, sizeof(nfc_tag_data_t));  // Skip status byte
         
-        // Validate magic number
+        printf("nfc_daemon: Tag data read successfully (%zu bytes)\n", response_len);
+        printf("nfc_daemon: Raw tag content: ");
+        for (size_t i = 0; i < sizeof(nfc_tag_data_t) && i < response_len; i++) {
+            if (((uint8_t*)tag_data)[i] >= 32 && ((uint8_t*)tag_data)[i] <= 126) {
+                printf("%c", ((uint8_t*)tag_data)[i]);
+            } else {
+                printf(".");
+            }
+        }
+        printf("\n");
+        
+        // Check for traditional NFC1 format first
         if (memcmp(tag_data->magic, "NFC1", 4) == 0) {
+            printf("nfc_daemon: Found NFC1 format - Core: '%s', Game ID: '%s'\n", 
+                   tag_data->core, tag_data->game_id);
             return true;
         }
+        
+        // Try to parse as ROM path format
+        char* full_content = (char*)tag_data;
+        full_content[sizeof(nfc_tag_data_t)-1] = '\0'; // Ensure null termination
+        
+        printf("nfc_daemon: Checking for ROM path format: '%s'\n", full_content);
+        
+        // Look for common ROM file extensions
+        if (strstr(full_content, ".bin") || strstr(full_content, ".rom") || 
+            strstr(full_content, ".img") || strstr(full_content, ".iso") ||
+            strstr(full_content, ".cue") || strstr(full_content, ".chd") ||
+            strstr(full_content, ".mgl")) {
+            
+            printf("nfc_daemon: Detected ROM path format\n");
+            
+            // Extract core name and game path
+            char* path_copy = strdup(full_content);
+            char* filename = strrchr(path_copy, '/');
+            if (filename) filename++; else filename = path_copy;
+            
+            // Try to detect core from path
+            memset(tag_data->core, 0, sizeof(tag_data->core));
+            memset(tag_data->game_id, 0, sizeof(tag_data->game_id));
+            
+            if (strstr(full_content, "/PSX/") || strstr(full_content, "psx")) {
+                strcpy(tag_data->core, "PSX");
+            } else if (strstr(full_content, "/Saturn/") || strstr(full_content, "saturn")) {
+                strcpy(tag_data->core, "Saturn");
+            } else if (strstr(full_content, "/Genesis/") || strstr(full_content, "genesis")) {
+                strcpy(tag_data->core, "Genesis");
+            } else if (strstr(full_content, "/SNES/") || strstr(full_content, "snes")) {
+                strcpy(tag_data->core, "SNES");
+            } else {
+                strcpy(tag_data->core, "Unknown");
+            }
+            
+            // Use filename as game ID
+            strncpy(tag_data->game_id, filename, sizeof(tag_data->game_id) - 1);
+            
+            free(path_copy);
+            printf("nfc_daemon: Parsed - Core: '%s', Game: '%s'\n", 
+                   tag_data->core, tag_data->game_id);
+            return true;
+        }
+        
+        // If no recognized format, try to use raw content as game title
+        printf("nfc_daemon: Using raw content as game title\n");
+        memset(tag_data->core, 0, sizeof(tag_data->core));
+        memset(tag_data->game_id, 0, sizeof(tag_data->game_id));
+        strcpy(tag_data->core, "Unknown");
+        strncpy(tag_data->game_id, full_content, sizeof(tag_data->game_id) - 1);
+        
+        return true;
     }
     
+    printf("nfc_daemon: Tag detected but no readable data\n");
     return false;
 }
 
@@ -637,13 +834,23 @@ int main(int argc, char* argv[]) {
     // Write PID file
     write_pid_file();
     
-    printf("nfc_daemon: NFC daemon ready (polling every %dms, mode: %s)\n", 
+    printf("nfc_daemon: NFC daemon ready (interface: %s, polling every %dms, mode: %s)\n", 
+           config.interface_path,
            config.poll_interval_ms, 
            config.mode == NFC_MODE_TAP ? "tap" : "hold");
+    printf("nfc_daemon: Verbose mode enabled - will show ALL tag detections\n");
+    printf("nfc_daemon: Supported formats: NFC1, ROM paths, raw text\n");
+    printf("nfc_daemon: Waiting for NFC tags...\n");
     
     // Main polling loop
+    int poll_count = 0;
     while (keep_running) {
         nfc_tag_data_t tag_data;
+        
+        poll_count++;
+        if (poll_count % 40 == 0) {  // Every 10 seconds at 250ms interval
+            printf("nfc_daemon: Polling... (%d cycles)\n", poll_count);
+        }
         
         if (detect_nfc_tag(&tag_data)) {
             process_nfc_tag(&tag_data);

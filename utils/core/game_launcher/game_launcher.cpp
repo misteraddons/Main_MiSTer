@@ -395,8 +395,8 @@ int calculate_region_score(const char* region) {
 }
 
 // Add search result
-void add_search_result(const char* path, const char* title, const char* region, const char* search_term) {
-    if (search_results_count >= MAX_SEARCH_RESULTS) return;
+bool add_search_result(const char* path, const char* title, const char* region, const char* search_term) {
+    if (search_results_count >= MAX_SEARCH_RESULTS) return false;
     
     search_result_t* result = &search_results[search_results_count];
     
@@ -404,14 +404,37 @@ void add_search_result(const char* path, const char* title, const char* region, 
     strncpy(result->title, title, sizeof(result->title) - 1);
     strncpy(result->region, region, sizeof(result->region) - 1);
     
-    result->fuzzy_score = calculate_fuzzy_score(title, search_term);
+    // Check for exact redump_name match (remove file extension for comparison)
+    char title_no_ext[256];
+    strncpy(title_no_ext, title, sizeof(title_no_ext) - 1);
+    title_no_ext[sizeof(title_no_ext) - 1] = '\0';
+    
+    // Remove file extension
+    char* ext_pos = strrchr(title_no_ext, '.');
+    if (ext_pos) *ext_pos = '\0';
+    
+    // Check if this is an exact redump_name match
+    if (strcmp(title_no_ext, search_term) == 0) {
+        // Perfect match for redump_name
+        result->fuzzy_score = 100;
+        printf("game_launcher: EXACT REDUMP MATCH: '%s' == '%s' -> fuzzy_score=100\n", title_no_ext, search_term);
+        printf("game_launcher: 100%% match found - stopping search and auto-booting\n");
+        result->region_score = calculate_region_score(region);
+        result->total_score = result->fuzzy_score;
+        search_results_count++;
+        return true; // Exit search immediately
+    } else {
+        result->fuzzy_score = calculate_fuzzy_score(title_no_ext, search_term);
+    }
+    
     result->region_score = calculate_region_score(region);
-    result->total_score = (result->fuzzy_score * 80 + result->region_score * 20) / 100;
+    result->total_score = result->fuzzy_score;
     
     printf("game_launcher: Added result: '%s' vs '%s' -> fuzzy_score=%d, region_score=%d, total_score=%d\n", 
            title, search_term, result->fuzzy_score, result->region_score, result->total_score);
     
     search_results_count++;
+    return false;
 }
 
 // Sort search results by score
@@ -531,6 +554,23 @@ bool search_gameid_by_serial(const char* system, const char* serial, game_info_t
                         if (title_len < sizeof(game_info->title)) {
                             strncpy(game_info->title, title_pos, title_len);
                             game_info->title[title_len] = '\0';
+                        }
+                    }
+                }
+            }
+            
+            // Extract redump_name if available
+            char* redump_pos = strstr(obj_start, "\"redump_name\":");
+            if (redump_pos && redump_pos < obj_end) {
+                redump_pos = strchr(redump_pos + 14, '"');
+                if (redump_pos) {
+                    redump_pos++;
+                    char* redump_end = strchr(redump_pos, '"');
+                    if (redump_end) {
+                        int redump_len = redump_end - redump_pos;
+                        if (redump_len < sizeof(game_info->redump_name)) {
+                            strncpy(game_info->redump_name, redump_pos, redump_len);
+                            game_info->redump_name[redump_len] = '\0';
                         }
                     }
                 }
@@ -669,7 +709,7 @@ bool search_gameid_by_serial(const char* system, const char* serial, game_info_t
                 // Compare extracted serial with target serial
                 result->fuzzy_score = calculate_fuzzy_score(search_pattern, serial);
                 result->region_score = calculate_region_score(region);
-                result->total_score = (result->fuzzy_score * 80 + result->region_score * 20) / 100;
+                result->total_score = result->fuzzy_score;
                 
                 printf("game_launcher: Serial fuzzy match: '%s' vs '%s' -> score=%d\n", 
                        search_pattern, serial, result->fuzzy_score);
@@ -1172,7 +1212,10 @@ void search_directory_recursive(const char* dir_path, const char* system, const 
             
             // Try exact substring match first
             if (strstr(filename_lower, title_lower) != NULL) {
-                add_search_result(full_path, entry->d_name, "Unknown", title);
+                if (add_search_result(full_path, entry->d_name, "Unknown", title)) {
+                    closedir(dir);
+                    return; // 100% match found, exit immediately
+                }
             } else {
                 // Try partial matching by removing common suffixes
                 char title_clean[256];
@@ -1187,7 +1230,10 @@ void search_directory_recursive(const char* dir_path, const char* system, const 
                 
                 // Try matching with cleaned title
                 if (strlen(title_clean) > 5 && strstr(filename_lower, title_clean) != NULL) {
-                    add_search_result(full_path, entry->d_name, "Unknown", title);
+                    if (add_search_result(full_path, entry->d_name, "Unknown", title)) {
+                        closedir(dir);
+                        return; // 100% match found, exit immediately
+                    }
                 }
             }
         }
@@ -1298,6 +1344,15 @@ bool create_game_mgl(const char* system, const char* title) {
 
 // Create selection MGLs
 void create_selection_mgls(const char* system, const char* title) {
+    // Check for 100% match - auto-boot immediately
+    if (search_results_count > 0 && search_results[0].fuzzy_score == 100) {
+        printf("game_launcher: 100%% match found - auto-booting %s\n", search_results[0].title);
+        create_game_mgl(system, search_results[0].title);
+        send_osd_message("Auto-loading exact match!");
+        send_mister_command("load_core /media/fat/game.mgl");
+        return;
+    }
+    
     printf("game_launcher: Creating selection MGLs for %s\n", title);
     
     for (int i = 0; i < search_results_count && i < 9; i++) {
@@ -1640,11 +1695,12 @@ bool process_game_request(const char* system, const char* id_type, const char* i
     snprintf(found_msg, sizeof(found_msg), "Found: %s", game_info.title);
     send_osd_message(found_msg);
     
-    // Search for game files
-    if (search_game_files(system, game_info.title)) {
+    // Search for game files - use redump_name for more accurate matching if available
+    const char* search_name = (game_info.redump_name[0] != '\0') ? game_info.redump_name : game_info.title;
+    if (search_game_files(system, search_name)) {
         cleanup_mgls();
         
-        if (search_results_count == 1 || search_results[0].total_score > 90) {
+        if (search_results_count == 1 || search_results[0].total_score > 95) {
             // Single match or high confidence - auto-load
             create_game_mgl(system, game_info.title);
             send_osd_message("Game loaded - Ready to play!");

@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./build_game_launcher.sh:*)",
+      "Bash(bash:*)",
+      "Bash(arm-linux-gnueabihf-g++:*)",
+      "Bash(g++:*)",
+      "Bash(scp:*)",
+      "Bash(sshpass -p 1 scp -o StrictHostKeyChecking=no /mnt/c/Users/Robot/Documents/GitHub/Main_MiSTer-misteraddons/utils/bin_arm/game_launcher_fixed root@192.168.1.121:/media/fat/utils/game_launcher_test)",
+      "Bash(sshpass:*)",
+      "Bash(arm-none-linux-gnueabihf-g++:*)",
+      "Bash(find:*)",
+      "Bash(cp:*)",
+      "Bash(./build_cdrom_daemon.sh:*)",
+      "Bash(dos2unix:*)",
+      "Bash(arm-none-linux-gnueabihf-gcc:*)",
+      "Bash(./build_nfc_daemon.sh:*)",
+      "Bash(ls:*)",
+      "Bash(arm-none-linux-gnueabihf-strip:*)",
+      "Bash(ssh:*)",
+      "Bash(/opt/gcc-arm-10.2-2020.11-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-g++:*)",
+      "Bash(chmod:*)",
+      "Bash(./build_writer.sh:*)",
+      "Bash(./build_eraser.sh:*)",
+      "Bash(./build_diagnostics.sh:*)"
+    ],
+    "deny": []
+  }
+}
