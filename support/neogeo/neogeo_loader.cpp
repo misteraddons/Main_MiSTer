@@ -1274,5 +1274,17 @@ int neogeo_romset_tx(char* name, int cd_en)
 
 	user_io_status_set("[0]", 0); // Release reset
 
+	if (!cd_en)
+	{
+		FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+		if (gamename_file)
+		{
+			fprintf(gamename_file, "%s\n", name);
+			fclose(gamename_file);
+			printf("Wrote current path to /tmp/GAMENAME\n");
+			fflush(stdout);
+		}
+	}
+
 	return 1;
 }

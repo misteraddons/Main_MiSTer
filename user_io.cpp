@@ -1105,6 +1105,7 @@ void SetUARTMode(int mode)
 
 	MakeFile("/tmp/CORENAME", user_io_get_core_name());
     MakeFile("/tmp/RBFNAME", user_io_get_core_name(1));
+	unlink("/tmp/GAMENAME");
 
 	char data[20];
 	sprintf(data, "%d", baud);
@@ -1655,6 +1656,17 @@ void user_io_init(const char *path, const char *xml)
 	SetMidiLinkMode(midilink);
 	SetUARTMode(uartmode);
 
+	// Write arcade game info if we loaded an MRA file
+	const char *arcade_game = arcade_get_gamename();
+	if (arcade_game)
+	{
+		MakeFile("/tmp/CORENAME", "Arcade");
+		MakeFile("/tmp/GAMENAME", arcade_game);
+		arcade_clear_gamename();
+		printf("Wrote arcade game to /tmp/GAMENAME: %s\n", arcade_game);
+		fflush(stdout);
+	}
+
 	if (!mgl_get()->count || is_menu() || is_st() || is_archie() || user_io_core_type() == CORE_TYPE_SHARPMZ)
 	{
 		mgl_get()->done = 1;
@@ -2104,6 +2116,19 @@ int user_io_file_mount(const char *name, unsigned char index, char pre, int pre_
 	else
 	{
 		printf("Mount %s as %s on %d slot\n", name, writable ? "read-write" : "read-only", index);
+
+		// Write to /tmp/GAMENAME for computer cores (any disk index)
+		if (is_x86() || is_minimig() || is_archie() || is_st() || is_c64() || is_c128())
+		{
+			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+			if (gamename_file)
+			{
+				fprintf(gamename_file, "%s\n", name);
+				fclose(gamename_file);
+				printf("Wrote current path to /tmp/GAMENAME\n");
+				fflush(stdout);
+			}
+		}
 	}
 
 	user_io_sd_set_config();
@@ -2728,6 +2753,20 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 
 	printf("Done.\n");
 	printf("CRC32: %08X\n", file_crc);
+
+	FILE *current_path = fopen("/tmp/GAMENAME", "w");
+	if (current_path)
+	{
+		fprintf(current_path, "%s\nCRC32: %08X\n", name, file_crc);
+		fclose(current_path);
+		printf("Wrote current path to /tmp/GAMENAME\n");
+		fflush(stdout);
+	}
+	else
+	{
+		printf("Failed to write /tmp/GAMENAME\n");
+		fflush(stdout);
+	}
 
 	FileClose(&f);
 

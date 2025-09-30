@@ -125,6 +125,15 @@ void neocd_set_image(char *filename)
 			cdd.latency = 10;
 			cdd.SendData = neocd_send_data;
 			cdd.CanSendData = neocd_can_send_data;
+
+			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+			if (gamename_file)
+			{
+				fprintf(gamename_file, "%s\n", filename);
+				fclose(gamename_file);
+				printf("Wrote current path to /tmp/GAMENAME\n");
+				fflush(stdout);
+			}
 		}
 		else
 		{

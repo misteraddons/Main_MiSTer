@@ -698,6 +698,20 @@ void psx_mount_cd(int f_index, int s_index, const char *filename)
 				region = game_info.region;
 			printf("Game ID: %s, region: %s\n", game_id, region_string(region));
 
+			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+			if (gamename_file)
+			{
+				fprintf(gamename_file, "%s\nGame ID: %s\n", filename, game_id);
+				fclose(gamename_file);
+				printf("Wrote current path to /tmp/GAMENAME\n");
+				fflush(stdout);
+			}
+			else
+			{
+				printf("Failed to write /tmp/GAMENAME\n");
+				fflush(stdout);
+			}
+
 			int name_len = strlen(filename);
 
 			if (toc.tracks[0].type) // is first track a data?

@@ -303,6 +303,15 @@ int cdd_t::Load(const char *filename)
 
 		printf("\x1b[32mMCD: CD mounted , last track = %u\n\x1b[0m", this->toc.last);
 
+		FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+		if (gamename_file)
+		{
+			fprintf(gamename_file, "%s\n", filename);
+			fclose(gamename_file);
+			printf("Wrote current path to /tmp/GAMENAME\n");
+			fflush(stdout);
+		}
+
 		return 1;
 	}
 

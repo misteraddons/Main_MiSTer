@@ -20,6 +20,9 @@
 #include "mra_loader.h"
 
 #define kBigTextSize 1024
+
+static char pending_arcade_gamename[256] = {0};
+
 struct arc_struct {
 	char md5[kBigTextSize];
 	char zipname[kBigTextSize];
@@ -1141,6 +1144,16 @@ int arcade_send_rom(const char *xml)
 	arcade_sw_load();
 	switches.dip_saved = switches.dip_cur;
 	arcade_sw_send();
+
+	// Extract MAME setname (filename without path and .mra extension)
+	const char *setname = strrchr(xml, '/');
+	setname = setname ? setname + 1 : xml;
+
+	strncpy(pending_arcade_gamename, setname, sizeof(pending_arcade_gamename) - 1);
+	pending_arcade_gamename[sizeof(pending_arcade_gamename) - 1] = 0;
+	char *mra_ext = strrchr(pending_arcade_gamename, '.');
+	if (mra_ext && !strcasecmp(mra_ext, ".mra")) *mra_ext = 0;
+
 	return 0;
 }
 
@@ -1166,6 +1179,16 @@ void arcade_check_error()
 		arcade_error_msg[0] = 0;
 		sleep(5+3);
 	}
+}
+
+const char* arcade_get_gamename()
+{
+	return pending_arcade_gamename[0] ? pending_arcade_gamename : NULL;
+}
+
+void arcade_clear_gamename()
+{
+	pending_arcade_gamename[0] = 0;
 }
 
 static const char *get_rbf_path(const char *rbfname)
@@ -1398,6 +1421,15 @@ mgl_struct* mgl_parse(const char *xml)
 	SAX_Callbacks_init(&sax);
 	sax.all_event = scan_mgl;
 	XMLDoc_parse_file_SAX(xml, &sax, 0);
+
+	FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+	if (gamename_file)
+	{
+		fprintf(gamename_file, "%s\n", xml);
+		fclose(gamename_file);
+		printf("Wrote current path to /tmp/GAMENAME\n");
+		fflush(stdout);
+	}
 
 	return &mgl;
 }

@@ -1685,7 +1685,22 @@ int n64_rom_tx(const char* name, unsigned char idx, uint32_t load_addr, uint32_t
 	}
 
 	printf("Done loading N64 ROM.\n");
+	printf("CRC32: %08X\n", file_crc);
 	FileClose(&f);
+
+	FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
+	if (gamename_file)
+	{
+		fprintf(gamename_file, "%s\nCRC32: %08X\n", name, file_crc);
+		fclose(gamename_file);
+		printf("Wrote current path to /tmp/GAMENAME\n");
+		fflush(stdout);
+	}
+	else
+	{
+		printf("Failed to write /tmp/GAMENAME\n");
+		fflush(stdout);
+	}
 
 	bool is_patched = false;
 
