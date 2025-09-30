@@ -866,19 +866,11 @@ void cdi_mount_cd(int s_index, const char *filename)
 				}
 			}
 
-			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-			if (gamename_file)
+			if (game_title[0] && game_title[0] >= 0x20 && game_title[0] < 0x7F)
 			{
-				fprintf(gamename_file, "%s\n", filename);
-				if (game_title[0] && game_title[0] >= 0x20 && game_title[0] < 0x7F)
-				{
-					fprintf(gamename_file, "Game ID: %s\n", game_title);
-					printf("CD-i Game ID: %s\n", game_title);
-				}
-				fclose(gamename_file);
-				printf("Wrote current path to /tmp/GAMENAME\n");
-				fflush(stdout);
+				printf("CD-i Game ID: %s\n", game_title);
 			}
+			user_io_write_gamename(filename, (game_title[0] && game_title[0] >= 0x20 && game_title[0] < 0x7F) ? game_title : NULL, 0);
 		}
 	}
 

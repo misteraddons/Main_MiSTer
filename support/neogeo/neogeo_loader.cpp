@@ -1276,14 +1276,7 @@ int neogeo_romset_tx(char* name, int cd_en)
 
 	if (!cd_en)
 	{
-		FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-		if (gamename_file)
-		{
-			fprintf(gamename_file, "%s\n", name);
-			fclose(gamename_file);
-			printf("Wrote current path to /tmp/GAMENAME\n");
-			fflush(stdout);
-		}
+		user_io_write_gamename(name, NULL, 0);
 	}
 
 	return 1;

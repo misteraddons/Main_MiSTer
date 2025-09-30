@@ -698,23 +698,7 @@ void psx_mount_cd(int f_index, int s_index, const char *filename)
 				region = game_info.region;
 			printf("Game ID: %s, region: %s\n", game_id, region_string(region));
 
-			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-			if (gamename_file)
-			{
-				fprintf(gamename_file, "%s\n", filename);
-				if (game_id[0])
-				{
-					fprintf(gamename_file, "Game ID: %s\n", game_id);
-				}
-				fclose(gamename_file);
-				printf("Wrote current path to /tmp/GAMENAME\n");
-				fflush(stdout);
-			}
-			else
-			{
-				printf("Failed to write /tmp/GAMENAME\n");
-				fflush(stdout);
-			}
+			user_io_write_gamename(filename, game_id[0] ? game_id : NULL, 0);
 
 			int name_len = strlen(filename);
 

@@ -319,16 +319,7 @@ void pcecd_set_image(int num, const char *filename)
 			char hash[33];
 			identify_game_by_hash(filename, hash);
 
-			// Write to /tmp/GAMENAME
-			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-			if (gamename_file)
-			{
-				fprintf(gamename_file, "%s\n", filename);
-				fprintf(gamename_file, "Game ID: %s\n", hash);
-				fclose(gamename_file);
-				printf("Wrote current path to /tmp/GAMENAME\n");
-				fflush(stdout);
-			}
+			user_io_write_gamename(filename, hash, 0);
 
 			int sgx = 0;
 

@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "megacd.h"
+#include "../../user_io.h"
 #include "../chd/mister_chd.h"
 
 cdd_t cdd;
@@ -349,19 +350,11 @@ int cdd_t::Load(const char *filename)
 			}
 		}
 
-		FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-		if (gamename_file)
+		if (product_code[0])
 		{
-			fprintf(gamename_file, "%s\n", filename);
-			if (product_code[0])
-			{
-				fprintf(gamename_file, "Game ID: %s\n", product_code);
-				printf("MegaCD Game ID: %s\n", product_code);
-			}
-			fclose(gamename_file);
-			printf("Wrote current path to /tmp/GAMENAME\n");
-			fflush(stdout);
+			printf("MegaCD Game ID: %s\n", product_code);
 		}
+		user_io_write_gamename(filename, product_code[0] ? product_code : NULL, 0);
 
 		return 1;
 	}

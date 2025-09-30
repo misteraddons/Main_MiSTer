@@ -1688,28 +1688,18 @@ int n64_rom_tx(const char* name, unsigned char idx, uint32_t load_addr, uint32_t
 	printf("CRC32: %08X\n", file_crc);
 	FileClose(&f);
 
-	FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-	if (gamename_file)
+	// Use cart_id as Game ID if valid, otherwise use internal_name
+	const char *game_id = NULL;
+	if (cart_id[0] && strncmp(cart_id, "????", 4))
 	{
-		fprintf(gamename_file, "%s\n", name);
-		if (cart_id[0] && strncmp(cart_id, "????", 4))
-		{
-			fprintf(gamename_file, "Game ID: %s\n", cart_id);
-		}
-		if (internal_name[0])
-		{
-			fprintf(gamename_file, "Internal Name: %s\n", internal_name);
-		}
-		fprintf(gamename_file, "CRC32: %08X\n", file_crc);
-		fclose(gamename_file);
-		printf("Wrote current path to /tmp/GAMENAME\n");
-		fflush(stdout);
+		game_id = cart_id;
 	}
-	else
+	else if (internal_name[0])
 	{
-		printf("Failed to write /tmp/GAMENAME\n");
-		fflush(stdout);
+		game_id = internal_name;
 	}
+
+	user_io_write_gamename(name, game_id, file_crc);
 
 	bool is_patched = false;
 

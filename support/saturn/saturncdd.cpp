@@ -6,6 +6,7 @@
 
 #include "saturn.h"
 #include "../../shmem.h"
+#include "../../user_io.h"
 #include "../chd/mister_chd.h"
 
 #define SHMEM_ADDR  0x31000000
@@ -429,19 +430,11 @@ int satcdd_t::Load(const char *filename)
 			}
 		}
 
-		FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-		if (gamename_file)
+		if (product_code[0])
 		{
-			fprintf(gamename_file, "%s\n", filename);
-			if (product_code[0])
-			{
-				fprintf(gamename_file, "Game ID: %s\n", product_code);
-				printf("Saturn Game ID: %s\n", product_code);
-			}
-			fclose(gamename_file);
-			printf("Wrote current path to /tmp/GAMENAME\n");
-			fflush(stdout);
+			printf("Saturn Game ID: %s\n", product_code);
 		}
+		user_io_write_gamename(filename, product_code[0] ? product_code : NULL, 0);
 
 		return 1;
 	}

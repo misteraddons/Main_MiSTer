@@ -236,25 +236,20 @@ void neocd_set_image(char *filename)
 				FileClose(&f);
 			}
 
-			FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-			if (gamename_file)
+			// Build Game ID: timestamp-volume_id
+			char game_id[256] = {0};
+			if (timestamp[0] && game_title[0])
 			{
-				fprintf(gamename_file, "%s\n", filename);
-				if (timestamp[0] && game_title[0])
-				{
-					// Concatenation with hyphen: timestamp-volume_id
-					fprintf(gamename_file, "Game ID: %s-%s\n", timestamp, game_title);
-					printf("NeoGeo CD Game ID: %s-%s\n", timestamp, game_title);
-				}
-				else if (game_title[0])
-				{
-					fprintf(gamename_file, "Game ID: %s\n", game_title);
-					printf("NeoGeo CD Game ID: %s\n", game_title);
-				}
-				fclose(gamename_file);
-				printf("Wrote current path to /tmp/GAMENAME\n");
-				fflush(stdout);
+				snprintf(game_id, sizeof(game_id), "%s-%s", timestamp, game_title);
+				printf("NeoGeo CD Game ID: %s\n", game_id);
 			}
+			else if (game_title[0])
+			{
+				strncpy(game_id, game_title, sizeof(game_id) - 1);
+				printf("NeoGeo CD Game ID: %s\n", game_id);
+			}
+
+			user_io_write_gamename(filename, game_id[0] ? game_id : NULL, 0);
 		}
 		else
 		{

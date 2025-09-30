@@ -1422,14 +1422,7 @@ mgl_struct* mgl_parse(const char *xml)
 	sax.all_event = scan_mgl;
 	XMLDoc_parse_file_SAX(xml, &sax, 0);
 
-	FILE *gamename_file = fopen("/tmp/GAMENAME", "w");
-	if (gamename_file)
-	{
-		fprintf(gamename_file, "%s\n", xml);
-		fclose(gamename_file);
-		printf("Wrote current path to /tmp/GAMENAME\n");
-		fflush(stdout);
-	}
+	user_io_write_gamename(xml, NULL, 0);
 
 	return &mgl;
 }
