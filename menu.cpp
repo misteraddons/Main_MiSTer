@@ -7372,6 +7372,9 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 	{
 		progress = -1;
 		MenuHide();
+		unlink("/tmp/LOADINGPROGRESS");
+		printf("LOADING_PROGRESS:100:Complete:\n");
+		fflush(stdout);
 		return;
 	}
 
@@ -7379,6 +7382,22 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 	if (progress != new_progress)
 	{
 		progress = new_progress;
+
+		// Calculate percentage for external monitoring
+		int percentage = (current * 100) / max;
+		if (percentage > 100) percentage = 100;
+
+		// Write to /tmp file for scripts to monitor
+		FILE *f = fopen("/tmp/LOADINGPROGRESS", "w");
+		if (f) {
+			fprintf(f, "%d\n%s\n%s\n", percentage, title ? title : "", text ? text : "");
+			fclose(f);
+		}
+
+		// Write to debug serial for script capture
+		printf("LOADING_PROGRESS:%d:%s:%s\n", percentage, title ? title : "", text ? text : "");
+		fflush(stdout);
+
 		static char progress_buf[128];
 		memset(progress_buf, 0, sizeof(progress_buf));
 
