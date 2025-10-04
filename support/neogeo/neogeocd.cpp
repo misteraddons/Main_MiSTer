@@ -164,7 +164,7 @@ void neocd_set_image(char *filename)
 										int path_len = slash - filename + 1;
 										memcpy(bin_filename, filename, path_len);
 										int name_len = quote2 - quote1;
-										if (path_len + name_len < sizeof(bin_filename))
+										if ((size_t)(path_len + name_len) < sizeof(bin_filename))
 										{
 											memcpy(bin_filename + path_len, quote1, name_len);
 											bin_filename[path_len + name_len] = 0;

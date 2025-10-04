@@ -11,7 +11,6 @@
 #include "../../menu.h"
 #include "../../lib/md5/md5.h"
 #include "pcecd.h"
-#include "pce_hash_db.h"
 
 
 static int need_reset=0;
@@ -135,6 +134,8 @@ static char us_sig[] =
 
 static const char* identify_game_by_hash(const char *filename, char *out_hash)
 {
+	out_hash[0] = 0;
+
 	// Parse CUE file to find data track
 	fileTYPE cue_file = {};
 	if (!FileOpen(&cue_file, filename)) return NULL;
@@ -159,7 +160,7 @@ static const char* identify_game_by_hash(const char *filename, char *out_hash)
 
 	char bin_filename[1024];
 	int name_len = quote2 - quote1;
-	if (name_len >= sizeof(bin_filename)) return NULL;
+	if ((size_t)name_len >= sizeof(bin_filename)) return NULL;
 
 	// Build full path to BIN
 	const char *slash = strrchr(filename, '/');
@@ -217,27 +218,11 @@ static const char* identify_game_by_hash(const char *filename, char *out_hash)
 	free(hash_data);
 
 	// Convert to hex string
-	char hash_str[33];
 	for (int i = 0; i < 16; i++)
-		sprintf(hash_str + i * 2, "%02x", hash[i]);
-	hash_str[32] = 0;
+		sprintf(out_hash + i * 2, "%02x", hash[i]);
+	out_hash[32] = 0;
 
-	// Copy hash to output if requested
-	if (out_hash)
-		strcpy(out_hash, hash_str);
-
-	// Look up in database
-	for (int i = 0; i < PCE_HASH_DB_SIZE; i++)
-	{
-		if (strcmp(hash_str, pce_hash_db[i].hash) == 0)
-		{
-			printf("PCE CD identified: %s\n", pce_hash_db[i].name);
-			return pce_hash_db[i].name;
-		}
-	}
-
-	printf("PCE CD hash: %s (not in database)\n", hash_str);
-	return NULL;
+	return out_hash;
 }
 
 static int load_bios(char *biosname, const char *cuename, int sgx)
