@@ -7383,20 +7383,27 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 	{
 		progress = new_progress;
 
+		// Skip external progress reporting for Neo-Geo BIOS/system files
+		bool skipExternalReport = (text && (strstr(text, "000-lo.lo") != NULL ||
+		                                     strstr(text, "uni-bios.rom") != NULL ||
+		                                     strstr(text, "sfix.sfix") != NULL));
+
 		// Calculate percentage for external monitoring
 		int percentage = (((uint64_t)current) * 100) / max;
 		if (percentage > 100) percentage = 100;
 
-		// Write to /tmp file for scripts to monitor
-		FILE *f = fopen("/tmp/LOADINGPROGRESS", "w");
-		if (f) {
-			fprintf(f, "%d\n%s\n%s\n", percentage, title ? title : "", text ? text : "");
-			fclose(f);
-		}
+		// Write to /tmp file for scripts to monitor (skip for 000-lo.lo)
+		if (!skipExternalReport) {
+			FILE *f = fopen("/tmp/LOADINGPROGRESS", "w");
+			if (f) {
+				fprintf(f, "%d\n%s\n%s\n", percentage, title ? title : "", text ? text : "");
+				fclose(f);
+			}
 
-		// Write to debug serial for script capture
-		printf("LOADING_PROGRESS:%d:%s:%s\n", percentage, title ? title : "", text ? text : "");
-		fflush(stdout);
+			// Write to debug serial for script capture
+			printf("LOADING_PROGRESS:%d:%s:%s\n", percentage, title ? title : "", text ? text : "");
+			fflush(stdout);
+		}
 
 		static char progress_buf[128];
 		memset(progress_buf, 0, sizeof(progress_buf));

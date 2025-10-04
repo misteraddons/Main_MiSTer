@@ -161,7 +161,10 @@ static uint32_t neogeo_file_tx(const char* path, const char* name, uint8_t neo_f
 	// prepare transmission of new file
 	user_io_set_download(1);
 
-	ProgressMessage();
+	// Only clear progress if not doing cumulative tracking
+	if (total_load_bytes == 0) {
+		ProgressMessage();
+	}
 	uint32_t bytes_at_start = bytes2send;
 	while (bytes2send)
 	{
@@ -210,7 +213,11 @@ static uint32_t neogeo_file_tx(const char* path, const char* name, uint8_t neo_f
 	}
 
 	FileClose(&f);
-	ProgressMessage();
+
+	// Only clear progress if not doing cumulative tracking
+	if (total_load_bytes == 0) {
+		ProgressMessage();
+	}
 
 	// signal end of transmission
 	user_io_set_download(0);
@@ -316,7 +323,11 @@ static uint32_t load_rom_to_mem(const char* path, const char* name, uint8_t neo_
 
 	uint32_t map_addr = 0x30000000 + (addr ? (addr + 0x8000000) : ((index >= 16) && (index < 64)) ? (index - 16) * 0x80000 : (index == 9) ? 0x2000000 : 0x8000000);
 
-	ProgressMessage();
+	// Only clear progress if not doing cumulative tracking
+	if (total_load_bytes == 0) {
+		ProgressMessage();
+	}
+	uint32_t remain_at_start = remain;
 	while (remain)
 	{
 		uint32_t partsz = remain;
@@ -352,15 +363,30 @@ static uint32_t load_rom_to_mem(const char* path, const char* name, uint8_t neo_
 			if (partszf) FileReadAdv(&f, base, partszf);
 		}
 
-		ProgressMessage("Loading", dispname, size - (remain - partsz), size);
+		// Use cumulative progress if total is set, otherwise fall back to per-file
+		if (total_load_bytes > 0) {
+			uint64_t current_loaded = cumulative_bytes_loaded + (remain_at_start - remain + partsz);
+			ProgressMessage("Loading", cumulative_game_name, current_loaded, total_load_bytes);
+		} else {
+			ProgressMessage("Loading", dispname, size - (remain - partsz), size);
+		}
 
 		shmem_unmap(base, partsz);
 		remain -= partsz;
 		map_addr += partsz;
 	}
 
+	// Update cumulative counter
+	if (total_load_bytes > 0) {
+		cumulative_bytes_loaded += size;
+	}
+
 	FileClose(&f);
-	ProgressMessage();
+
+	// Only clear progress if not doing cumulative tracking
+	if (total_load_bytes == 0) {
+		ProgressMessage();
+	}
 
 	return size;
 }
@@ -1157,6 +1183,9 @@ void load_neo(char *path)
 			printf("Setting rom_wait to %u, p_wait to %u\n", rom_wait, p_wait);
 			set_config((rom_wait & 1) << 28, 1 << 28);
 			set_config((p_wait & 3) << 29, 3 << 29);
+
+			// Clear progress bar after all .neo chunks loaded
+			ProgressMessage();
 
 			// Reset cumulative progress tracking
 			total_load_bytes = 0;
