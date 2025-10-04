@@ -28,6 +28,11 @@ struct NeoFile
 	uint8_t Filler2[4096 - 512];	//fill to 4096
 };
 
+// Cumulative loading progress tracking
+static uint64_t total_load_bytes = 0;
+static uint64_t cumulative_bytes_loaded = 0;
+static char cumulative_game_name[256] = {0};
+
 static inline void spr_convert(uint16_t* buf_in, uint16_t* buf_out, uint32_t size)
 {
 	/*
@@ -157,6 +162,7 @@ static uint32_t neogeo_file_tx(const char* path, const char* name, uint8_t neo_f
 	user_io_set_download(1);
 
 	ProgressMessage();
+	uint32_t bytes_at_start = bytes2send;
 	while (bytes2send)
 	{
 		uint16_t chunk = (bytes2send > sizeof(buf)) ? sizeof(buf) : bytes2send;
@@ -188,8 +194,19 @@ static uint32_t neogeo_file_tx(const char* path, const char* name, uint8_t neo_f
 
 		DisableFpga();
 
-		ProgressMessage("Loading", dispname, size - bytes2send, size);
+		// Use cumulative progress if total is set, otherwise fall back to per-file
+		if (total_load_bytes > 0) {
+			uint64_t current_loaded = cumulative_bytes_loaded + (bytes_at_start - bytes2send);
+			ProgressMessage("Loading", cumulative_game_name, current_loaded, total_load_bytes);
+		} else {
+			ProgressMessage("Loading", dispname, size - bytes2send, size);
+		}
 		bytes2send -= chunk;
+	}
+
+	// Update cumulative counter
+	if (total_load_bytes > 0) {
+		cumulative_bytes_loaded += size;
 	}
 
 	FileClose(&f);
@@ -1081,6 +1098,12 @@ void load_neo(char *path)
 			}
 
 			printf("ID=0x%X, PSize=%d, SSize=%d, MSize=%d, V1Size=%d, V2Size=%d, CSize=%d, Name=%s\n", hdr.NGH, hdr.PSize, hdr.SSize, hdr.MSize, hdr.V1Size, hdr.V2Size, hdr.CSize, hdr.Name);
+
+			// Calculate total bytes for cumulative progress
+			total_load_bytes = hdr.PSize + hdr.SSize + hdr.MSize + hdr.V1Size + hdr.V2Size + hdr.CSize;
+			cumulative_bytes_loaded = 0;
+			snprintf(cumulative_game_name, sizeof(cumulative_game_name), "%s", (char*)hdr.Name);
+
 			char *p = strrchr(path, '/');
 			*p++ = 0;
 			uint32_t off = 4096;
@@ -1134,6 +1157,10 @@ void load_neo(char *path)
 			printf("Setting rom_wait to %u, p_wait to %u\n", rom_wait, p_wait);
 			set_config((rom_wait & 1) << 28, 1 << 28);
 			set_config((p_wait & 3) << 29, 3 << 29);
+
+			// Reset cumulative progress tracking
+			total_load_bytes = 0;
+			cumulative_bytes_loaded = 0;
 		}
 	}
 }
