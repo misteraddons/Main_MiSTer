@@ -7381,11 +7381,19 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 	{
 		progress = new_progress;
 
-		// Skip external progress reporting for Neo-Geo BIOS/system files and arcade ROM messages
-		// Arcade: Filter both "Assembling ROM #X" and "Sending" - sending is too fast
+		// Skip external progress reporting for BIOS/system files and arcade ROM messages
+		// Filter: Neo-Geo BIOS (000-lo.lo, uni-bios.rom, sfix.sfix)
+		// Filter: CD/Saturn BIOS (boot0.rom, boot1.rom, boot2.rom, boot3.rom, cd_bios.rom)
+		// Note: boot.rom is allowed (often the actual game file)
+		// Filter: Arcade ROM assembly messages
 		bool skipExternalReport = ((text && (strstr(text, "000-lo.lo") != NULL ||
-		                                      strstr(text, "uni-bios.rom") != NULL ||
+		                                      //strstr(text, "uni-bios.rom") != NULL ||
 		                                      strstr(text, "sfix.sfix") != NULL ||
+		                                      strstr(text, "boot0") != NULL ||
+		                                      strstr(text, "boot1") != NULL ||
+		                                      strstr(text, "boot2") != NULL ||
+		                                      strstr(text, "boot3") != NULL ||
+		                                      //strstr(text, "cd_bios.rom") != NULL ||
 		                                      strstr(text, "Assembling ROM") != NULL)) ||
 		                           (title && strcasecmp(title, "Sending") == 0));
 
