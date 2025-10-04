@@ -7384,7 +7384,7 @@ void ProgressMessage(const char* title, const char* text, int current, int max)
 		progress = new_progress;
 
 		// Calculate percentage for external monitoring
-		int percentage = (current * 100) / max;
+		int percentage = (((uint64_t)current) * 100) / max;
 		if (percentage > 100) percentage = 100;
 
 		// Write to /tmp file for scripts to monitor
