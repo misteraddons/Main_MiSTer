@@ -625,7 +625,7 @@ void cfg_parse()
 			cfg.forced_scandoubler = 0;
 			cfg.vga_scaler = 0;
 		}
-		if (!strcasecmp(cfg.vga_mode, "subcarrier")) // Subcarrier: 15kHz RGB with subcarrier injection and composite sync
+		if (!strcasecmp(cfg.vga_mode, "subcarrier")) // Subcarrier: 15kHz RGB with composite sync
 		{
 			cfg.vga_mode_int = 4;
 			cfg.csync = 1;
