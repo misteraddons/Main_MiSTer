@@ -389,8 +389,13 @@ void user_io_read_core_name()
 	is_gba_type = 0;
 	is_c64_type = 0;
 	is_c128_type = 0;
+	is_psx_type = 0;
+	is_cdi_type = 0;
 	is_st_type = 0;
 	is_pcxt_type = 0;
+	is_electron_type = 0;
+	is_saturn_type = 0;
+	is_n64_type = 0;
 	is_uneon_type = 0;
 	core_name[0] = 0;
 
@@ -3064,7 +3069,7 @@ void user_io_poll()
 			int ack = 0;
 			int op = 0;
 			static uint8_t buffer[16][16384];
-			uint64_t lba;
+			uint64_t lba = 0;
 			uint32_t blksz, blks, sz;
 
 			if (is_uneon() && i == 3)
@@ -3156,9 +3161,11 @@ void user_io_poll()
 				else if (op & 1) c64_readGCR(disk, lba, blks-1);
 				else break;
 			}
-			else if ((op == 2) && is_n64() && use_save)
+			else if (is_n64() && n64_process_save(use_save, op, lba, blksz, ack, buffer_lba[disk], buffer[disk], sizeof(*buffer), sz))
 			{
-				n64_save_savedata(lba, ack, buffer_lba[disk], buffer[disk], blksz, sz);
+				// Handled by N64 core logic.
+				// If n64_process_save returns false (e.g. use_save is off, or unsupported op), 
+				// it will fall through to the generic handler below.
 			}
 			else if (op == 2)
 			{
@@ -3209,10 +3216,6 @@ void user_io_poll()
 						}
 					}
 				}
-			}
-			else if ((op & 1) && is_n64() && use_save)
-			{
-				n64_load_savedata(lba, ack, buffer_lba[disk], buffer[disk], sizeof(*buffer), blksz, sz);
 			}
 			else if (op & 1)
 			{
@@ -3601,6 +3604,14 @@ void user_io_poll()
 			if (is_minimig()) minimig_adjust_vsize(0);
 			video_mode_adjust();
 		}
+
+		/*
+		uint32_t frcnt = spi_uio_cmd(UIO_GET_FR_CNT);
+		if (frcnt & 0x100)
+		{
+			printf("frames:%d\n", frcnt & 0xFF);
+		}
+		*/
 	}
 
 	static int prev_coldreset_req = 0;
