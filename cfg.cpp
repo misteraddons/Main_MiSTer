@@ -52,7 +52,6 @@ static const ini_var_t ini_vars[] =
 	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), UINT8, 0, 1 },
 	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), UINT8, 0, 2 },
 	{ "HDMI_CEC", (void*)(&(cfg.hdmi_cec)), UINT8, 0, 1 },
-	{ "MISTER_CEC", (void*)(&(cfg.mister_cec)), UINT8, 0, 1 },
 	{ "KBD_NOMOUSE", (void*)(&(cfg.kbd_nomouse)), UINT8, 0, 1 },
 	{ "MOUSE_THROTTLE", (void*)(&(cfg.mouse_throttle)), UINT8, 1, 100 },
 	{ "BOOTSCREEN", (void*)(&(cfg.bootscreen)), UINT8, 0, 1 },
