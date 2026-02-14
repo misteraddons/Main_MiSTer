@@ -60,6 +60,7 @@ static const uint8_t CEC_LOG_ADDR_PLAYBACK3 = 11;
 static const uint8_t CEC_LOG_ADDR_BROADCAST = 15;
 
 static const uint8_t CEC_OPCODE_IMAGE_VIEW_ON = 0x04;
+static const uint8_t CEC_OPCODE_TEXT_VIEW_ON = 0x0D;
 static const uint8_t CEC_OPCODE_STANDBY = 0x36;
 static const uint8_t CEC_OPCODE_USER_CONTROL_PRESSED = 0x44;
 static const uint8_t CEC_OPCODE_USER_CONTROL_RELEASED = 0x45;
@@ -168,8 +169,12 @@ static unsigned long cec_tx_suppress_deadline = 0;
 static unsigned long cec_main_regs_log_deadline = 0;
 static unsigned long cec_tx_timeout_log_deadline = 0;
 static unsigned long cec_rx_fallback_stale_deadline = 0;
+static bool cec_boot_activate_pending = false;
+static unsigned long cec_boot_activate_deadline = 0;
 
 static bool cec_send_message(const cec_message_t *msg, bool with_retry = true);
+static bool cec_send_image_view_on(void);
+static bool cec_send_text_view_on(void);
 static bool cec_send_active_source(void);
 static bool cec_send_report_physical_address(void);
 static bool cec_send_device_vendor_id(void);
@@ -276,13 +281,6 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 
 static void cec_handle_button(uint8_t button_code, bool pressed)
 {
-	if (!cfg.mister_cec)
-	{
-		// Keep CEC link alive without injecting any keys into MiSTer input.
-		if (!pressed) cec_release_key();
-		return;
-	}
-
 	if (!pressed)
 	{
 		if (cec_debug_enabled()) printf("CEC: remote button release\n");
@@ -723,7 +721,7 @@ static bool cec_receive_message(cec_message_t *msg)
 		(msg->opcode == CEC_OPCODE_USER_CONTROL_RELEASED) ||
 		(msg->opcode == CEC_OPCODE_SET_STREAM_PATH);
 
-	if (ok && cec_debug_enabled() && cfg.mister_cec && msg->length > 1 && log_rx)
+	if (ok && cec_debug_enabled() && msg->length > 1 && log_rx)
 	{
 		printf("CEC: RX %X->%X op=0x%02X len=%u\n",
 			(msg->header >> 4) & 0x0F,
@@ -743,6 +741,24 @@ static bool cec_send_active_source(void)
 	msg.data[0] = (uint8_t)(cec_physical_addr >> 8);
 	msg.data[1] = (uint8_t)(cec_physical_addr & 0xFF);
 	msg.length = 4;
+	return cec_send_message(&msg);
+}
+
+static bool cec_send_image_view_on(void)
+{
+	cec_message_t msg = {};
+	msg.header = (cec_logical_addr << 4) | CEC_LOG_ADDR_TV;
+	msg.opcode = CEC_OPCODE_IMAGE_VIEW_ON;
+	msg.length = 2;
+	return cec_send_message(&msg);
+}
+
+static bool cec_send_text_view_on(void)
+{
+	cec_message_t msg = {};
+	msg.header = (cec_logical_addr << 4) | CEC_LOG_ADDR_TV;
+	msg.opcode = CEC_OPCODE_TEXT_VIEW_ON;
+	msg.length = 2;
 	return cec_send_message(&msg);
 }
 
@@ -893,12 +909,11 @@ static void cec_handle_message(const cec_message_t *msg)
 		break;
 
 	case CEC_OPCODE_USER_CONTROL_PRESSED:
-		if (cfg.mister_cec && msg->length >= 3) cec_handle_button(msg->data[0], true);
+		if (msg->length >= 3) cec_handle_button(msg->data[0], true);
 		break;
 
 	case CEC_OPCODE_USER_CONTROL_RELEASED:
-		if (cfg.mister_cec) cec_handle_button(0, false);
-		else cec_release_key();
+		cec_handle_button(0, false);
 		break;
 
 	default:
@@ -964,6 +979,8 @@ bool cec_init(bool enable)
 	cec_main_regs_log_deadline = 0;
 	cec_tx_timeout_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
+	cec_boot_activate_pending = false;
+	cec_boot_activate_deadline = 0;
 	cec_physical_addr = cec_read_physical_address();
 	cec_logical_addr = cec_pick_logical_address_from_physical(cec_physical_addr);
 	cec_program_logical_address(cec_logical_addr);
@@ -983,17 +1000,22 @@ bool cec_init(bool enable)
 	bool pa_ok = false;
 	bool vendor_ok = false;
 	bool name_ok = false;
+	bool wake_ok = false;
+	bool text_ok = false;
 	bool active_ok = false;
-	for (int i = 0; i < 4 && !pa_ok; i++) { pa_ok = cec_send_report_physical_address(); usleep(20000); }
-	for (int i = 0; i < 4 && !vendor_ok; i++) { vendor_ok = cec_send_device_vendor_id(); usleep(20000); }
-	for (int i = 0; i < 4 && !name_ok; i++) { name_ok = cec_send_set_osd_name("MiSTer"); usleep(20000); }
-	if (cfg.mister_cec)
-	{
-		for (int i = 0; i < 2 && !active_ok; i++) { active_ok = cec_send_active_source(); usleep(20000); }
-	}
+	pa_ok = cec_send_report_physical_address(); usleep(20000);
+	vendor_ok = cec_send_device_vendor_id(); usleep(20000);
+	name_ok = cec_send_set_osd_name("MiSTer"); usleep(20000);
+	wake_ok = cec_send_image_view_on(); usleep(20000);
+	text_ok = cec_send_text_view_on(); usleep(20000);
+	active_ok = cec_send_active_source(); usleep(20000);
 
-	printf("CEC: announce wake=%d phys=%d vendor=%d name=%d active=%d\n",
-		0,
+	cec_boot_activate_pending = true;
+	cec_boot_activate_deadline = GetTimer(1200);
+
+	printf("CEC: announce wake=%d text=%d phys=%d vendor=%d name=%d active=%d\n",
+		wake_ok ? 1 : 0,
+		text_ok ? 1 : 0,
 		pa_ok ? 1 : 0,
 		vendor_ok ? 1 : 0,
 		name_ok ? 1 : 0,
@@ -1040,6 +1062,8 @@ void cec_deinit(void)
 	cec_main_regs_log_deadline = 0;
 	cec_tx_timeout_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
+	cec_boot_activate_pending = false;
+	cec_boot_activate_deadline = 0;
 }
 
 void cec_poll(void)
@@ -1057,6 +1081,18 @@ void cec_poll(void)
 		bool pa_ok = cec_send_report_physical_address();
 		if (cec_debug_enabled()) printf("CEC: periodic announce phys=%d\n", pa_ok ? 1 : 0);
 		cec_announce_deadline = GetTimer(CEC_ANNOUNCE_REFRESH_MS);
+	}
+
+	if (cec_boot_activate_pending && CheckTimer(cec_boot_activate_deadline))
+	{
+		bool wake_ok = cec_send_image_view_on();
+		bool text_ok = cec_send_text_view_on();
+		bool active_ok = cec_send_active_source();
+		if (cec_debug_enabled()) printf("CEC: boot activate retry wake=%d text=%d active=%d\n",
+			wake_ok ? 1 : 0,
+			text_ok ? 1 : 0,
+			active_ok ? 1 : 0);
+		cec_boot_activate_pending = false;
 	}
 
 	cec_message_t msg = {};
