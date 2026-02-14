@@ -123,6 +123,7 @@ static const uint8_t CEC_DEVICE_TYPE_PLAYBACK = 4;
 static const uint8_t CEC_POWER_STATUS_ON = 0x00;
 static const uint8_t CEC_VERSION_1_4 = 0x05;
 static const uint32_t CEC_VENDOR_ID = 0x000000;
+static const char *CEC_OSD_NAME = "MiSTer";
 
 static const uint16_t CEC_DEFAULT_PHYS_ADDR = 0x1000;
 static const unsigned long CEC_BUTTON_TIMEOUT_MS = 500;
@@ -186,6 +187,34 @@ static bool cec_receive_message(cec_message_t *msg);
 static bool cec_debug_enabled(void)
 {
 	return cfg.debug != 0;
+}
+
+static const char *cec_opcode_name(uint8_t opcode)
+{
+	switch (opcode)
+	{
+	case CEC_OPCODE_IMAGE_VIEW_ON: return "IMAGE_VIEW_ON";
+	case CEC_OPCODE_TEXT_VIEW_ON: return "TEXT_VIEW_ON";
+	case CEC_OPCODE_STANDBY: return "STANDBY";
+	case CEC_OPCODE_USER_CONTROL_PRESSED: return "USER_CONTROL_PRESSED";
+	case CEC_OPCODE_USER_CONTROL_RELEASED: return "USER_CONTROL_RELEASED";
+	case CEC_OPCODE_GIVE_OSD_NAME: return "GIVE_OSD_NAME";
+	case CEC_OPCODE_SET_OSD_NAME: return "SET_OSD_NAME";
+	case CEC_OPCODE_ACTIVE_SOURCE: return "ACTIVE_SOURCE";
+	case CEC_OPCODE_GIVE_PHYSICAL_ADDRESS: return "GIVE_PHYSICAL_ADDRESS";
+	case CEC_OPCODE_REPORT_PHYSICAL_ADDRESS: return "REPORT_PHYSICAL_ADDRESS";
+	case CEC_OPCODE_REQUEST_ACTIVE_SOURCE: return "REQUEST_ACTIVE_SOURCE";
+	case CEC_OPCODE_SET_STREAM_PATH: return "SET_STREAM_PATH";
+	case CEC_OPCODE_DEVICE_VENDOR_ID: return "DEVICE_VENDOR_ID";
+	case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID: return "GIVE_DEVICE_VENDOR_ID";
+	case CEC_OPCODE_MENU_REQUEST: return "MENU_REQUEST";
+	case CEC_OPCODE_MENU_STATUS: return "MENU_STATUS";
+	case CEC_OPCODE_GIVE_DEVICE_POWER_STATUS: return "GIVE_DEVICE_POWER_STATUS";
+	case CEC_OPCODE_REPORT_POWER_STATUS: return "REPORT_POWER_STATUS";
+	case CEC_OPCODE_CEC_VERSION: return "CEC_VERSION";
+	case CEC_OPCODE_GET_CEC_VERSION: return "GET_CEC_VERSION";
+	default: return "UNKNOWN";
+	}
 }
 
 static bool cec_rate_limit(unsigned long *deadline, unsigned long interval_ms)
@@ -375,6 +404,17 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 	if (msg->length < 1 || msg->length > 16) return false;
 	if (!CheckTimer(cec_tx_suppress_deadline)) return false;
 
+	if (cec_debug_enabled() && msg->length > 1)
+	{
+		printf("CEC: TX %X->%X op=0x%02X (%s) len=%u retry=%u\n",
+			(msg->header >> 4) & 0x0F,
+			msg->header & 0x0F,
+			msg->opcode,
+			cec_opcode_name(msg->opcode),
+			msg->length,
+			with_retry ? 1 : 0);
+	}
+
 	cec_reg_write(CEC_REG_TX_ENABLE, 0x00);
 	cec_reg_write(CEC_REG_INT_CLEAR, CEC_INT_TX_RETRY_TIMEOUT | CEC_INT_TX_ARBITRATION | CEC_INT_TX_DONE);
 
@@ -392,13 +432,13 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 	cec_reg_write(CEC_REG_TX_RETRY, with_retry ? 0x20 : 0x00);
 	cec_reg_write(CEC_REG_TX_ENABLE, 0x01);
 
-	bool ok = cec_wait_for_tx(with_retry ? CEC_TX_TIMEOUT_RETRY_MS : CEC_TX_TIMEOUT_MS) == CEC_TX_RESULT_OK;
+	cec_tx_result_t tx_res = cec_wait_for_tx(with_retry ? CEC_TX_TIMEOUT_RETRY_MS : CEC_TX_TIMEOUT_MS);
 
-	if (ok)
+	if (tx_res == CEC_TX_RESULT_OK)
 	{
 		cec_tx_fail_streak = 0;
 	}
-	else
+	else if (tx_res == CEC_TX_RESULT_NACK)
 	{
 		if (cec_tx_fail_streak < 255) cec_tx_fail_streak++;
 		if (cec_tx_fail_streak >= 8)
@@ -412,7 +452,18 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 		}
 	}
 
-	return ok;
+	if (cec_debug_enabled() && msg->length > 1)
+	{
+		const char *res = (tx_res == CEC_TX_RESULT_OK) ? "OK" :
+			((tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "UNCERTAIN");
+		printf("CEC: TX result op=0x%02X (%s) %s\n",
+			msg->opcode,
+			cec_opcode_name(msg->opcode),
+			res);
+	}
+
+	// Treat timeout without explicit NACK/arbitration as uncertain success.
+	return tx_res != CEC_TX_RESULT_NACK;
 }
 
 static uint8_t cec_pick_logical_address_from_physical(uint16_t physical_addr)
@@ -867,7 +918,7 @@ static void cec_handle_message(const cec_message_t *msg)
 		break;
 
 	case CEC_OPCODE_GIVE_OSD_NAME:
-		if (cec_rate_limit(&cec_reply_name_deadline, 2000)) cec_send_set_osd_name("MiSTer");
+		if (cec_rate_limit(&cec_reply_name_deadline, 2000)) cec_send_set_osd_name(CEC_OSD_NAME);
 		break;
 
 	case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID:
@@ -1003,7 +1054,7 @@ bool cec_init(bool enable)
 	bool active_ok = false;
 	pa_ok = cec_send_report_physical_address(); usleep(20000);
 	vendor_ok = cec_send_device_vendor_id(); usleep(20000);
-	name_ok = cec_send_set_osd_name("MiSTer"); usleep(20000);
+	name_ok = cec_send_set_osd_name(CEC_OSD_NAME); usleep(20000);
 	wake_ok = cec_send_image_view_on(); usleep(20000);
 	text_ok = cec_send_text_view_on(); usleep(20000);
 	active_ok = cec_send_active_source(); usleep(20000);
