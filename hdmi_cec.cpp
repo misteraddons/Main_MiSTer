@@ -271,6 +271,8 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	case CEC_USER_CONTROL_LEFT: return KEY_LEFT;
 	case CEC_USER_CONTROL_RIGHT: return KEY_RIGHT;
 	case CEC_USER_CONTROL_SELECT: return KEY_ENTER;
+	case CEC_USER_CONTROL_F2_RED:
+		return KEY_F12;
 	case CEC_USER_CONTROL_ROOT_MENU:
 	case CEC_USER_CONTROL_SETUP_MENU:
 	case CEC_USER_CONTROL_CONTENTS_MENU:
@@ -284,8 +286,7 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	case CEC_USER_CONTROL_INITIAL_CONFIGURATION:
 	case CEC_USER_CONTROL_SELECT_MEDIA_FUNCTION:
 	case CEC_USER_CONTROL_SELECT_AV_INPUT_FUNCTION:
-	case CEC_USER_CONTROL_F2_RED:
-		return KEY_F12;
+		return 0;
 	case CEC_USER_CONTROL_EXIT: return KEY_ESC;
 	case CEC_USER_CONTROL_PLAY:
 	case CEC_USER_CONTROL_PAUSE: return KEY_SPACE;
