@@ -53,6 +53,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "debug.h"
 #include "fpga_io.h"
 #include "cfg.h"
+#include "hdmi_cec.h"
 #include "input.h"
 #include "battery.h"
 #include "cheats.h"
@@ -1079,6 +1080,7 @@ void HandleUI(void)
 		static int menu_visible = 1;
 		static unsigned long timeout = 0;
 		static unsigned long off_timeout = 0;
+		static bool cec_slept = false;
 		if (!video_fb_state() && cfg.fb_terminal)
 		{
 			if (timeout && CheckTimer(timeout))
@@ -1095,6 +1097,12 @@ void HandleUI(void)
 					menu_visible--;
 					video_menu_bg(user_io_status_get("[3:1]"), 2);
 					off_timeout = cfg.video_off ? GetTimer(cfg.video_off * 1000) : 0;
+
+					// Optional: CEC standby when Menu core enters deeper idle dim (double osd_timeout).
+					if (!cec_slept && cfg.hdmi_cec && cfg.hdmi_cec_sleep && cec_is_enabled())
+					{
+						cec_slept = cec_send_standby();
+					}
 				}
 			}
 
@@ -1102,6 +1110,12 @@ void HandleUI(void)
 			{
 				off_timeout = 0;
 				video_menu_bg(user_io_status_get("[3:1]"), 3);
+
+				// Optional: CEC standby when Menu core blanks output due to idle.
+				if (!cec_slept && cfg.hdmi_cec && cfg.hdmi_cec_sleep && cec_is_enabled())
+				{
+					cec_slept = cec_send_standby();
+				}
 			}
 
 			if (c || menustate != MENU_FILE_SELECT2)
@@ -1113,6 +1127,12 @@ void HandleUI(void)
 					menu_visible = 1;
 					video_menu_bg(user_io_status_get("[3:1]"));
 					OsdMenuCtl(1);
+
+					cec_slept = false;
+					if (cfg.hdmi_cec && cfg.hdmi_cec_wake && cec_is_enabled())
+					{
+						cec_send_wake();
+					}
 				}
 			}
 

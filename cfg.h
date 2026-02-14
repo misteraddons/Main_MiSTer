@@ -20,6 +20,8 @@ typedef struct {
 	uint8_t dvi_mode;
 	uint8_t hdmi_limited;
 	uint8_t hdmi_cec;
+	uint8_t hdmi_cec_sleep;
+	uint8_t hdmi_cec_wake;
 	uint8_t hdmi_cec_input_mode;
 	char hdmi_cec_osd_key[16];
 	uint16_t hdmi_cec_announce_interval;

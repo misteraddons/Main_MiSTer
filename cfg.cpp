@@ -52,6 +52,8 @@ static const ini_var_t ini_vars[] =
 	{ "DVI_MODE", (void*)(&(cfg.dvi_mode)), UINT8, 0, 1 },
 	{ "HDMI_LIMITED", (void*)(&(cfg.hdmi_limited)), UINT8, 0, 2 },
 	{ "HDMI_CEC", (void*)(&(cfg.hdmi_cec)), UINT8, 0, 1 },
+	{ "HDMI_CEC_SLEEP", (void*)(&(cfg.hdmi_cec_sleep)), UINT8, 0, 1 },
+	{ "HDMI_CEC_WAKE", (void*)(&(cfg.hdmi_cec_wake)), UINT8, 0, 1 },
 	{ "HDMI_CEC_INPUT_MODE", (void*)(&(cfg.hdmi_cec_input_mode)), UINT8, 0, 2 },
 	{ "HDMI_CEC_OSD_KEY", (void*)(cfg.hdmi_cec_osd_key), STRING, 0, sizeof(cfg.hdmi_cec_osd_key) - 1 },
 	{ "HDMI_CEC_ANNOUNCE_INTERVAL", (void*)(&(cfg.hdmi_cec_announce_interval)), UINT16, 0, 3600 },
@@ -588,6 +590,8 @@ void cfg_parse()
 	cfg.wheel_force = 50;
 	cfg.dvi_mode = 2;
 	cfg.hdmi_cec = 1;
+	cfg.hdmi_cec_sleep = 0;
+	cfg.hdmi_cec_wake = 0;
 	cfg.lookahead = 2;
 	cfg.hdmi_cec_input_mode = 1;
 	strcpy(cfg.hdmi_cec_osd_key, "back");

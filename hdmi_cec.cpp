@@ -920,6 +920,22 @@ bool cec_send_standby(void)
 	return cec_send_message(&msg);
 }
 
+bool cec_send_wake(void)
+{
+	if (!cec_enabled) return false;
+
+	bool wake_ok = cec_send_image_view_on(); usleep(20000);
+	bool text_ok = cec_send_text_view_on(); usleep(20000);
+	bool active_ok = cec_send_active_source();
+
+	if (cec_debug_enabled()) printf("CEC: wake wake=%d text=%d active=%d\n",
+		wake_ok ? 1 : 0,
+		text_ok ? 1 : 0,
+		active_ok ? 1 : 0);
+
+	return wake_ok && text_ok && active_ok;
+}
+
 static bool cec_send_report_physical_address(void)
 {
 	cec_message_t msg = {};
