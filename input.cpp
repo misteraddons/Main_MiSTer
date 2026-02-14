@@ -1717,6 +1717,14 @@ void input_uinp_destroy()
 	}
 }
 
+static void uinp_send_key(uint16_t key, int press);
+
+void input_cec_send_key(uint16_t key, bool pressed)
+{
+	if (!key) return;
+	user_io_kbd(key, pressed ? 1 : 0);
+}
+
 static unsigned long uinp_repeat = 0;
 static struct input_event uinp_ev;
 static void uinp_send_key(uint16_t key, int press)
