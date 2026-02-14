@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <linux/input.h>
 
 #include "hdmi_cec.h"
@@ -8,6 +9,7 @@
 #include "hardware.h"
 #include "input.h"
 #include "smbus.h"
+#include "user_io.h"
 
 static const uint8_t ADV7513_MAIN_ADDR = 0x39;
 static const uint8_t ADV7513_CEC_ADDR = 0x3C;
@@ -123,12 +125,21 @@ static const uint8_t CEC_DEVICE_TYPE_PLAYBACK = 4;
 static const uint8_t CEC_POWER_STATUS_ON = 0x00;
 static const uint8_t CEC_VERSION_1_4 = 0x05;
 static const uint32_t CEC_VENDOR_ID = 0x000000;
-static const char *CEC_OSD_NAME = "MiSTer";
+static const char *CEC_DEFAULT_OSD_NAME = "MiSTer";
+
+static const uint8_t CEC_INPUT_MODE_OFF = 0;
+static const uint8_t CEC_INPUT_MODE_MENU_ONLY = 1;
+static const uint8_t CEC_INPUT_MODE_ALWAYS = 2;
+
+static const uint8_t CEC_OSD_KEY_NONE = 0;
+static const uint8_t CEC_OSD_KEY_RED = 1;
+static const uint8_t CEC_OSD_KEY_GREEN = 2;
+static const uint8_t CEC_OSD_KEY_YELLOW = 3;
+static const uint8_t CEC_OSD_KEY_BLUE = 4;
 
 static const uint16_t CEC_DEFAULT_PHYS_ADDR = 0x1000;
 static const unsigned long CEC_BUTTON_TIMEOUT_MS = 500;
 static const unsigned long CEC_MAIN_REFRESH_MS = 2000;
-static const unsigned long CEC_ANNOUNCE_REFRESH_MS = 60000;
 static const unsigned long CEC_TX_TIMEOUT_MS = 220;
 static const unsigned long CEC_TX_TIMEOUT_RETRY_MS = 500;
 
@@ -187,6 +198,85 @@ static bool cec_receive_message(cec_message_t *msg);
 static bool cec_debug_enabled(void)
 {
 	return cfg.debug != 0;
+}
+
+static uint8_t cec_get_input_mode(void)
+{
+	if (cfg.hdmi_cec_input_mode <= CEC_INPUT_MODE_ALWAYS) return cfg.hdmi_cec_input_mode;
+	return CEC_INPUT_MODE_MENU_ONLY;
+}
+
+static uint8_t cec_get_osd_key_mode(void)
+{
+	const char *value = cfg.hdmi_cec_osd_key;
+	if (!value || !value[0]) return CEC_OSD_KEY_RED;
+
+	if (!strcmp(value, "0")) return CEC_OSD_KEY_NONE;
+	if (!strcmp(value, "1")) return CEC_OSD_KEY_RED;
+	if (!strcmp(value, "2")) return CEC_OSD_KEY_GREEN;
+	if (!strcmp(value, "3")) return CEC_OSD_KEY_YELLOW;
+	if (!strcmp(value, "4")) return CEC_OSD_KEY_BLUE;
+
+	char keybuf[16] = {};
+	size_t len = strlen(value);
+	if (len >= sizeof(keybuf)) len = sizeof(keybuf) - 1;
+	for (size_t i = 0; i < len; i++) keybuf[i] = (char)tolower((unsigned char)value[i]);
+
+	if (!strcmp(keybuf, "none")) return CEC_OSD_KEY_NONE;
+	if (!strcmp(keybuf, "red")) return CEC_OSD_KEY_RED;
+	if (!strcmp(keybuf, "green")) return CEC_OSD_KEY_GREEN;
+	if (!strcmp(keybuf, "yellow")) return CEC_OSD_KEY_YELLOW;
+	if (!strcmp(keybuf, "blue")) return CEC_OSD_KEY_BLUE;
+
+	return CEC_OSD_KEY_RED;
+}
+
+static uint8_t cec_get_osd_button_code(void)
+{
+	switch (cec_get_osd_key_mode())
+	{
+	case CEC_OSD_KEY_NONE: return 0;
+	case CEC_OSD_KEY_RED: return CEC_USER_CONTROL_F2_RED;
+	case CEC_OSD_KEY_GREEN: return CEC_USER_CONTROL_F3_GREEN;
+	case CEC_OSD_KEY_YELLOW: return CEC_USER_CONTROL_F4_YELLOW;
+	case CEC_OSD_KEY_BLUE: return CEC_USER_CONTROL_F1_BLUE;
+	default: return 0;
+	}
+}
+
+static bool cec_is_osd_trigger_button(uint8_t button_code)
+{
+	uint8_t osd_button = cec_get_osd_button_code();
+	return osd_button && (button_code == osd_button);
+}
+
+static bool cec_input_target_active(void)
+{
+	return user_io_osd_is_visible() || is_menu();
+}
+
+static bool cec_accept_button_input(uint8_t button_code)
+{
+	uint8_t mode = cec_get_input_mode();
+	if (mode == CEC_INPUT_MODE_OFF) return false;
+	if (mode == CEC_INPUT_MODE_ALWAYS) return true;
+	if (mode != CEC_INPUT_MODE_MENU_ONLY) return true;
+
+	if (button_code == CEC_USER_CONTROL_EXIT) return true;
+	if (cec_is_osd_trigger_button(button_code)) return true;
+	return cec_input_target_active();
+}
+
+static unsigned long cec_announce_interval_ms(void)
+{
+	if (!cfg.hdmi_cec_announce_interval) return 0;
+	return (unsigned long)cfg.hdmi_cec_announce_interval * 1000;
+}
+
+static const char *cec_get_osd_name(void)
+{
+	if (cfg.hdmi_cec_name[0]) return cfg.hdmi_cec_name;
+	return CEC_DEFAULT_OSD_NAME;
 }
 
 static const char *cec_opcode_name(uint8_t opcode)
@@ -264,6 +354,8 @@ static void cec_release_key(void)
 
 static uint16_t cec_button_to_key(uint8_t button_code)
 {
+	if (cec_is_osd_trigger_button(button_code)) return KEY_F12;
+
 	switch (button_code)
 	{
 	case CEC_USER_CONTROL_UP: return KEY_UP;
@@ -271,8 +363,6 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	case CEC_USER_CONTROL_LEFT: return KEY_LEFT;
 	case CEC_USER_CONTROL_RIGHT: return KEY_RIGHT;
 	case CEC_USER_CONTROL_SELECT: return KEY_ENTER;
-	case CEC_USER_CONTROL_F2_RED:
-		return KEY_F12;
 	case CEC_USER_CONTROL_ROOT_MENU:
 	case CEC_USER_CONTROL_SETUP_MENU:
 	case CEC_USER_CONTROL_CONTENTS_MENU:
@@ -287,7 +377,8 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	case CEC_USER_CONTROL_SELECT_MEDIA_FUNCTION:
 	case CEC_USER_CONTROL_SELECT_AV_INPUT_FUNCTION:
 		return 0;
-	case CEC_USER_CONTROL_EXIT: return KEY_ESC;
+	case CEC_USER_CONTROL_EXIT:
+		return cec_input_target_active() ? KEY_ESC : KEY_F12;
 	case CEC_USER_CONTROL_PLAY:
 	case CEC_USER_CONTROL_PAUSE: return KEY_SPACE;
 	case CEC_USER_CONTROL_STOP: return KEY_S;
@@ -313,6 +404,12 @@ static void cec_handle_button(uint8_t button_code, bool pressed)
 	{
 		if (cec_debug_enabled()) printf("CEC: remote button release\n");
 		cec_release_key();
+		return;
+	}
+
+	if (!cec_accept_button_input(button_code))
+	{
+		if (cec_debug_enabled()) printf("CEC: remote button 0x%02X ignored by input mode\n", button_code);
 		return;
 	}
 
@@ -919,7 +1016,7 @@ static void cec_handle_message(const cec_message_t *msg)
 		break;
 
 	case CEC_OPCODE_GIVE_OSD_NAME:
-		if (cec_rate_limit(&cec_reply_name_deadline, 2000)) cec_send_set_osd_name(CEC_OSD_NAME);
+		if (cec_rate_limit(&cec_reply_name_deadline, 2000)) cec_send_set_osd_name(cec_get_osd_name());
 		break;
 
 	case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID:
@@ -1035,7 +1132,8 @@ bool cec_init(bool enable)
 	cec_logical_addr = cec_pick_logical_address_from_physical(cec_physical_addr);
 	cec_program_logical_address(cec_logical_addr);
 	cec_refresh_deadline = GetTimer(CEC_MAIN_REFRESH_MS);
-	cec_announce_deadline = GetTimer(CEC_ANNOUNCE_REFRESH_MS);
+	unsigned long announce_ms = cec_announce_interval_ms();
+	cec_announce_deadline = announce_ms ? GetTimer(announce_ms) : 0;
 
 	if (cec_debug_enabled())
 	{
@@ -1055,7 +1153,7 @@ bool cec_init(bool enable)
 	bool active_ok = false;
 	pa_ok = cec_send_report_physical_address(); usleep(20000);
 	vendor_ok = cec_send_device_vendor_id(); usleep(20000);
-	name_ok = cec_send_set_osd_name(CEC_OSD_NAME); usleep(20000);
+	name_ok = cec_send_set_osd_name(cec_get_osd_name()); usleep(20000);
 	wake_ok = cec_send_image_view_on(); usleep(20000);
 	text_ok = cec_send_text_view_on(); usleep(20000);
 	active_ok = cec_send_active_source(); usleep(20000);
@@ -1126,11 +1224,12 @@ void cec_poll(void)
 		cec_refresh_deadline = GetTimer(CEC_MAIN_REFRESH_MS);
 	}
 
-	if (CheckTimer(cec_announce_deadline))
+	unsigned long announce_ms = cec_announce_interval_ms();
+	if (announce_ms && CheckTimer(cec_announce_deadline))
 	{
 		bool pa_ok = cec_send_report_physical_address();
 		if (cec_debug_enabled()) printf("CEC: periodic announce phys=%d\n", pa_ok ? 1 : 0);
-		cec_announce_deadline = GetTimer(CEC_ANNOUNCE_REFRESH_MS);
+		cec_announce_deadline = GetTimer(announce_ms);
 	}
 
 	if (cec_boot_activate_pending && CheckTimer(cec_boot_activate_deadline))

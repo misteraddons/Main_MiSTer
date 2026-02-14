@@ -4,12 +4,20 @@ This document describes current HDMI CEC behavior implemented in `hdmi_cec.cpp`.
 
 ## Config
 
-- Enable with `hdmi_cec=1` in `MiSTer.ini`.
+- `hdmi_cec=1`: enable HDMI CEC.
+- `hdmi_cec_input_mode=0|1|2`:
+  - `0`: ignore all incoming CEC remote key input.
+  - `1`: accept CEC keys only when OSD/menu is active, except the configured OSD trigger key.
+  - `2`: always accept mapped CEC keys.
+- `hdmi_cec_osd_key=none|red|green|yellow|blue`.
+- `hdmi_cec_name=<text>`: OSD name sent via CEC (`SET_OSD_NAME`), max 14 bytes on wire.
+- `hdmi_cec_announce_interval=<seconds>`: periodic `REPORT_PHYSICAL_ADDRESS` interval, `0` disables periodic announce.
+- Defaults: `hdmi_cec_input_mode=1`, `hdmi_cec_osd_key=red`, `hdmi_cec_name=MiSTer`, `hdmi_cec_announce_interval=60`.
 
 ## Device Identity
 
 - Logical device type: Playback.
-- OSD name: `MiSTer`.
+- OSD name: configured by `hdmi_cec_name` (default `MiSTer`).
 - Vendor ID payload: `0x000000`.
 - Physical address: read from EDID CEA extension (with loose fallback parser).
 
@@ -21,7 +29,7 @@ Sent during CEC init:
 | --- | --- | --- | --- |
 | `0x84` | REPORT_PHYSICAL_ADDRESS | Broadcast (`0xF`) | Advertise physical address and playback type. |
 | `0x87` | DEVICE_VENDOR_ID | Broadcast (`0xF`) | Advertise vendor id payload. |
-| `0x47` | SET_OSD_NAME | TV (`0x0`) | Publish OSD name (`MiSTer`). |
+| `0x47` | SET_OSD_NAME | TV (`0x0`) | Publish configured OSD name. |
 | `0x04` | IMAGE_VIEW_ON | TV (`0x0`) | Wake/select display path. |
 | `0x0D` | TEXT_VIEW_ON | TV (`0x0`) | Wake/select display path. |
 | `0x82` | ACTIVE_SOURCE | Broadcast (`0xF`) | Announce current active source path. |
@@ -30,7 +38,7 @@ Periodic TX:
 
 | Opcode | Name | Interval | Notes |
 | --- | --- | --- | --- |
-| `0x84` | REPORT_PHYSICAL_ADDRESS | 60s | Keeps source presence visible on the CEC bus. |
+| `0x84` | REPORT_PHYSICAL_ADDRESS | `hdmi_cec_announce_interval` | Keeps source presence visible on the CEC bus; `0` disables periodic announce. |
 
 Boot follow-up:
 
@@ -60,11 +68,11 @@ Mapped:
 - Exit/Back -> `KEY_ESC`
 - Play/Pause/Stop/Rewind/FastForward -> `KEY_SPACE`, `KEY_S`, `KEY_R`, `KEY_F`
 - Numeric `0-9` -> `KEY_0..KEY_9`
-- **Red key only (`0x72`) -> `KEY_F12` (MiSTer OSD trigger)**
+- **Configured color key (`hdmi_cec_osd_key`) -> `KEY_F12` (MiSTer OSD trigger)**
 
 Not mapped:
 
-- Blue/Green/Yellow CEC color keys.
+- Unselected CEC color keys.
 - CEC volume/mute keys (TV/AVR keeps volume control).
 
 ## TX Result Logging Semantics

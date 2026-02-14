@@ -20,6 +20,9 @@ typedef struct {
 	uint8_t dvi_mode;
 	uint8_t hdmi_limited;
 	uint8_t hdmi_cec;
+	uint8_t hdmi_cec_input_mode;
+	char hdmi_cec_osd_key[16];
+	uint16_t hdmi_cec_announce_interval;
 	uint8_t direct_video;
 	uint8_t video_info;
 	float refresh_min;
@@ -62,6 +65,7 @@ typedef struct {
 	char video_conf[1024];
 	char video_conf_pal[1024];
 	char video_conf_ntsc[1024];
+	char hdmi_cec_name[32];
 	char font[1024];
 	char shared_folder[1024];
 	char waitmount[1024];
