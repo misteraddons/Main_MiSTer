@@ -79,6 +79,7 @@ void sysled_enable(int en);
 void input_notify_mode();
 int input_poll(int getchar);
 int is_key_pressed(int key);
+uint32_t input_activity_get_seq(void);
 
 void start_map_setting(int cnt, int set = 0);
 int get_map_set();

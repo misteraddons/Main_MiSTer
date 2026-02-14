@@ -13,8 +13,8 @@ This document describes current HDMI CEC behavior implemented in `hdmi_cec.cpp`.
   - Legacy numeric values also accepted: `0=none`, `1=back`, `2=red`, `3=green`, `4=yellow`, `5=blue`.
 - `hdmi_cec_name=<text>`: OSD name sent via CEC (`SET_OSD_NAME`), max 14 bytes on wire.
 - `hdmi_cec_announce_interval=<seconds>`: periodic `REPORT_PHYSICAL_ADDRESS` interval, `0` disables periodic announce.
-- `hdmi_cec_sleep=0|1`: send CEC `STANDBY` when Menu core dims after idle (double `osd_timeout`).
-- `hdmi_cec_wake=0|1`: send CEC wake (`IMAGE_VIEW_ON`/`TEXT_VIEW_ON` + `ACTIVE_SOURCE`) when leaving idle dim state.
+- `hdmi_cec_sleep=0|1`: after no input activity for `(osd_timeout*2 + video_off)` seconds, send CEC `STANDBY` (requires `osd_timeout>=5` and `video_off>0`).
+- `hdmi_cec_wake=0|1`: on first input after that idle period, send CEC wake (`IMAGE_VIEW_ON`/`TEXT_VIEW_ON` + `ACTIVE_SOURCE`).
 - Defaults: `hdmi_cec_input_mode=1`, `hdmi_cec_osd_key=back`, `hdmi_cec_name=MiSTer`, `hdmi_cec_announce_interval=60`, `hdmi_cec_sleep=0`, `hdmi_cec_wake=0`.
 
 ## Device Identity
@@ -86,14 +86,14 @@ Not mapped:
 
 Only repeated explicit `NACK` events trigger temporary TX suppression.
 
-## Standby / Wake (Menu Idle)
+## Standby / Wake (Idle)
 
 When enabled:
 
-- `hdmi_cec_sleep=1`: when the Menu core enters its deeper idle dim/blank state, MiSTer sends broadcast CEC `STANDBY` (`0x36`).
-- `hdmi_cec_wake=1`: when leaving that idle state, MiSTer sends `IMAGE_VIEW_ON` (`0x04`), `TEXT_VIEW_ON` (`0x0D`), and broadcast `ACTIVE_SOURCE` (`0x82`).
+- `hdmi_cec_sleep=1`: after no input activity for `(osd_timeout*2 + video_off)` seconds, MiSTer sends broadcast CEC `STANDBY` (`0x36`), but only if MiSTer is currently the active source.
+- `hdmi_cec_wake=1`: on first input activity after that idle period, MiSTer sends `IMAGE_VIEW_ON` (`0x04`), `TEXT_VIEW_ON` (`0x0D`), and broadcast `ACTIVE_SOURCE` (`0x82`).
 
 Notes:
 
-- This is only wired to the Menu core idle dim/blank logic (`osd_timeout`/`video_off`), not a global "idle in cores" detector.
+- This uses global input activity (keyboard/gamepad/mouse), so it applies while running any core.
 - These messages target the TV/CEC bus; MiSTer itself does not power down.

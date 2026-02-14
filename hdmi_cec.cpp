@@ -184,6 +184,10 @@ static unsigned long cec_tx_timeout_log_deadline = 0;
 static unsigned long cec_rx_fallback_stale_deadline = 0;
 static bool cec_boot_activate_pending = false;
 static unsigned long cec_boot_activate_deadline = 0;
+static uint16_t cec_active_physical_addr = 0xFFFF;
+static uint32_t cec_input_activity_seq = 0;
+static unsigned long cec_idle_deadline = 0;
+static bool cec_idle_engaged = false;
 
 static bool cec_send_message(const cec_message_t *msg, bool with_retry = true);
 static bool cec_send_image_view_on(void);
@@ -274,6 +278,18 @@ static unsigned long cec_announce_interval_ms(void)
 {
 	if (!cfg.hdmi_cec_announce_interval) return 0;
 	return (unsigned long)cfg.hdmi_cec_announce_interval * 1000;
+}
+
+static unsigned long cec_idle_sleep_delay_ms(void)
+{
+	// Tie idle sleep/wake to the Menu core "video_off" behavior:
+	// Menu blanks after (osd_timeout * 2 + video_off) seconds idle.
+	if (!cfg.video_off) return 0;
+	if (cfg.osd_timeout < 5) return 0;
+
+	unsigned long seconds = ((unsigned long)cfg.osd_timeout * 2) + (unsigned long)cfg.video_off;
+	if (!seconds) return 0;
+	return seconds * 1000;
 }
 
 static const char *cec_get_osd_name(void)
@@ -443,6 +459,60 @@ static void cec_poll_key_timeout(void)
 	if (cec_pressed_key && CheckTimer(cec_press_deadline))
 	{
 		cec_release_key();
+	}
+}
+
+static void cec_poll_idle_sleep_wake(void)
+{
+	// Global idle detector based on real input activity (not just OSD/menu navigation),
+	// tied to the Menu core "video_off" timing.
+	if (!cfg.hdmi_cec_sleep && !cfg.hdmi_cec_wake) return;
+
+	unsigned long delay_ms = cec_idle_sleep_delay_ms();
+	if (!delay_ms)
+	{
+		cec_idle_deadline = 0;
+		cec_idle_engaged = false;
+		cec_input_activity_seq = input_activity_get_seq();
+		return;
+	}
+
+	if (!cec_idle_deadline)
+	{
+		cec_input_activity_seq = input_activity_get_seq();
+		cec_idle_deadline = GetTimer(delay_ms);
+	}
+
+	uint32_t seq = input_activity_get_seq();
+	if (seq != cec_input_activity_seq)
+	{
+		cec_input_activity_seq = seq;
+		cec_idle_deadline = GetTimer(delay_ms);
+
+		if (cec_idle_engaged)
+		{
+			cec_idle_engaged = false;
+			if (cfg.hdmi_cec_wake) cec_send_wake();
+		}
+
+		return;
+	}
+
+	if (!cec_idle_engaged && CheckTimer(cec_idle_deadline))
+	{
+		cec_idle_engaged = true;
+		if (cfg.hdmi_cec_sleep)
+		{
+			// Avoid powering off the display if MiSTer isn't the active source.
+			if (cec_active_physical_addr == cec_physical_addr)
+			{
+				cec_send_standby();
+			}
+			else if (cec_debug_enabled())
+			{
+				printf("CEC: idle standby skipped (not active source)\n");
+			}
+		}
 	}
 }
 
@@ -868,7 +938,8 @@ static bool cec_receive_message(cec_message_t *msg)
 
 	bool log_rx = (msg->opcode == CEC_OPCODE_USER_CONTROL_PRESSED) ||
 		(msg->opcode == CEC_OPCODE_USER_CONTROL_RELEASED) ||
-		(msg->opcode == CEC_OPCODE_SET_STREAM_PATH);
+		(msg->opcode == CEC_OPCODE_SET_STREAM_PATH) ||
+		(msg->opcode == CEC_OPCODE_ACTIVE_SOURCE);
 
 	if (ok && cec_debug_enabled() && msg->length > 1 && log_rx)
 	{
@@ -890,7 +961,9 @@ static bool cec_send_active_source(void)
 	msg.data[0] = (uint8_t)(cec_physical_addr >> 8);
 	msg.data[1] = (uint8_t)(cec_physical_addr & 0xFF);
 	msg.length = 4;
-	return cec_send_message(&msg);
+	bool ok = cec_send_message(&msg);
+	if (ok) cec_active_physical_addr = cec_physical_addr;
+	return ok;
 }
 
 static bool cec_send_image_view_on(void)
@@ -1012,6 +1085,7 @@ static void cec_handle_message(const cec_message_t *msg)
 
 	// Ignore broadcast network chatter unless it's potentially actionable.
 	if (dst == CEC_LOG_ADDR_BROADCAST &&
+		msg->opcode != CEC_OPCODE_ACTIVE_SOURCE &&
 		msg->opcode != CEC_OPCODE_SET_STREAM_PATH &&
 		msg->opcode != CEC_OPCODE_REQUEST_ACTIVE_SOURCE &&
 		!(is_user_control && src == CEC_LOG_ADDR_TV))
@@ -1053,10 +1127,19 @@ static void cec_handle_message(const cec_message_t *msg)
 		if (cec_rate_limit(&cec_reply_active_deadline, 2000)) cec_send_active_source();
 		break;
 
+	case CEC_OPCODE_ACTIVE_SOURCE:
+		if (msg->length >= 4)
+		{
+			uint16_t path = (uint16_t)((msg->data[0] << 8) | msg->data[1]);
+			cec_active_physical_addr = path;
+		}
+		break;
+
 	case CEC_OPCODE_SET_STREAM_PATH:
 		if (msg->length >= 4)
 		{
 			uint16_t path = (uint16_t)((msg->data[0] << 8) | msg->data[1]);
+			cec_active_physical_addr = path;
 			if (path == cec_physical_addr && cec_rate_limit(&cec_reply_active_deadline, 2000)) cec_send_active_source();
 		}
 		break;
@@ -1187,6 +1270,11 @@ bool cec_init(bool enable)
 		name_ok ? 1 : 0,
 		active_ok ? 1 : 0);
 
+	cec_input_activity_seq = input_activity_get_seq();
+	unsigned long idle_ms = cec_idle_sleep_delay_ms();
+	cec_idle_deadline = idle_ms ? GetTimer(idle_ms) : 0;
+	cec_idle_engaged = false;
+
 	return true;
 }
 
@@ -1230,6 +1318,10 @@ void cec_deinit(void)
 	cec_rx_fallback_stale_deadline = 0;
 	cec_boot_activate_pending = false;
 	cec_boot_activate_deadline = 0;
+	cec_active_physical_addr = 0xFFFF;
+	cec_input_activity_seq = 0;
+	cec_idle_deadline = 0;
+	cec_idle_engaged = false;
 }
 
 void cec_poll(void)
@@ -1270,6 +1362,7 @@ void cec_poll(void)
 		cec_handle_message(&msg);
 	}
 
+	cec_poll_idle_sleep_wake();
 	cec_poll_key_timeout();
 }
 
