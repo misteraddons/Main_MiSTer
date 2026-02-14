@@ -590,7 +590,7 @@ void cfg_parse()
 	cfg.hdmi_cec = 1;
 	cfg.lookahead = 2;
 	cfg.hdmi_cec_input_mode = 1;
-	strcpy(cfg.hdmi_cec_osd_key, "red");
+	strcpy(cfg.hdmi_cec_osd_key, "back");
 	cfg.hdmi_cec_announce_interval = 60;
 	cfg.hdr = 0;
 	cfg.hdr_max_nits = 1000;

@@ -132,10 +132,11 @@ static const uint8_t CEC_INPUT_MODE_MENU_ONLY = 1;
 static const uint8_t CEC_INPUT_MODE_ALWAYS = 2;
 
 static const uint8_t CEC_OSD_KEY_NONE = 0;
-static const uint8_t CEC_OSD_KEY_RED = 1;
-static const uint8_t CEC_OSD_KEY_GREEN = 2;
-static const uint8_t CEC_OSD_KEY_YELLOW = 3;
-static const uint8_t CEC_OSD_KEY_BLUE = 4;
+static const uint8_t CEC_OSD_KEY_BACK = 1;
+static const uint8_t CEC_OSD_KEY_RED = 2;
+static const uint8_t CEC_OSD_KEY_GREEN = 3;
+static const uint8_t CEC_OSD_KEY_YELLOW = 4;
+static const uint8_t CEC_OSD_KEY_BLUE = 5;
 
 static const uint16_t CEC_DEFAULT_PHYS_ADDR = 0x1000;
 static const unsigned long CEC_BUTTON_TIMEOUT_MS = 500;
@@ -209,13 +210,14 @@ static uint8_t cec_get_input_mode(void)
 static uint8_t cec_get_osd_key_mode(void)
 {
 	const char *value = cfg.hdmi_cec_osd_key;
-	if (!value || !value[0]) return CEC_OSD_KEY_RED;
+	if (!value || !value[0]) return CEC_OSD_KEY_BACK;
 
 	if (!strcmp(value, "0")) return CEC_OSD_KEY_NONE;
-	if (!strcmp(value, "1")) return CEC_OSD_KEY_RED;
-	if (!strcmp(value, "2")) return CEC_OSD_KEY_GREEN;
-	if (!strcmp(value, "3")) return CEC_OSD_KEY_YELLOW;
-	if (!strcmp(value, "4")) return CEC_OSD_KEY_BLUE;
+	if (!strcmp(value, "1")) return CEC_OSD_KEY_BACK;
+	if (!strcmp(value, "2")) return CEC_OSD_KEY_RED;
+	if (!strcmp(value, "3")) return CEC_OSD_KEY_GREEN;
+	if (!strcmp(value, "4")) return CEC_OSD_KEY_YELLOW;
+	if (!strcmp(value, "5")) return CEC_OSD_KEY_BLUE;
 
 	char keybuf[16] = {};
 	size_t len = strlen(value);
@@ -223,12 +225,13 @@ static uint8_t cec_get_osd_key_mode(void)
 	for (size_t i = 0; i < len; i++) keybuf[i] = (char)tolower((unsigned char)value[i]);
 
 	if (!strcmp(keybuf, "none")) return CEC_OSD_KEY_NONE;
+	if (!strcmp(keybuf, "back")) return CEC_OSD_KEY_BACK;
 	if (!strcmp(keybuf, "red")) return CEC_OSD_KEY_RED;
 	if (!strcmp(keybuf, "green")) return CEC_OSD_KEY_GREEN;
 	if (!strcmp(keybuf, "yellow")) return CEC_OSD_KEY_YELLOW;
 	if (!strcmp(keybuf, "blue")) return CEC_OSD_KEY_BLUE;
 
-	return CEC_OSD_KEY_RED;
+	return CEC_OSD_KEY_BACK;
 }
 
 static uint8_t cec_get_osd_button_code(void)
@@ -236,6 +239,7 @@ static uint8_t cec_get_osd_button_code(void)
 	switch (cec_get_osd_key_mode())
 	{
 	case CEC_OSD_KEY_NONE: return 0;
+	case CEC_OSD_KEY_BACK: return CEC_USER_CONTROL_EXIT;
 	case CEC_OSD_KEY_RED: return CEC_USER_CONTROL_F2_RED;
 	case CEC_OSD_KEY_GREEN: return CEC_USER_CONTROL_F3_GREEN;
 	case CEC_OSD_KEY_YELLOW: return CEC_USER_CONTROL_F4_YELLOW;
@@ -262,7 +266,6 @@ static bool cec_accept_button_input(uint8_t button_code)
 	if (mode == CEC_INPUT_MODE_ALWAYS) return true;
 	if (mode != CEC_INPUT_MODE_MENU_ONLY) return true;
 
-	if (button_code == CEC_USER_CONTROL_EXIT) return true;
 	if (cec_is_osd_trigger_button(button_code)) return true;
 	return cec_input_target_active();
 }
@@ -377,8 +380,7 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	case CEC_USER_CONTROL_SELECT_MEDIA_FUNCTION:
 	case CEC_USER_CONTROL_SELECT_AV_INPUT_FUNCTION:
 		return 0;
-	case CEC_USER_CONTROL_EXIT:
-		return cec_input_target_active() ? KEY_ESC : KEY_F12;
+	case CEC_USER_CONTROL_EXIT: return KEY_ESC;
 	case CEC_USER_CONTROL_PLAY:
 	case CEC_USER_CONTROL_PAUSE: return KEY_SPACE;
 	case CEC_USER_CONTROL_STOP: return KEY_S;

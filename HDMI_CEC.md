@@ -9,10 +9,11 @@ This document describes current HDMI CEC behavior implemented in `hdmi_cec.cpp`.
   - `0`: ignore all incoming CEC remote key input.
   - `1`: accept CEC keys only when OSD/menu is active, except the configured OSD trigger key.
   - `2`: always accept mapped CEC keys.
-- `hdmi_cec_osd_key=none|red|green|yellow|blue`.
+- `hdmi_cec_osd_key=none|back|red|green|yellow|blue`.
+  - Legacy numeric values also accepted: `0=none`, `1=back`, `2=red`, `3=green`, `4=yellow`, `5=blue`.
 - `hdmi_cec_name=<text>`: OSD name sent via CEC (`SET_OSD_NAME`), max 14 bytes on wire.
 - `hdmi_cec_announce_interval=<seconds>`: periodic `REPORT_PHYSICAL_ADDRESS` interval, `0` disables periodic announce.
-- Defaults: `hdmi_cec_input_mode=1`, `hdmi_cec_osd_key=red`, `hdmi_cec_name=MiSTer`, `hdmi_cec_announce_interval=60`.
+- Defaults: `hdmi_cec_input_mode=1`, `hdmi_cec_osd_key=back`, `hdmi_cec_name=MiSTer`, `hdmi_cec_announce_interval=60`.
 
 ## Device Identity
 
@@ -65,10 +66,10 @@ Mapped:
 
 - Directional keys -> `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`
 - Select/OK -> `KEY_ENTER`
-- Exit/Back -> `KEY_ESC`
+- Exit/Back (`0x0D`) -> `KEY_ESC` (normal back), or `KEY_F12` when `hdmi_cec_osd_key=back`
 - Play/Pause/Stop/Rewind/FastForward -> `KEY_SPACE`, `KEY_S`, `KEY_R`, `KEY_F`
 - Numeric `0-9` -> `KEY_0..KEY_9`
-- **Configured color key (`hdmi_cec_osd_key`) -> `KEY_F12` (MiSTer OSD trigger)**
+- **Configured menu trigger key (`hdmi_cec_osd_key`) -> `KEY_F12` (`back`/color options)**
 
 Not mapped:
 
