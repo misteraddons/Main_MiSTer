@@ -80,9 +80,8 @@ Not mapped:
 
 ## TX Result Logging Semantics
 
-- `OK`: transmit completed.
+- `OK`: transmit completed (or timed out without explicit nack/arbitration; treated as OK).
 - `NACK`: explicit nack/arbitration failure.
-- `TIMEOUT (assume OK)`: timed out without explicit nack/arbitration; transmission may still have been seen by TV.
 
 Only repeated explicit `NACK` events trigger temporary TX suppression.
 

@@ -180,7 +180,6 @@ static unsigned long cec_forced_clear_log_deadline = 0;
 static uint8_t cec_tx_fail_streak = 0;
 static unsigned long cec_tx_suppress_deadline = 0;
 static unsigned long cec_main_regs_log_deadline = 0;
-static unsigned long cec_tx_timeout_log_deadline = 0;
 static unsigned long cec_rx_fallback_stale_deadline = 0;
 static bool cec_boot_activate_pending = false;
 static unsigned long cec_boot_activate_deadline = 0;
@@ -550,8 +549,6 @@ static cec_tx_result_t cec_wait_for_tx(unsigned long timeout_ms)
 		usleep(2000);
 	}
 
-	uint8_t status = cec_reg_read(CEC_REG_INT_STATUS);
-	uint8_t tx_en = cec_reg_read(CEC_REG_TX_ENABLE);
 	uint8_t low_drv_end = cec_reg_read(0x14);
 
 	if (low_drv_end != low_drv_start)
@@ -560,12 +557,6 @@ static cec_tx_result_t cec_wait_for_tx(unsigned long timeout_ms)
 	}
 
 	cec_reg_write(CEC_REG_TX_ENABLE, 0x00);
-	if (cec_debug_enabled() && CheckTimer(cec_tx_timeout_log_deadline))
-	{
-		cec_tx_timeout_log_deadline = GetTimer(15000);
-		printf("CEC: TX timeout (int=0x%02X tx_en=0x%02X low_drv=%02X->%02X)\n",
-			status, tx_en, low_drv_start, low_drv_end);
-	}
 	return CEC_TX_RESULT_TIMEOUT;
 }
 
@@ -625,8 +616,9 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 
 	if (cec_debug_enabled() && msg->length > 1)
 	{
-		const char *res = (tx_res == CEC_TX_RESULT_OK) ? "OK" :
-			((tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "TIMEOUT (assume OK)");
+		// Some setups don't reliably surface a TX_DONE indication; treat TIMEOUT as an
+		// "assumed OK" and avoid spamming confusing timeout logs.
+		const char *res = (tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "OK";
 		printf("CEC: TX result op=0x%02X (%s) %s\n",
 			msg->opcode,
 			cec_opcode_name(msg->opcode),
@@ -1226,7 +1218,6 @@ bool cec_init(bool enable)
 	cec_tx_fail_streak = 0;
 	cec_tx_suppress_deadline = 0;
 	cec_main_regs_log_deadline = 0;
-	cec_tx_timeout_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
 	cec_boot_activate_pending = false;
 	cec_boot_activate_deadline = 0;
@@ -1315,7 +1306,6 @@ void cec_deinit(void)
 	cec_tx_fail_streak = 0;
 	cec_tx_suppress_deadline = 0;
 	cec_main_regs_log_deadline = 0;
-	cec_tx_timeout_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
 	cec_boot_activate_pending = false;
 	cec_boot_activate_deadline = 0;
