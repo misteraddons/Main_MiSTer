@@ -78,10 +78,9 @@ Not mapped:
 
 ## TX Result Logging Semantics
 
-- `OK`: transmit completed (or timed out without explicit nack/arbitration; treated as OK).
-- `NACK`: explicit nack/arbitration failure.
-
-Only repeated explicit `NACK` events trigger temporary TX suppression.
+- TX is treated as success unless an explicit nack/arbitration failure is reported (some setups don't reliably surface a TX-done indication).
+- Debug logging prints only explicit nack/arbitration failures as `CEC: TX NACK ...`; other TX is silent.
+- Only repeated explicit `NACK` events trigger temporary TX suppression.
 
 ## Standby / Wake (Idle)
 

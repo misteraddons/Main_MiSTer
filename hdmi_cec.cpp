@@ -577,17 +577,6 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 	if (msg->length < 1 || msg->length > 16) return false;
 	if (!CheckTimer(cec_tx_suppress_deadline)) return false;
 
-	if (cec_debug_enabled() && msg->length > 1)
-	{
-		printf("CEC: TX %X->%X op=0x%02X (%s) len=%u retry=%u\n",
-			(msg->header >> 4) & 0x0F,
-			msg->header & 0x0F,
-			msg->opcode,
-			cec_opcode_name(msg->opcode),
-			msg->length,
-			with_retry ? 1 : 0);
-	}
-
 	cec_reg_write(CEC_REG_TX_ENABLE, 0x00);
 	cec_reg_write(CEC_REG_INT_CLEAR, CEC_INT_TX_RETRY_TIMEOUT | CEC_INT_TX_ARBITRATION | CEC_INT_TX_DONE);
 
@@ -625,15 +614,13 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 		}
 	}
 
-	if (cec_debug_enabled() && msg->length > 1)
+	if (cec_debug_enabled() && msg->length > 1 && tx_res == CEC_TX_RESULT_NACK)
 	{
-		// Some setups don't reliably surface a TX_DONE indication; treat TIMEOUT as an
-		// "assumed OK" and avoid spamming confusing timeout logs.
-		const char *res = (tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "OK";
-		printf("CEC: TX result op=0x%02X (%s) %s\n",
+		printf("CEC: TX NACK %X->%X op=0x%02X (%s)\n",
+			(msg->header >> 4) & 0x0F,
+			msg->header & 0x0F,
 			msg->opcode,
-			cec_opcode_name(msg->opcode),
-			res);
+			cec_opcode_name(msg->opcode));
 	}
 
 	// Treat timeout without explicit NACK/arbitration as uncertain success.
@@ -941,8 +928,7 @@ static bool cec_receive_message(cec_message_t *msg)
 		}
 	}
 
-	bool log_rx = (msg->opcode == CEC_OPCODE_SET_STREAM_PATH) ||
-		(msg->opcode == CEC_OPCODE_ACTIVE_SOURCE);
+	bool log_rx = (msg->opcode == CEC_OPCODE_SET_STREAM_PATH);
 
 	if (ok && cec_debug_enabled() && msg->length > 1 && log_rx)
 	{
@@ -1308,7 +1294,7 @@ void cec_poll(void)
 	if (announce_ms && CheckTimer(cec_announce_deadline))
 	{
 		bool pa_ok = cec_send_report_physical_address();
-		if (cec_debug_enabled()) printf("CEC: periodic announce phys=%d\n", pa_ok ? 1 : 0);
+		if (cec_debug_enabled()) printf("CEC: periodic announce phys=%d name=\"%s\"\n", pa_ok ? 1 : 0, cec_get_osd_name());
 		cec_announce_deadline = GetTimer(announce_ms);
 	}
 
