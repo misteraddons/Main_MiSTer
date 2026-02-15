@@ -97,3 +97,4 @@ Notes:
 
 - This uses global input activity (keyboard/gamepad/mouse), so it applies while running any core.
 - These messages target the TV/CEC bus; MiSTer itself does not power down.
+- If `log_file_entry=1`, MiSTer creates `/tmp/IDLE` after the idle timeout elapses and deletes it on the next input activity (for external integration).

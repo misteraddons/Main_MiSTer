@@ -3209,8 +3209,12 @@ int video_fb_state()
 static uint32_t idle_blank_seq = 0;
 static unsigned long idle_blank_deadline = 0;
 static bool idle_blank_engaged = false;
+static bool idle_blank_idle = false;
 static int idle_blank_prev_fb_enabled = 0;
 static int idle_blank_prev_fb_num = 0;
+static bool idle_blank_file_initialized = false;
+static bool idle_blank_file_present = false;
+static const char *IDLE_MARKER_FILE = "/tmp/IDLE";
 
 static unsigned long idle_blank_delay_ms()
 {
@@ -3243,6 +3247,31 @@ static void idle_blank_fill_black(int n)
 	}
 }
 
+static void idle_blank_marker_set(bool idle)
+{
+	if (!idle_blank_file_initialized)
+	{
+		// Ensure no stale file survives a Main restart.
+		unlink(IDLE_MARKER_FILE);
+		idle_blank_file_present = false;
+		idle_blank_file_initialized = true;
+	}
+
+	// Guard all /tmp integration files behind LOG_FILE_ENTRY.
+	if (!cfg.log_file_entry) idle = false;
+
+	if (idle && !idle_blank_file_present)
+	{
+		MakeFile(IDLE_MARKER_FILE, "idle");
+		idle_blank_file_present = true;
+	}
+	else if (!idle && idle_blank_file_present)
+	{
+		unlink(IDLE_MARKER_FILE);
+		idle_blank_file_present = false;
+	}
+}
+
 bool video_idle_blank_active()
 {
 	return idle_blank_engaged;
@@ -3261,8 +3290,10 @@ void video_idle_blank_poll()
 		}
 
 		idle_blank_engaged = false;
+		idle_blank_idle = false;
 		idle_blank_deadline = 0;
 		idle_blank_seq = input_activity_get_seq();
+		idle_blank_marker_set(false);
 		return;
 	}
 
@@ -3272,6 +3303,9 @@ void video_idle_blank_poll()
 	{
 		idle_blank_deadline = 0;
 		idle_blank_seq = input_activity_get_seq();
+		idle_blank_engaged = false;
+		idle_blank_idle = false;
+		idle_blank_marker_set(false);
 		return;
 	}
 
@@ -3281,6 +3315,8 @@ void video_idle_blank_poll()
 	{
 		idle_blank_seq = seq;
 		idle_blank_deadline = GetTimer(delay_ms);
+		idle_blank_idle = false;
+		idle_blank_marker_set(false);
 		return;
 	}
 
@@ -3289,6 +3325,9 @@ void video_idle_blank_poll()
 	{
 		idle_blank_seq = seq;
 		idle_blank_deadline = GetTimer(delay_ms);
+
+		idle_blank_idle = false;
+		idle_blank_marker_set(false);
 
 		if (idle_blank_engaged)
 		{
@@ -3300,7 +3339,13 @@ void video_idle_blank_poll()
 		return;
 	}
 
-	if (!idle_blank_engaged && CheckTimer(idle_blank_deadline))
+	if (!idle_blank_idle && CheckTimer(idle_blank_deadline))
+	{
+		idle_blank_idle = true;
+		idle_blank_marker_set(true);
+	}
+
+	if (idle_blank_idle && !idle_blank_engaged && CheckTimer(idle_blank_deadline))
 	{
 		idle_blank_prev_fb_enabled = fb_enabled;
 		idle_blank_prev_fb_num = fb_num;
