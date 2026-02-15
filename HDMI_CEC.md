@@ -82,7 +82,7 @@ Not mapped:
 
 - `OK`: transmit completed.
 - `NACK`: explicit nack/arbitration failure.
-- `UNCERTAIN`: timeout without explicit nack/arbitration; transmission may still have been seen by TV.
+- `TIMEOUT (assume OK)`: timed out without explicit nack/arbitration; transmission may still have been seen by TV.
 
 Only repeated explicit `NACK` events trigger temporary TX suppression.
 

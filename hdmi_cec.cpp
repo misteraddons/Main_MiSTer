@@ -530,7 +530,6 @@ static cec_tx_result_t cec_wait_for_tx(unsigned long timeout_ms)
 		if (status & (CEC_INT_TX_RETRY_TIMEOUT | CEC_INT_TX_ARBITRATION))
 		{
 			cec_reg_write(CEC_REG_INT_CLEAR, status & (CEC_INT_TX_RETRY_TIMEOUT | CEC_INT_TX_ARBITRATION));
-			if (cec_debug_enabled()) printf("CEC: TX NACK/arbitration, int_status=0x%02X\n", status);
 			return CEC_TX_RESULT_NACK;
 		}
 
@@ -627,7 +626,7 @@ static bool cec_send_message(const cec_message_t *msg, bool with_retry)
 	if (cec_debug_enabled() && msg->length > 1)
 	{
 		const char *res = (tx_res == CEC_TX_RESULT_OK) ? "OK" :
-			((tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "UNCERTAIN");
+			((tx_res == CEC_TX_RESULT_NACK) ? "NACK" : "TIMEOUT (assume OK)");
 		printf("CEC: TX result op=0x%02X (%s) %s\n",
 			msg->opcode,
 			cec_opcode_name(msg->opcode),
@@ -1003,7 +1002,7 @@ bool cec_send_wake(void)
 	bool text_ok = cec_send_text_view_on(); usleep(20000);
 	bool active_ok = cec_send_active_source();
 
-	if (cec_debug_enabled()) printf("CEC: wake wake=%d text=%d active=%d\n",
+	if (cec_debug_enabled()) printf("CEC: wake image=%d text=%d active=%d\n",
 		wake_ok ? 1 : 0,
 		text_ok ? 1 : 0,
 		active_ok ? 1 : 0);
