@@ -1209,12 +1209,12 @@ bool cec_init(bool enable)
 	}
 
 	bool pa_ok = false;
-	bool name_ok = false;
 	bool wake_ok = false;
 	bool text_ok = false;
 	bool active_ok = false;
+	const char *osd_name = cec_get_osd_name();
 	pa_ok = cec_send_report_physical_address(); usleep(20000);
-	name_ok = cec_send_set_osd_name(cec_get_osd_name()); usleep(20000);
+	(void)cec_send_set_osd_name(osd_name); usleep(20000);
 	wake_ok = cec_send_image_view_on(); usleep(20000);
 	text_ok = cec_send_text_view_on(); usleep(20000);
 	active_ok = cec_send_active_source(); usleep(20000);
@@ -1222,11 +1222,11 @@ bool cec_init(bool enable)
 	cec_boot_activate_pending = true;
 	cec_boot_activate_deadline = GetTimer(1200);
 
-	printf("CEC: announce wake=%d text=%d phys=%d name=%d active=%d\n",
+	printf("CEC: announce wake=%d text=%d phys=%d name=\"%s\" active=%d\n",
 		wake_ok ? 1 : 0,
 		text_ok ? 1 : 0,
 		pa_ok ? 1 : 0,
-		name_ok ? 1 : 0,
+		osd_name,
 		active_ok ? 1 : 0);
 
 	cec_input_activity_seq = input_activity_get_seq();
