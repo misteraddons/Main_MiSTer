@@ -21,7 +21,6 @@ This document describes current HDMI CEC behavior implemented in `hdmi_cec.cpp`.
 
 - Logical device type: Playback.
 - OSD name: configured by `hdmi_cec_name` (default `MiSTer`).
-- Vendor ID payload: `0x000000`.
 - Physical address: read from EDID CEA extension (with loose fallback parser).
 
 ## MiSTer -> TV/Broadcast (TX)
@@ -31,7 +30,6 @@ Sent during CEC init:
 | Opcode | Name | Destination | Purpose |
 | --- | --- | --- | --- |
 | `0x84` | REPORT_PHYSICAL_ADDRESS | Broadcast (`0xF`) | Advertise physical address and playback type. |
-| `0x87` | DEVICE_VENDOR_ID | Broadcast (`0xF`) | Advertise vendor id payload. |
 | `0x47` | SET_OSD_NAME | TV (`0x0`) | Publish configured OSD name. |
 | `0x04` | IMAGE_VIEW_ON | TV (`0x0`) | Wake/select display path. |
 | `0x0D` | TEXT_VIEW_ON | TV (`0x0`) | Wake/select display path. |
@@ -53,7 +51,7 @@ Boot follow-up:
 | --- | --- |
 | `0x83` GIVE_PHYSICAL_ADDRESS | Replies with `REPORT_PHYSICAL_ADDRESS`. |
 | `0x46` GIVE_OSD_NAME | Replies with `SET_OSD_NAME`. |
-| `0x8C` GIVE_DEVICE_VENDOR_ID | Replies with `DEVICE_VENDOR_ID`. |
+| `0x8C` GIVE_DEVICE_VENDOR_ID | Ignored. |
 | `0x9F` GET_CEC_VERSION | Replies with `CEC_VERSION` (`1.4`). |
 | `0x8F` GIVE_DEVICE_POWER_STATUS | Replies `REPORT_POWER_STATUS` = ON. |
 | `0x85` REQUEST_ACTIVE_SOURCE | Replies with `ACTIVE_SOURCE`. |

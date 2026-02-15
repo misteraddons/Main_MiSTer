@@ -124,7 +124,6 @@ static const uint8_t CEC_USER_CONTROL_F4_YELLOW = 0x74;
 static const uint8_t CEC_DEVICE_TYPE_PLAYBACK = 4;
 static const uint8_t CEC_POWER_STATUS_ON = 0x00;
 static const uint8_t CEC_VERSION_1_4 = 0x05;
-static const uint32_t CEC_VENDOR_ID = 0x000000;
 static const char *CEC_DEFAULT_OSD_NAME = "MiSTer";
 
 static const uint8_t CEC_INPUT_MODE_OFF = 0;
@@ -171,7 +170,6 @@ static unsigned long cec_announce_deadline = 0;
 static bool cec_hpd_pulsed = false;
 static unsigned long cec_reply_phys_deadline = 0;
 static unsigned long cec_reply_name_deadline = 0;
-static unsigned long cec_reply_vendor_deadline = 0;
 static unsigned long cec_reply_version_deadline = 0;
 static unsigned long cec_reply_power_deadline = 0;
 static unsigned long cec_reply_menu_deadline = 0;
@@ -179,7 +177,6 @@ static unsigned long cec_reply_active_deadline = 0;
 static unsigned long cec_forced_clear_log_deadline = 0;
 static uint8_t cec_tx_fail_streak = 0;
 static unsigned long cec_tx_suppress_deadline = 0;
-static unsigned long cec_main_regs_log_deadline = 0;
 static unsigned long cec_rx_fallback_stale_deadline = 0;
 static bool cec_boot_activate_pending = false;
 static unsigned long cec_boot_activate_deadline = 0;
@@ -193,7 +190,6 @@ static bool cec_send_image_view_on(void);
 static bool cec_send_text_view_on(void);
 static bool cec_send_active_source(void);
 static bool cec_send_report_physical_address(void);
-static bool cec_send_device_vendor_id(void);
 static bool cec_send_set_osd_name(const char *name);
 static bool cec_send_cec_version(uint8_t destination);
 static void cec_handle_message(const cec_message_t *msg);
@@ -417,29 +413,44 @@ static uint16_t cec_button_to_key(uint8_t button_code)
 	}
 }
 
+static const char *cec_button_name(uint8_t button_code)
+{
+	switch (button_code)
+	{
+	case CEC_USER_CONTROL_UP: return "up";
+	case CEC_USER_CONTROL_DOWN: return "down";
+	case CEC_USER_CONTROL_LEFT: return "left";
+	case CEC_USER_CONTROL_RIGHT: return "right";
+	case CEC_USER_CONTROL_SELECT: return "ok";
+	case CEC_USER_CONTROL_EXIT: return "back";
+	case CEC_USER_CONTROL_F2_RED: return "red";
+	case CEC_USER_CONTROL_F4_YELLOW: return "yellow";
+	case CEC_USER_CONTROL_F3_GREEN: return "green";
+	case CEC_USER_CONTROL_F1_BLUE: return "blue";
+	default: return nullptr;
+	}
+}
+
 static void cec_handle_button(uint8_t button_code, bool pressed)
 {
 	if (!pressed)
 	{
-		if (cec_debug_enabled()) printf("CEC: remote button release\n");
 		cec_release_key();
 		return;
 	}
 
-	if (!cec_accept_button_input(button_code))
+	const uint16_t key = cec_button_to_key(button_code);
+	if (cec_debug_enabled())
 	{
-		if (cec_debug_enabled()) printf("CEC: remote button 0x%02X ignored by input mode\n", button_code);
-		return;
+		const char *name = cec_button_name(button_code);
+		if (name && (!key || cec_pressed_key != key))
+		{
+			printf("CEC: button %s\n", name);
+		}
 	}
 
-	uint16_t key = cec_button_to_key(button_code);
-	if (!key)
-	{
-		if (cec_debug_enabled()) printf("CEC: remote button 0x%02X unmapped\n", button_code);
-		return;
-	}
-
-	if (cec_debug_enabled()) printf("CEC: remote button 0x%02X -> key %u\n", button_code, key);
+	if (!cec_accept_button_input(button_code)) return;
+	if (!key) return;
 
 	if (cec_pressed_key && cec_pressed_key != key)
 	{
@@ -686,22 +697,23 @@ static bool cec_setup_main_registers(void)
 	uint8_t reg_95 = main_reg_read(MAIN_REG_INT1_ENABLE);
 	ok &= main_reg_write(MAIN_REG_INT1_ENABLE, reg_95 | 0x20);
 
-	if (cec_debug_enabled() && CheckTimer(cec_main_regs_log_deadline))
+	if (!ok)
 	{
-		cec_main_regs_log_deadline = GetTimer(60000);
-		printf("CEC: main regs E1=%02X E2=%02X E3=%02X D6=%02X AF=%02X A1=%02X 94=%02X 95=%02X 96=%02X\n",
-			main_reg_read(MAIN_REG_CEC_I2C_ADDR),
-			main_reg_read(MAIN_REG_CEC_POWER),
-			main_reg_read(MAIN_REG_CEC_CTRL),
-			main_reg_read(MAIN_REG_POWER2),
-			main_reg_read(MAIN_REG_HDMI_CFG),
-			main_reg_read(MAIN_REG_MONITOR_SENSE),
-			main_reg_read(MAIN_REG_INT0_ENABLE),
-			main_reg_read(MAIN_REG_INT1_ENABLE),
-			main_reg_read(MAIN_REG_INT0_STATUS));
+		printf("CEC: main register setup failed\n");
+		if (cec_debug_enabled())
+		{
+			printf("CEC: main regs E1=%02X E2=%02X E3=%02X D6=%02X AF=%02X A1=%02X 94=%02X 95=%02X 96=%02X\n",
+				main_reg_read(MAIN_REG_CEC_I2C_ADDR),
+				main_reg_read(MAIN_REG_CEC_POWER),
+				main_reg_read(MAIN_REG_CEC_CTRL),
+				main_reg_read(MAIN_REG_POWER2),
+				main_reg_read(MAIN_REG_HDMI_CFG),
+				main_reg_read(MAIN_REG_MONITOR_SENSE),
+				main_reg_read(MAIN_REG_INT0_ENABLE),
+				main_reg_read(MAIN_REG_INT1_ENABLE),
+				main_reg_read(MAIN_REG_INT0_STATUS));
+		}
 	}
-
-	if (!ok) printf("CEC: main register setup failed\n");
 
 	return ok;
 }
@@ -929,9 +941,7 @@ static bool cec_receive_message(cec_message_t *msg)
 		}
 	}
 
-	bool log_rx = (msg->opcode == CEC_OPCODE_USER_CONTROL_PRESSED) ||
-		(msg->opcode == CEC_OPCODE_USER_CONTROL_RELEASED) ||
-		(msg->opcode == CEC_OPCODE_SET_STREAM_PATH) ||
+	bool log_rx = (msg->opcode == CEC_OPCODE_SET_STREAM_PATH) ||
 		(msg->opcode == CEC_OPCODE_ACTIVE_SOURCE);
 
 	if (ok && cec_debug_enabled() && msg->length > 1 && log_rx)
@@ -1014,18 +1024,6 @@ static bool cec_send_report_physical_address(void)
 	return cec_send_message(&msg);
 }
 
-static bool cec_send_device_vendor_id(void)
-{
-	cec_message_t msg = {};
-	msg.header = (cec_logical_addr << 4) | CEC_LOG_ADDR_BROADCAST;
-	msg.opcode = CEC_OPCODE_DEVICE_VENDOR_ID;
-	msg.data[0] = (uint8_t)((CEC_VENDOR_ID >> 16) & 0xFF);
-	msg.data[1] = (uint8_t)((CEC_VENDOR_ID >> 8) & 0xFF);
-	msg.data[2] = (uint8_t)(CEC_VENDOR_ID & 0xFF);
-	msg.length = 5;
-	return cec_send_message(&msg);
-}
-
 static bool cec_send_set_osd_name(const char *name)
 {
 	if (!name) return false;
@@ -1086,14 +1084,6 @@ static void cec_handle_message(const cec_message_t *msg)
 		return;
 	}
 
-	if (cec_debug_enabled() &&
-		(msg->opcode == CEC_OPCODE_USER_CONTROL_PRESSED ||
-		 msg->opcode == CEC_OPCODE_USER_CONTROL_RELEASED ||
-		 msg->opcode == CEC_OPCODE_SET_STREAM_PATH))
-	{
-		printf("CEC: handle op=0x%02X from %X to %X\n", msg->opcode, src, dst);
-	}
-
 	switch (msg->opcode)
 	{
 	case CEC_OPCODE_GIVE_PHYSICAL_ADDRESS:
@@ -1102,10 +1092,6 @@ static void cec_handle_message(const cec_message_t *msg)
 
 	case CEC_OPCODE_GIVE_OSD_NAME:
 		if (cec_rate_limit(&cec_reply_name_deadline, 2000)) cec_send_set_osd_name(cec_get_osd_name());
-		break;
-
-	case CEC_OPCODE_GIVE_DEVICE_VENDOR_ID:
-		if (cec_rate_limit(&cec_reply_vendor_deadline, 5000)) cec_send_device_vendor_id();
 		break;
 
 	case CEC_OPCODE_GET_CEC_VERSION:
@@ -1209,7 +1195,6 @@ bool cec_init(bool enable)
 	cec_enabled = true;
 	cec_reply_phys_deadline = 0;
 	cec_reply_name_deadline = 0;
-	cec_reply_vendor_deadline = 0;
 	cec_reply_version_deadline = 0;
 	cec_reply_power_deadline = 0;
 	cec_reply_menu_deadline = 0;
@@ -1217,7 +1202,6 @@ bool cec_init(bool enable)
 	cec_forced_clear_log_deadline = 0;
 	cec_tx_fail_streak = 0;
 	cec_tx_suppress_deadline = 0;
-	cec_main_regs_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
 	cec_boot_activate_pending = false;
 	cec_boot_activate_deadline = 0;
@@ -1239,13 +1223,11 @@ bool cec_init(bool enable)
 	}
 
 	bool pa_ok = false;
-	bool vendor_ok = false;
 	bool name_ok = false;
 	bool wake_ok = false;
 	bool text_ok = false;
 	bool active_ok = false;
 	pa_ok = cec_send_report_physical_address(); usleep(20000);
-	vendor_ok = cec_send_device_vendor_id(); usleep(20000);
 	name_ok = cec_send_set_osd_name(cec_get_osd_name()); usleep(20000);
 	wake_ok = cec_send_image_view_on(); usleep(20000);
 	text_ok = cec_send_text_view_on(); usleep(20000);
@@ -1254,11 +1236,10 @@ bool cec_init(bool enable)
 	cec_boot_activate_pending = true;
 	cec_boot_activate_deadline = GetTimer(1200);
 
-	printf("CEC: announce wake=%d text=%d phys=%d vendor=%d name=%d active=%d\n",
+	printf("CEC: announce wake=%d text=%d phys=%d name=%d active=%d\n",
 		wake_ok ? 1 : 0,
 		text_ok ? 1 : 0,
 		pa_ok ? 1 : 0,
-		vendor_ok ? 1 : 0,
 		name_ok ? 1 : 0,
 		active_ok ? 1 : 0);
 
@@ -1297,7 +1278,6 @@ void cec_deinit(void)
 	cec_announce_deadline = 0;
 	cec_reply_phys_deadline = 0;
 	cec_reply_name_deadline = 0;
-	cec_reply_vendor_deadline = 0;
 	cec_reply_version_deadline = 0;
 	cec_reply_power_deadline = 0;
 	cec_reply_menu_deadline = 0;
@@ -1305,7 +1285,6 @@ void cec_deinit(void)
 	cec_forced_clear_log_deadline = 0;
 	cec_tx_fail_streak = 0;
 	cec_tx_suppress_deadline = 0;
-	cec_main_regs_log_deadline = 0;
 	cec_rx_fallback_stale_deadline = 0;
 	cec_boot_activate_pending = false;
 	cec_boot_activate_deadline = 0;
