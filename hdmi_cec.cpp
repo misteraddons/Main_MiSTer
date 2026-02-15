@@ -282,14 +282,16 @@ static unsigned long cec_announce_interval_ms(void)
 
 static unsigned long cec_idle_sleep_delay_ms(void)
 {
-	// Tie idle sleep/wake to the Menu core "video_off" behavior:
-	// Menu blanks after (osd_timeout * 2 + video_off) seconds idle.
+	// Tie idle sleep/wake to global idle blanking ("video_off"):
+	// after video_off minutes of no input activity.
 	if (!cfg.video_off) return 0;
-	if (cfg.osd_timeout < 5) return 0;
 
-	unsigned long seconds = ((unsigned long)cfg.osd_timeout * 2) + (unsigned long)cfg.video_off;
-	if (!seconds) return 0;
-	return seconds * 1000;
+	// Match the same preset mapping as video idle blanking:
+	// 1=15m, 2=30m, 3=45m, 4=60m.
+	unsigned long minutes = (unsigned long)cfg.video_off;
+	if (cfg.video_off <= 4) minutes = (unsigned long)cfg.video_off * 15ul;
+
+	return minutes * 60ul * 1000ul;
 }
 
 static const char *cec_get_osd_name(void)
@@ -465,7 +467,7 @@ static void cec_poll_key_timeout(void)
 static void cec_poll_idle_sleep_wake(void)
 {
 	// Global idle detector based on real input activity (not just OSD/menu navigation),
-	// tied to the Menu core "video_off" timing.
+	// tied to global idle blanking ("video_off") timing.
 	if (!cfg.hdmi_cec_sleep && !cfg.hdmi_cec_wake) return;
 
 	unsigned long delay_ms = cec_idle_sleep_delay_ms();

@@ -10,6 +10,7 @@
 #include "cfg.h"
 #include "hardware.h"
 #include "hdmi_cec.h"
+#include "video.h"
 
 static cothread_t co_scheduler = nullptr;
 static cothread_t co_poll = nullptr;
@@ -61,6 +62,8 @@ static void scheduler_co_poll(void)
 			if (cec_is_enabled()) cec_deinit();
 			cec_retry = 0;
 		}
+
+		video_idle_blank_poll();
 
 		scheduler_yield();
 	}

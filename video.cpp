@@ -3206,6 +3206,128 @@ int video_fb_state()
 	return fb_enabled;
 }
 
+static uint32_t idle_blank_seq = 0;
+static unsigned long idle_blank_deadline = 0;
+static bool idle_blank_engaged = false;
+static int idle_blank_prev_fb_enabled = 0;
+static int idle_blank_prev_fb_num = 0;
+
+static unsigned long idle_blank_delay_ms()
+{
+	// "video_off" is in minutes, with small preset values for convenience:
+	// 1=15m, 2=30m, 3=45m, 4=60m. 0 disables idle blanking.
+	if (!cfg.video_off) return 0;
+
+	unsigned long minutes = (unsigned long)cfg.video_off;
+	if (cfg.video_off <= 4) minutes = (unsigned long)cfg.video_off * 15ul;
+
+	return minutes * 60ul * 1000ul;
+}
+
+static void idle_blank_fill_black(int n)
+{
+	if (!fb_base) return;
+	if (fb_width <= 0 || fb_height <= 0) return;
+	if (n < 0 || n > 2) return;
+
+	// Buffer 0 is reserved for the Linux FB terminal and has a 4KB header/palette
+	// area at the beginning. Buffers 1/2 are raw 32bpp pixel planes.
+	volatile uint32_t *buf = (n == 0)
+		? (fb_base + (4096 / (int)sizeof(uint32_t)))
+		: (fb_base + (FB_SIZE * n));
+
+	for (int y = 0; y < fb_height; y++)
+	{
+		int pos = y * fb_width;
+		for (int x = 0; x < fb_width; x++) buf[pos++] = 0;
+	}
+}
+
+bool video_idle_blank_active()
+{
+	return idle_blank_engaged;
+}
+
+void video_idle_blank_poll()
+{
+	const unsigned long delay_ms = idle_blank_delay_ms();
+
+	if (!delay_ms)
+	{
+		if (idle_blank_engaged)
+		{
+			if (idle_blank_prev_fb_enabled) video_fb_enable(1, idle_blank_prev_fb_num);
+			else video_fb_enable(0);
+		}
+
+		idle_blank_engaged = false;
+		idle_blank_deadline = 0;
+		idle_blank_seq = input_activity_get_seq();
+		return;
+	}
+
+	// Don't engage idle blanking while the Linux framebuffer terminal is active,
+	// otherwise we'd destroy its contents and also interfere with input routing.
+	if (!idle_blank_engaged && video_fb_state())
+	{
+		idle_blank_deadline = 0;
+		idle_blank_seq = input_activity_get_seq();
+		return;
+	}
+
+	const uint32_t seq = input_activity_get_seq();
+
+	if (!idle_blank_deadline)
+	{
+		idle_blank_seq = seq;
+		idle_blank_deadline = GetTimer(delay_ms);
+		return;
+	}
+
+	// Any user input resets the idle timer and clears the blank.
+	if (seq != idle_blank_seq)
+	{
+		idle_blank_seq = seq;
+		idle_blank_deadline = GetTimer(delay_ms);
+
+		if (idle_blank_engaged)
+		{
+			idle_blank_engaged = false;
+			if (idle_blank_prev_fb_enabled) video_fb_enable(1, idle_blank_prev_fb_num);
+			else video_fb_enable(0);
+		}
+
+		return;
+	}
+
+	if (!idle_blank_engaged && CheckTimer(idle_blank_deadline))
+	{
+		idle_blank_prev_fb_enabled = fb_enabled;
+		idle_blank_prev_fb_num = fb_num;
+
+		// Prefer a non-current buffer so we can restore the previous framebuffer
+		// state without re-rendering menu backgrounds.
+		int blank_num = 1;
+		if (idle_blank_prev_fb_enabled && idle_blank_prev_fb_num == 1) blank_num = 2;
+		else if (idle_blank_prev_fb_enabled && idle_blank_prev_fb_num == 2) blank_num = 1;
+
+		idle_blank_fill_black(blank_num);
+		video_fb_enable(1, blank_num);
+
+		// If the core doesn't support the HPS framebuffer, video_fb_enable() won't
+		// actually enable it. Treat that as "not engaged" to avoid wedging state.
+		if (fb_enabled && fb_num == blank_num)
+		{
+			idle_blank_engaged = true;
+		}
+		else
+		{
+			idle_blank_engaged = false;
+			idle_blank_deadline = GetTimer(delay_ms);
+		}
+	}
+}
+
 
 static void video_fb_config()
 {
