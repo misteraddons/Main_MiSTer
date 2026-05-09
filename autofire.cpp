@@ -126,10 +126,14 @@ void inc_autofire_code(int player, uint32_t code, uint32_t mask) {
 // (updated every time we call autofire_tick)
 bool get_autofire_bit(int player, uint32_t code, uint32_t frame_count) {
 	int rate_idx = get_autofire_code_idx(player, code);
-	if (rate_idx > 0) {
-		return (autofiredata[rate_idx].cycle_mask >> frame_count % autofiredata[rate_idx].cycle_length) & 1u;
-	}
-	return false;
+	return get_autofire_bit_for_rate(rate_idx, frame_count);
+}
+
+bool get_autofire_bit_for_rate(int rate_idx, uint32_t frame_count) {
+	if (rate_idx <= 0 || rate_idx >= num_af_rates || autofiredata[rate_idx].cycle_length <= 0)
+		return false;
+
+	return (autofiredata[rate_idx].cycle_mask >> frame_count % autofiredata[rate_idx].cycle_length) & 1u;
 }
 
 // display-only rate lookup for ui.

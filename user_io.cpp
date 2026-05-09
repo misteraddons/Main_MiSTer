@@ -3082,7 +3082,12 @@ void user_io_poll()
 	// every frame, check if a screenshot has been requested.
 	// this is reduce risk of screenshot occurring while the scaler
 	// is being updated and getting a corrupted image.
-	add_frame_callback(screenshot_cb);
+	static bool screenshot_callback_registered = false;
+	if (!screenshot_callback_registered)
+	{
+		add_frame_callback(screenshot_cb);
+		screenshot_callback_registered = true;
+	}
 	
 	if ((core_type != CORE_TYPE_SHARPMZ) &&
 		(core_type != CORE_TYPE_8BIT))

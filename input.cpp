@@ -2237,20 +2237,6 @@ struct KeyStates {
 
 KeyStates key_states[NUMPLAYERS] = {};
 
-// returns the bitmask representing all button states for a given ev->code (key)
-// returns 0 if the key is not found or if key has no buttons pressed.
-static uint32_t get_key_state(int player, uint32_t key)
-{
-	for (int i = 0; i < key_states[player].count; i++)
-	{
-		if (key_states[player].key[i] == key)
-		{
-			return key_states[player].mask[i];
-		}
-	}
-	return 0u;
-}
-
 // updates the bitmask representing all button states for a given ev->code (key)
 static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 {
@@ -2283,29 +2269,27 @@ static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 	}
 }
 
-uint32_t build_joy_mask(int player)
+static void build_player_masks(int player, uint32_t *joy_mask, uint32_t *autofire_mask)
 {
-	uint32_t mask = 0u;
-	for (int i = 0; i < key_states[player].count; i++)
-	{
-		uint32_t key = key_states[player].key[i];
-		if (!is_autofire_enabled(player, key_states[player].key[i]))
-			mask |= get_key_state(player, key);
-	}
-	return mask;
-}
+	*joy_mask = 0u;
+	*autofire_mask = 0u;
 
-uint32_t build_autofire_mask(int player)
-{
-	uint32_t mask = 0u;
 	for (int i = 0; i < key_states[player].count; i++)
 	{
 		uint32_t key = key_states[player].key[i];
-		uint32_t  frames_held = key_states[player].frames_held[i];
-		if (is_autofire_enabled(player, key) && get_autofire_bit(player, key, frames_held))
-				mask |= get_key_state(player, key);
+		uint32_t mask = key_states[player].mask[i];
+		int autofire_idx = get_autofire_code_idx(player, key);
+
+		if (autofire_idx > 0)
+		{
+			if (get_autofire_bit_for_rate(autofire_idx, key_states[player].frames_held[i]))
+				*autofire_mask |= mask;
+		}
+		else
+		{
+			*joy_mask |= mask;
+		}
 	}
-	return mask;
 }
 
 static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int bnum, int dont_save = 0)
@@ -6253,7 +6237,12 @@ int input_poll(int getchar)
  	if (!autofire_cfg_parsed) autofire_cfg_parsed = parse_autofire_cfg();
 	static uint32_t joy_mask_prev[NUMPLAYERS] = {};
 
-	add_frame_callback(key_update_frames_held_cb);
+	static bool frame_callback_registered = false;
+	if (!frame_callback_registered)
+	{
+		add_frame_callback(key_update_frames_held_cb);
+		frame_callback_registered = true;
+	}
 
 
 	int ret = input_test(getchar);
@@ -6292,8 +6281,7 @@ int input_poll(int getchar)
 	uint32_t autofire_mask[NUMPLAYERS];
 
 	for (int i = 0; i < NUMPLAYERS; i++) {
-		joy_mask[i] = build_joy_mask(i);
-		autofire_mask[i] = build_autofire_mask(i);
+		build_player_masks(i, &joy_mask[i], &autofire_mask[i]);
 	}
 
 	if (grabbed)
