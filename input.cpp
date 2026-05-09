@@ -2147,6 +2147,7 @@ static void joy_apply_deadzone(int* x, int* y, const devInput* dev, const int st
 }
 
 static bool osd_autofire_consumed[NUMPLAYERS] = {};
+static void mark_player_mask_dirty(int player);
 
 // returns true if autofire was toggled which also means input was consumed.
 static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char press, int bnum, int dont_save)
@@ -2154,6 +2155,8 @@ static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char p
 	static uint32_t lastcode[NUMPLAYERS];
 	static uint32_t lastmask[NUMPLAYERS];
 	static char str[512];
+
+	if (num < 0 || num >= NUMPLAYERS) return false;
 
 	// if the button is not OSD or BTN_TGL we save it into lastmask/lastcode
 	if (bnum != BTN_OSD && bnum != BTN_TGL)
@@ -2189,6 +2192,7 @@ static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char p
 		{
 			char *strat = str;
 			inc_autofire_code(num, lastcode[num], lastmask[num]);
+			mark_player_mask_dirty(num);
 
 			// display autofire status for each button in the mask
 			FOR_EACH_SET_BIT(lastmask[num], btn) {
@@ -2236,24 +2240,58 @@ struct KeyStates {
 };
 
 KeyStates key_states[NUMPLAYERS] = {};
+static bool player_mask_dirty[NUMPLAYERS] = {};
+static uint32_t player_joy_mask[NUMPLAYERS] = {};
+static uint32_t player_autofire_mask[NUMPLAYERS] = {};
+static uint32_t player_sent_mask[NUMPLAYERS] = {};
+
+static void mark_player_mask_dirty(int player)
+{
+	if (player >= 0 && player < NUMPLAYERS) player_mask_dirty[player] = true;
+}
+
+static void mark_all_player_masks_dirty()
+{
+	for (int i = 0; i < NUMPLAYERS; i++) player_mask_dirty[i] = true;
+}
+
+static void clear_key_states()
+{
+	memset(key_states, 0, sizeof(key_states));
+	memset(player_joy_mask, 0, sizeof(player_joy_mask));
+	memset(player_autofire_mask, 0, sizeof(player_autofire_mask));
+	mark_all_player_masks_dirty();
+}
+
+static void clear_sent_player_masks()
+{
+	for (int i = 0; i < NUMPLAYERS; i++)
+	{
+		if (player_sent_mask[i])
+		{
+			user_io_digital_joystick(i, 0, 1);
+			player_sent_mask[i] = 0;
+		}
+	}
+}
 
 // updates the bitmask representing all button states for a given ev->code (key)
 static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 {
+	if (player < 0 || player >= NUMPLAYERS) return;
+
 	for (int i = 0; i < key_states[player].count; i++)
 	{
 		if (key_states[player].key[i] == key)
 		{
-			if (press)
+			uint32_t prev_mask = key_states[player].mask[i];
+			uint32_t next_mask = press ? (prev_mask | mask) : (prev_mask & ~mask);
+			if (next_mask != prev_mask)
 			{
-				key_states[player].mask[i] |= mask;
-				return;
+				key_states[player].mask[i] = next_mask;
+				mark_player_mask_dirty(player);
 			}
-			else
-			{
-				key_states[player].mask[i] &= ~mask;
-				return;
-			}
+			return;
 		}
 	}
 
@@ -2264,6 +2302,7 @@ static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 			int idx = key_states[player].count++;
 			key_states[player].key[idx] = key;
 			key_states[player].mask[idx] = mask;
+			mark_player_mask_dirty(player);
 		}
 		return;
 	}
@@ -2373,7 +2412,7 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 				if((mask & JOY_BTN2) && !(old_osdbtn & JOY_BTN2)) mask = 0;
 			}
 
-			memset(key_states, 0, sizeof(key_states));
+			clear_key_states();
 			struct input_event ev;
 			ev.type = EV_KEY;
 			ev.value = press;
@@ -2707,7 +2746,7 @@ void reset_players()
 		update_num_hw(i, 0);
 	}
 
-	memset(key_states, 0, sizeof(key_states));
+	clear_key_states();
 	for (int i = 0; i < NUMPLAYERS; i++) {
 		clear_autofire(i);
 	}
@@ -5085,7 +5124,7 @@ int input_test(int getchar)
 		}
 
 		// clear button reference counts and key states
-		memset(key_states, 0, sizeof(key_states));
+		clear_key_states();
 		for (int i = 0; i < NUMPLAYERS; i++) {
 			clear_autofire(i);
 		}
@@ -6217,13 +6256,19 @@ int input_test(int getchar)
 void key_update_frames_held_cb(void)
 {
 	for (int i = 0; i < NUMPLAYERS; i++) {
+		bool autofire_phase_dirty = false;
 		for (int k = 0; k < key_states[i].count; k++) {
 			if (key_states[i].mask[k] != 0) {
+				int autofire_idx = get_autofire_code_idx(i, key_states[i].key[k]);
+				bool old_bit = autofire_idx > 0 && get_autofire_bit_for_rate(autofire_idx, key_states[i].frames_held[k]);
 				key_states[i].frames_held[k]++;
+				if (autofire_idx > 0 && old_bit != get_autofire_bit_for_rate(autofire_idx, key_states[i].frames_held[k]))
+					autofire_phase_dirty = true;
 			} else {
 				key_states[i].frames_held[k]= 0;
 			}
 		}
+		if (autofire_phase_dirty) mark_player_mask_dirty(i);
 	}
 }
 
@@ -6235,7 +6280,6 @@ int input_poll(int getchar)
 
 	static bool autofire_cfg_parsed = false;
  	if (!autofire_cfg_parsed) autofire_cfg_parsed = parse_autofire_cfg();
-	static uint32_t joy_mask_prev[NUMPLAYERS] = {};
 
 	static bool frame_callback_registered = false;
 	if (!frame_callback_registered)
@@ -6277,33 +6321,29 @@ int input_poll(int getchar)
 
 	if (!mouse_emu_x && !mouse_emu_y) mouse_timer = 0;
 
-	uint32_t joy_mask[NUMPLAYERS];
-	uint32_t autofire_mask[NUMPLAYERS];
+	bool core_input_active = grabbed && !user_io_osd_is_visible();
 
-	for (int i = 0; i < NUMPLAYERS; i++) {
-		build_player_masks(i, &joy_mask[i], &autofire_mask[i]);
-	}
-
-	if (grabbed)
+	if (core_input_active)
 	{
 		for (int i = 0; i < NUMPLAYERS; i++) {
-			joy_mask[i] = joy_mask[i] | autofire_mask[i];
-			int newdir = (joy_mask[i] & 0xF) | (joy_mask_prev[i] & 0xF);
-			if (joy_mask[i] != joy_mask_prev[i])
+			if (!player_mask_dirty[i]) continue;
+
+			build_player_masks(i, &player_joy_mask[i], &player_autofire_mask[i]);
+			player_mask_dirty[i] = false;
+
+			uint32_t send_mask = player_joy_mask[i] | player_autofire_mask[i];
+			int newdir = (send_mask & 0xF) | (player_sent_mask[i] & 0xF);
+			if (send_mask != player_sent_mask[i])
 			{
-				joy_mask_prev[i] = joy_mask[i];
-				user_io_digital_joystick(i, joy_mask[i], newdir);
+				player_sent_mask[i] = send_mask;
+				user_io_digital_joystick(i, send_mask, newdir);
 			}
 		}
 	}
-
-	if (!grabbed || user_io_osd_is_visible())
+	else
 	{
-		for (int i = 0; i < NUMPLAYERS; i++)
-		{
-			if(joy_mask[i]) user_io_digital_joystick(i, 0, 1);
-		}
-		memset(key_states, 0, sizeof(key_states));
+		clear_sent_player_masks();
+		clear_key_states();
 	}
 
 	if (mouse_req)
@@ -6629,6 +6669,7 @@ bool update_advanced_state(int devnum, uint16_t evcode, int evstate)
 			if (abs->pressed && abm->autofire_idx)
 			{
 				set_autofire_code(pnum-1, 0x8000 | i, usemask, abm->autofire_idx, true);
+				mark_player_mask_dirty(pnum-1);
 			}
 		}
 	}
