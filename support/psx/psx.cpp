@@ -107,7 +107,7 @@ static void unload_chd(toc_t *table)
 {
 	if (table->chd_f)
 	{
-		chd_close(table->chd_f);
+		mister_chd_close(table->chd_f);
 	}
 	if (chd_hunkbuf) free(chd_hunkbuf);
 	memset(table, 0, sizeof(toc_t));

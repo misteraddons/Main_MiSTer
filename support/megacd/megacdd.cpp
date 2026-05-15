@@ -315,7 +315,7 @@ void cdd_t::Unload()
 	{
 		if (this->toc.chd_f)
 		{
-			chd_close(this->toc.chd_f);
+			mister_chd_close(this->toc.chd_f);
 		}
 
 		if (this->chd_hunkbuf)
