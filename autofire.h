@@ -13,6 +13,7 @@ void inc_autofire_code(int player, uint32_t code, uint32_t mask);
 bool parse_autofire_cfg();
 bool get_autofire_bit(int player, uint32_t code, uint32_t frame_count);
 bool get_autofire_bit_for_rate(int rate_idx, uint32_t frame_count);
+bool get_autofire_cycle_for_rate(int rate_idx, uint64_t *cycle_mask, int *cycle_length);
 void set_autofire_code(int player, uint32_t code, uint32_t mask, int index, bool locked = false);
 
 #endif

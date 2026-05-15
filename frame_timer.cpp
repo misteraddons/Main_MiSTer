@@ -165,3 +165,16 @@ void add_frame_callback(frame_callback_t cb) {
         frame_callbacks[frame_callback_count++] = cb;
     }
 }
+
+#ifdef BENCHMARK
+void frame_timer_benchmark_reset_callbacks()
+{
+	for (int i = 0; i < MAX_FRAME_CALLBACKS; i++) frame_callbacks[i] = nullptr;
+	frame_callback_count = 0;
+}
+
+int frame_timer_benchmark_callback_count()
+{
+	return frame_callback_count;
+}
+#endif

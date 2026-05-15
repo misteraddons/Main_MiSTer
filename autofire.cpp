@@ -136,6 +136,16 @@ bool get_autofire_bit_for_rate(int rate_idx, uint32_t frame_count) {
 	return (autofiredata[rate_idx].cycle_mask >> frame_count % autofiredata[rate_idx].cycle_length) & 1u;
 }
 
+bool get_autofire_cycle_for_rate(int rate_idx, uint64_t *cycle_mask, int *cycle_length)
+{
+	if (rate_idx <= 0 || rate_idx >= num_af_rates || autofiredata[rate_idx].cycle_length <= 0)
+		return false;
+
+	if (cycle_mask) *cycle_mask = autofiredata[rate_idx].cycle_mask;
+	if (cycle_length) *cycle_length = autofiredata[rate_idx].cycle_length;
+	return true;
+}
+
 // display-only rate lookup for ui.
 //
 const char *get_autofire_rate_hz(int rate_idx) {

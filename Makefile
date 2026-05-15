@@ -65,6 +65,10 @@ ifeq ($(PROFILING),1)
 	DFLAGS += -DPROFILING
 endif
 
+ifeq ($(BENCHMARK),1)
+	DFLAGS += -DBENCHMARK
+endif
+
 $(BUILDDIR)/$(PRJ): $(OBJ)
 	$(Q)$(info $@)
 	$(Q)$(CC) -o $@ $+ $(LFLAGS)

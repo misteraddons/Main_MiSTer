@@ -158,4 +158,11 @@ void input_advanced_clear(int devnum);
 void input_advanced_delete(advancedButtonMap *todel, int devnum);
 
 void key_update_frames_held_cb(void);
+
+#ifdef BENCHMARK
+void input_benchmark_prepare(int keys_per_player, int autofire_stride);
+uint32_t input_benchmark_mask_idle(int iterations);
+uint32_t input_benchmark_mask_dirty(int iterations);
+uint32_t input_benchmark_autofire_frame_cb(int iterations);
+#endif
 #endif

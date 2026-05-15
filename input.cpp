@@ -2148,6 +2148,7 @@ static void joy_apply_deadzone(int* x, int* y, const devInput* dev, const int st
 
 static bool osd_autofire_consumed[NUMPLAYERS] = {};
 static void mark_player_mask_dirty(int player);
+static void refresh_player_autofire_cache(int player);
 
 // returns true if autofire was toggled which also means input was consumed.
 static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char press, int bnum, int dont_save)
@@ -2192,6 +2193,7 @@ static bool handle_autofire_toggle(int num, uint32_t mask, uint32_t code, char p
 		{
 			char *strat = str;
 			inc_autofire_code(num, lastcode[num], lastmask[num]);
+			refresh_player_autofire_cache(num);
 			mark_player_mask_dirty(num);
 
 			// display autofire status for each button in the mask
@@ -2236,10 +2238,21 @@ struct KeyStates {
 	uint32_t key[MAX_KEY_STATES];
 	uint32_t mask[MAX_KEY_STATES];
 	uint32_t frames_held[MAX_KEY_STATES];
+	uint32_t press_frame[MAX_KEY_STATES];
+	uint64_t autofire_cycle_mask[MAX_KEY_STATES];
+	uint8_t autofire_idx[MAX_KEY_STATES];
+	uint8_t autofire_bit[MAX_KEY_STATES];
+	uint8_t autofire_cycle_length[MAX_KEY_STATES];
+	uint8_t autofire_phase[MAX_KEY_STATES];
+	int autofire_count;
 	int count;
 };
 
 KeyStates key_states[NUMPLAYERS] = {};
+#ifdef BENCHMARK
+#define INPUT_BENCH_DIRTY_MASK 1
+#endif
+static uint32_t input_frame_counter;
 static bool player_mask_dirty[NUMPLAYERS] = {};
 static uint32_t player_joy_mask[NUMPLAYERS] = {};
 static uint32_t player_autofire_mask[NUMPLAYERS] = {};
@@ -2255,12 +2268,68 @@ static void mark_all_player_masks_dirty()
 	for (int i = 0; i < NUMPLAYERS; i++) player_mask_dirty[i] = true;
 }
 
+static bool cache_key_autofire_state(int player, int idx)
+{
+	int autofire_idx = get_autofire_code_idx(player, key_states[player].key[idx]);
+	if (autofire_idx < 0) autofire_idx = 0;
+	if (autofire_idx > 255) autofire_idx = 255;
+	key_states[player].autofire_idx[idx] = (uint8_t)autofire_idx;
+	if (autofire_idx > 0)
+	{
+		uint64_t cycle_mask = 0;
+		int cycle_length = 0;
+		if (!get_autofire_cycle_for_rate(autofire_idx, &cycle_mask, &cycle_length))
+		{
+			key_states[player].autofire_idx[idx] = 0;
+			return false;
+		}
+
+		if (key_states[player].mask[idx])
+			key_states[player].frames_held[idx] = input_frame_counter - key_states[player].press_frame[idx];
+		key_states[player].autofire_cycle_mask[idx] = cycle_mask;
+		key_states[player].autofire_cycle_length[idx] = (uint8_t)cycle_length;
+		key_states[player].autofire_phase[idx] = (uint8_t)(key_states[player].frames_held[idx] % (uint32_t)cycle_length);
+		bool autofire_bit = (cycle_mask >> key_states[player].autofire_phase[idx]) & 1u;
+		key_states[player].autofire_bit[idx] = autofire_bit ? 1 : 0;
+		return true;
+	}
+
+	key_states[player].autofire_cycle_mask[idx] = 0;
+	key_states[player].autofire_cycle_length[idx] = 0;
+	key_states[player].autofire_phase[idx] = 0;
+	key_states[player].autofire_bit[idx] = 0;
+	return false;
+}
+
+static void rebuild_player_autofire_count(int player)
+{
+	int count = 0;
+	for (int i = 0; i < key_states[player].count; i++)
+	{
+		if (key_states[player].mask[i] && key_states[player].autofire_idx[i] > 0)
+			count++;
+	}
+
+	key_states[player].autofire_count = count;
+}
+
 static void clear_key_states()
 {
 	memset(key_states, 0, sizeof(key_states));
 	memset(player_joy_mask, 0, sizeof(player_joy_mask));
 	memset(player_autofire_mask, 0, sizeof(player_autofire_mask));
 	mark_all_player_masks_dirty();
+}
+
+static void refresh_player_autofire_cache(int player)
+{
+	if (player < 0 || player >= NUMPLAYERS) return;
+
+	for (int i = 0; i < key_states[player].count; i++)
+	{
+		cache_key_autofire_state(player, i);
+	}
+	rebuild_player_autofire_count(player);
 }
 
 static void clear_sent_player_masks()
@@ -2289,6 +2358,19 @@ static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 			if (next_mask != prev_mask)
 			{
 				key_states[player].mask[i] = next_mask;
+				if (!prev_mask && next_mask)
+				{
+					key_states[player].press_frame[i] = input_frame_counter;
+					key_states[player].frames_held[i] = 0;
+					cache_key_autofire_state(player, i);
+				}
+				else if (!next_mask)
+				{
+					key_states[player].frames_held[i] = 0;
+					key_states[player].autofire_phase[i] = 0;
+					key_states[player].autofire_bit[i] = 0;
+				}
+				rebuild_player_autofire_count(player);
 				mark_player_mask_dirty(player);
 			}
 			return;
@@ -2302,6 +2384,10 @@ static void set_key_state(int player, uint32_t key, bool press, uint32_t mask)
 			int idx = key_states[player].count++;
 			key_states[player].key[idx] = key;
 			key_states[player].mask[idx] = mask;
+			key_states[player].press_frame[idx] = input_frame_counter;
+			key_states[player].frames_held[idx] = 0;
+			cache_key_autofire_state(player, idx);
+			rebuild_player_autofire_count(player);
 			mark_player_mask_dirty(player);
 		}
 		return;
@@ -2315,17 +2401,17 @@ static void build_player_masks(int player, uint32_t *joy_mask, uint32_t *autofir
 
 	for (int i = 0; i < key_states[player].count; i++)
 	{
-		uint32_t key = key_states[player].key[i];
 		uint32_t mask = key_states[player].mask[i];
-		int autofire_idx = get_autofire_code_idx(player, key);
+		int autofire_idx = key_states[player].autofire_idx[i];
 
 		if (autofire_idx > 0)
 		{
-			if (get_autofire_bit_for_rate(autofire_idx, key_states[player].frames_held[i]))
+			if (key_states[player].autofire_bit[i])
 				*autofire_mask |= mask;
 		}
 		else
 		{
+			key_states[player].autofire_bit[i] = 0;
 			*joy_mask |= mask;
 		}
 	}
@@ -6255,17 +6341,30 @@ int input_test(int getchar)
 
 void key_update_frames_held_cb(void)
 {
+	input_frame_counter++;
 	for (int i = 0; i < NUMPLAYERS; i++) {
+		if (!key_states[i].autofire_count) continue;
+
 		bool autofire_phase_dirty = false;
 		for (int k = 0; k < key_states[i].count; k++) {
 			if (key_states[i].mask[k] != 0) {
-				int autofire_idx = get_autofire_code_idx(i, key_states[i].key[k]);
-				bool old_bit = autofire_idx > 0 && get_autofire_bit_for_rate(autofire_idx, key_states[i].frames_held[k]);
-				key_states[i].frames_held[k]++;
-				if (autofire_idx > 0 && old_bit != get_autofire_bit_for_rate(autofire_idx, key_states[i].frames_held[k]))
-					autofire_phase_dirty = true;
+				int autofire_idx = key_states[i].autofire_idx[k];
+				if (autofire_idx > 0)
+				{
+					key_states[i].frames_held[k]++;
+					if (++key_states[i].autofire_phase[k] >= key_states[i].autofire_cycle_length[k])
+						key_states[i].autofire_phase[k] = 0;
+					bool next_bit = (key_states[i].autofire_cycle_mask[k] >> key_states[i].autofire_phase[k]) & 1u;
+					if (key_states[i].autofire_bit[k] != (next_bit ? 1 : 0))
+					{
+						key_states[i].autofire_bit[k] = next_bit ? 1 : 0;
+						autofire_phase_dirty = true;
+					}
+				}
 			} else {
 				key_states[i].frames_held[k]= 0;
+				key_states[i].autofire_phase[k] = 0;
+				key_states[i].autofire_bit[k] = 0;
 			}
 		}
 		if (autofire_phase_dirty) mark_player_mask_dirty(i);
@@ -6363,6 +6462,133 @@ int input_poll(int getchar)
 
 	return 0;
 }
+
+#ifdef BENCHMARK
+static volatile uint32_t input_benchmark_sink;
+static uint32_t input_benchmark_sent_mask[NUMPLAYERS];
+
+static uint32_t input_benchmark_publish_once(bool force_dirty)
+{
+	uint32_t checksum = 0;
+
+#ifdef INPUT_BENCH_DIRTY_MASK
+	if (force_dirty) mark_all_player_masks_dirty();
+
+	for (int i = 0; i < NUMPLAYERS; i++)
+	{
+		if (!player_mask_dirty[i])
+		{
+			checksum += (uint32_t)i;
+			continue;
+		}
+
+		build_player_masks(i, &player_joy_mask[i], &player_autofire_mask[i]);
+		player_mask_dirty[i] = false;
+
+		uint32_t send_mask = player_joy_mask[i] | player_autofire_mask[i];
+		int newdir = (send_mask & 0xF) | (player_sent_mask[i] & 0xF);
+		if (send_mask != player_sent_mask[i])
+		{
+			player_sent_mask[i] = send_mask;
+			checksum ^= send_mask ^ (uint32_t)newdir ^ (uint32_t)i;
+		}
+		else
+		{
+			checksum ^= send_mask + (uint32_t)i;
+		}
+	}
+#else
+	(void)force_dirty;
+
+	for (int i = 0; i < NUMPLAYERS; i++)
+	{
+		uint32_t joy_mask = build_joy_mask(i);
+		uint32_t autofire_mask = build_autofire_mask(i);
+		uint32_t send_mask = joy_mask | autofire_mask;
+		int newdir = (send_mask & 0xF) | (input_benchmark_sent_mask[i] & 0xF);
+		if (send_mask != input_benchmark_sent_mask[i])
+		{
+			input_benchmark_sent_mask[i] = send_mask;
+			checksum ^= send_mask ^ (uint32_t)newdir ^ (uint32_t)i;
+		}
+		else
+		{
+			checksum ^= send_mask + (uint32_t)i;
+		}
+	}
+#endif
+
+	input_benchmark_sink ^= checksum;
+	return checksum;
+}
+
+void input_benchmark_prepare(int keys_per_player, int autofire_stride)
+{
+	if (keys_per_player > MAX_KEY_STATES) keys_per_player = MAX_KEY_STATES;
+	if (keys_per_player < 1) keys_per_player = 1;
+
+	parse_autofire_cfg();
+	memset(key_states, 0, sizeof(key_states));
+	memset(input_benchmark_sent_mask, 0, sizeof(input_benchmark_sent_mask));
+
+	for (int player = 0; player < NUMPLAYERS; player++)
+	{
+		clear_autofire(player);
+		key_states[player].count = keys_per_player;
+		for (int k = 0; k < keys_per_player; k++)
+		{
+			uint32_t key = 0x1000u + (uint32_t)(player * MAX_KEY_STATES + k);
+			uint32_t mask = 1u << (k % BUTTON_DPAD_COUNT);
+
+			key_states[player].key[k] = key;
+			key_states[player].mask[k] = mask;
+			key_states[player].press_frame[k] = input_frame_counter - (uint32_t)k;
+			key_states[player].frames_held[k] = (uint32_t)k;
+
+			if (autofire_stride > 0 && (k % autofire_stride) == 0)
+				set_autofire_code(player, key, mask, 1, true);
+		}
+		refresh_player_autofire_cache(player);
+	}
+
+#ifdef INPUT_BENCH_DIRTY_MASK
+	memset(player_joy_mask, 0, sizeof(player_joy_mask));
+	memset(player_autofire_mask, 0, sizeof(player_autofire_mask));
+	memset(player_sent_mask, 0, sizeof(player_sent_mask));
+	mark_all_player_masks_dirty();
+	input_benchmark_publish_once(false);
+#endif
+}
+
+uint32_t input_benchmark_mask_idle(int iterations)
+{
+	uint32_t checksum = 0;
+	for (int i = 0; i < iterations; i++)
+		checksum ^= input_benchmark_publish_once(false);
+	return checksum ^ input_benchmark_sink;
+}
+
+uint32_t input_benchmark_mask_dirty(int iterations)
+{
+	uint32_t checksum = 0;
+	for (int i = 0; i < iterations; i++)
+		checksum ^= input_benchmark_publish_once(true);
+	return checksum ^ input_benchmark_sink;
+}
+
+uint32_t input_benchmark_autofire_frame_cb(int iterations)
+{
+	uint32_t checksum = 0;
+	for (int i = 0; i < iterations; i++)
+	{
+		key_update_frames_held_cb();
+		for (int player = 0; player < NUMPLAYERS; player++)
+			checksum += key_states[player].frames_held[i % key_states[player].count] + (uint32_t)player;
+	}
+	input_benchmark_sink ^= checksum;
+	return checksum;
+}
+#endif
 
 int is_key_pressed(int key)
 {
@@ -6669,6 +6895,7 @@ bool update_advanced_state(int devnum, uint16_t evcode, int evstate)
 			if (abs->pressed && abm->autofire_idx)
 			{
 				set_autofire_code(pnum-1, 0x8000 | i, usemask, abm->autofire_idx, true);
+				refresh_player_autofire_cache(pnum-1);
 				mark_player_mask_dirty(pnum-1);
 			}
 		}

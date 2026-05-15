@@ -9,6 +9,10 @@ typedef void (*frame_callback_t)(void);
 
 void frame_timer();
 void add_frame_callback(frame_callback_t cb);
+#ifdef BENCHMARK
+void frame_timer_benchmark_reset_callbacks();
+int frame_timer_benchmark_callback_count();
+#endif
 
 // global
 extern uint64_t global_frame_counter; // used by FRAME_TICK()

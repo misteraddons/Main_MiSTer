@@ -34,11 +34,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scheduler.h"
 #include "osd.h"
 #include "offload.h"
+#ifdef BENCHMARK
+#include "benchmark.h"
+#endif
 
 const char *version = "$VER:" VDATE;
 
 int main(int argc, char *argv[])
 {
+#ifdef BENCHMARK
+	if (argc > 1 && !strcmp(argv[1], "--bench-input-callbacks"))
+	{
+		return benchmark_input_callbacks(argc - 2, argv + 2);
+	}
+#endif
+
 	// Always pin main worker process to core #1 as core #0 is the
 	// hardware interrupt handler in Linux.  This reduces idle latency
 	// in the main loop by about 6-7x.
