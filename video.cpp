@@ -99,6 +99,7 @@ static vrr_cap_t vrr_modes[] = {
 };
 
 static uint8_t last_vrr_mode = 0xFF;
+static uint8_t last_vrr_spd_quirk = 0xFF;
 static float last_vrr_rate = 0.0f;
 static uint32_t last_vrr_vfp = 0;
 static uint8_t edid[256] = {};
@@ -1114,12 +1115,19 @@ void video_loadPreset(char *name, bool save)
 	}
 }
 
-static void hdmi_packet_enable(uint8_t mask, bool enable)
+static bool hdmi_packet_enable(uint8_t mask, bool enable)
 {
 	int fd = i2c_open(0x39, 0);
 	if (fd >= 0)
 	{
-		uint8_t packet_val = i2c_smbus_read_byte_data(fd, 0x40);
+		int packet_val = i2c_smbus_read_byte_data(fd, 0x40);
+		if (packet_val < 0)
+		{
+			printf("i2c: read error (%02X): %d\n", 0x40, packet_val);
+			i2c_close(fd);
+			return false;
+		}
+
 		if (enable)
 			packet_val |= mask;
 		else
@@ -1127,50 +1135,99 @@ static void hdmi_packet_enable(uint8_t mask, bool enable)
 		int res = i2c_smbus_write_byte_data(fd, 0x40, packet_val);
 		if (res < 0) printf("i2c: write error (%02X %02X): %d\n", 0x40, packet_val, res);
 		i2c_close(fd);
+		return res >= 0;
 	}
+
+	return false;
 }
 
-static void hdmi_packet_set_data(uint8_t mask, uint8_t offset, uint8_t *data, int size)
+static bool hdmi_packet_set_data(uint8_t mask, uint8_t offset, uint8_t *data, int size)
 {
 	if (!data)
 	{
-		hdmi_packet_enable(mask, 0);
-		return;
+		return hdmi_packet_enable(mask, 0);
 	}
 
 	int fd = i2c_open(0x38, 0);
 	if (fd >= 0)
 	{
 		int res;
-		hdmi_packet_enable(mask, 1);
+		bool ok = hdmi_packet_enable(mask, 1);
 
 		res = i2c_smbus_write_byte_data(fd, offset + 0x1F, 0x80);
 		if (res < 0)
 		{
 			printf("i2c: Couldn't update packet change register (0x%02X, 0x80) %d\n", offset + 0x1F, res);
+			ok = false;
 		}
 		else
 		{
 			for (int i = 0; i < size; i++)
 			{
 				res = i2c_smbus_write_byte_data(fd, offset + i, data[i]);
-				if (res < 0) printf("i2c: SPD register write error (%02X %02x): %d\n", offset + i, data[i], res);
+				if (res < 0)
+				{
+					printf("i2c: SPD register write error (%02X %02x): %d\n", offset + i, data[i], res);
+					ok = false;
+				}
 			}
 
 			res = i2c_smbus_write_byte_data(fd, offset + 0x1F, 0x00);
-			if (res < 0) printf("i2c: Couldn't update packet change register (0x%02X, 0x00) %d\n", offset + 0x1F, res);
+			if (res < 0)
+			{
+				printf("i2c: Couldn't update packet change register (0x%02X, 0x00) %d\n", offset + 0x1F, res);
+				ok = false;
+			}
 		}
 		i2c_close(fd);
+		return ok;
 	}
 	else
 	{
 		hdmi_packet_enable(mask, 0);
 	}
+
+	return false;
 }
 
-#define hdmi_spd_config(data) hdmi_packet_set_data(0x40, 0x00, data, sizeof(data))
+static void hdmi_spd_config_data(uint8_t *data, int size)
+{
+	static uint8_t last_data[32];
+	static int last_size = -1;
+
+	if (!data)
+	{
+		last_size = -1;
+		hdmi_packet_set_data(0x40, 0x00, data, size);
+		return;
+	}
+
+	if (size <= (int)sizeof(last_data) && last_size == size && !memcmp(last_data, data, size)) return;
+
+	if (hdmi_packet_set_data(0x40, 0x00, data, size) && size <= (int)sizeof(last_data))
+	{
+		memcpy(last_data, data, size);
+		last_size = size;
+	}
+	else
+	{
+		last_size = -1;
+	}
+}
+
+#define hdmi_spd_config(data) hdmi_spd_config_data(data, sizeof(data))
 
 #define hdmi_spare_config(packet, data) hdmi_packet_set_data(packet == 0 ? 0x01 : 0x02, packet == 0 ? 0xC0 : 0xE0, data, sizeof(data))
+
+static bool hdmi_spd_disabled()
+{
+	return cfg.spd_quirk >= 3;
+}
+
+static bool hdmi_freesync_spd_disabled()
+{
+	return cfg.spd_quirk >= 1;
+}
 
 static void hdmi_config_set_csc()
 {
@@ -1984,10 +2041,11 @@ static void set_vrr_mode()
 	{
 		if (last_vrr_mode != 0)
 		{
-			hdmi_spd_config(0);
+			if (use_freesync_spd || !hdmi_freesync_spd_disabled()) hdmi_spd_config(0);
 			hdmi_spare_config(0, 0);
 		}
 		last_vrr_mode = 0;
+		last_vrr_spd_quirk = cfg.spd_quirk;
 		use_freesync_spd = 0;
 		use_vrr = 0;
 		return;
@@ -1997,6 +2055,7 @@ static void set_vrr_mode()
 	if (cfg.vrr_vesa_framerate) vrateh = cfg.vrr_vesa_framerate;
 
 	if ((last_vrr_mode == cfg.vrr_mode) &&
+		(last_vrr_spd_quirk == cfg.spd_quirk) &&
 		(last_vrr_rate == vrateh) &&
 		(last_vrr_vfp == v_cur.param.vfp || (cfg.vrr_mode != VRR_VESA && cfg.vrr_mode != VRR_MISTER))) return;
 
@@ -2016,7 +2075,8 @@ static void set_vrr_mode()
 
 	if (cfg.vrr_mode == 1) //autodetect
 	{
-		for (uint8_t i = 1; i < sizeof(vrr_modes) / sizeof(vrr_cap_t); i++)
+		uint8_t first_vrr = hdmi_freesync_spd_disabled() ? VRR_VESA : VRR_FREESYNC;
+		for (uint8_t i = first_vrr; i < sizeof(vrr_modes) / sizeof(vrr_cap_t); i++)
 		{
 			if (vrr_modes[i].available)
 			{
@@ -2027,7 +2087,7 @@ static void set_vrr_mode()
 	}
 	else if (cfg.vrr_mode == 2)
 	{ //force AMD Freesync
-		use_vrr = VRR_FREESYNC;
+		use_vrr = hdmi_freesync_spd_disabled() ? VRR_NONE : VRR_FREESYNC;
 	}
 	else if (cfg.vrr_mode == 3)
 	{ //force Vesa Forum VRR
@@ -2109,6 +2169,7 @@ static void set_vrr_mode()
 	}
 
 	last_vrr_mode = cfg.vrr_mode;
+	last_vrr_spd_quirk = cfg.spd_quirk;
 	last_vrr_rate = vrateh;
 	last_vrr_vfp = v_cur.param.vfp;
 
@@ -3007,9 +3068,19 @@ static void set_yc_mode()
 
 static void spd_config_update()
 {
+	if (hdmi_spd_disabled())
+	{
+		if (use_freesync_spd)
+		{
+			use_freesync_spd = 0;
+			hdmi_spd_config(0);
+		}
+		return;
+	}
+
 	if (use_freesync_spd) return;
 
-	if (cfg.direct_video && (cfg.spd_quirk < 3))
+	if (cfg.direct_video)
 	{
 		// Custom SPD IF for additional DV1 metadata
 		VideoInfo *vi = &current_video_info;
