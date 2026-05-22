@@ -1327,6 +1327,7 @@ int xml_load(const char *xml)
 }
 
 static mgl_struct mgl = {};
+static char mgl_path[1024] = {};
 
 static int scan_mgl(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const int n, SAX_Data* sd)
 {
@@ -1374,7 +1375,11 @@ static int scan_mgl(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const in
 					}
 					else if (!strcasecmp(node->attributes[i].name, "path"))
 					{
-						snprintf(mgl.item[mgl.count].path, sizeof(mgl.item[mgl.count].path), "%s", node->attributes[i].value);
+						const char *path = node->attributes[i].value;
+						if ((!strncmp(path, "./", 2) || !strncmp(path, "../", 3)) && mgl_path[0])
+							snprintf(mgl.item[mgl.count].path, sizeof(mgl.item[mgl.count].path), "%s%s", mgl_path, path);
+						else
+							snprintf(mgl.item[mgl.count].path, sizeof(mgl.item[mgl.count].path), "%s", path);
 						mgl.item[mgl.count].valid |= 0x8;
 					}
 				}
@@ -1436,6 +1441,10 @@ mgl_struct* mgl_parse(const char *xml)
 	memset(&mgl, 0, sizeof(mgl));
 
 	printf("MGL %s\n", xml);
+	snprintf(mgl_path, sizeof(mgl_path), "%s", xml);
+	char *p = strrchr(mgl_path, '/');
+	if (p) p[1] = 0;
+	else mgl_path[0] = 0;
 
 	SAX_Callbacks sax;
 	SAX_Callbacks_init(&sax);
