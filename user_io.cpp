@@ -479,6 +479,7 @@ int substrcpy(char *d, const char *s, char idx)
 }
 
 static char cur_status[16] = {};
+static char saved_status[16] = {};
 
 int user_io_status_bits(const char *opt, int *s, int *e, int ex, int single)
 {
@@ -551,22 +552,28 @@ uint32_t user_io_hd_mask(const char *opt)
 	return start;
 }
 
-void user_io_status_set(const char *opt, uint32_t value, int ex)
+static void user_io_status_set_bits(char *status, int start, int end, int size, uint32_t value)
 {
-	int start, end;
-	int size = user_io_status_bits(opt, &start, &end, ex);
-	if (!size) return;
-
 	int s = start / 8;
 	int e = end / 8;
 
 	uint32_t mask = ~(0xffffffff << size);
 	mask <<= start % 8;
-	uint32_t x = (cur_status[e] << 8) | cur_status[s];
+	uint32_t x = ((uint8_t)status[e] << 8) | (uint8_t)status[s];
 	x = (x & ~mask) | ((value << (start % 8)) & mask);
 
-	cur_status[s] = (char)x;
-	if (e != s) cur_status[e] = (char)(x >> 8);
+	status[s] = (char)x;
+	if (e != s) status[e] = (char)(x >> 8);
+}
+
+void user_io_status_set(const char *opt, uint32_t value, int ex, int user_initiated)
+{
+	int start, end;
+	int size = user_io_status_bits(opt, &start, &end, ex);
+	if (!size) return;
+
+	user_io_status_set_bits(cur_status, start, end, size, value);
+	if (user_initiated) user_io_status_set_bits(saved_status, start, end, size, value);
 
 	if (!is_st())
 	{
@@ -576,14 +583,20 @@ void user_io_status_set(const char *opt, uint32_t value, int ex)
 	}
 }
 
+void user_io_status_set(const char *opt, uint32_t value, int ex)
+{
+	user_io_status_set(opt, value, ex, USER_IO_STATUS_USER);
+}
+
 int user_io_status_save(const char *filename)
 {
-	return FileSaveConfig(filename, cur_status, sizeof(cur_status));
+	return FileSaveConfig(filename, saved_status, sizeof(saved_status));
 }
 
 void user_io_status_reset()
 {
 	memset(cur_status, 0, sizeof(cur_status));
+	memset(saved_status, 0, sizeof(saved_status));
 	user_io_status_set("[0]", 0);
 }
 
@@ -1526,6 +1539,7 @@ void user_io_init(const char *path, const char *xml)
 				{
 					memset(cur_status, 0, sizeof(cur_status));
 				}
+				memcpy(saved_status, cur_status, sizeof(saved_status));
 
 				user_io_status_set("[0]", 1);
 			}

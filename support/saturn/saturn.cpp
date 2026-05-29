@@ -10,6 +10,7 @@
 #include "../../menu.h"
 #include "../../cheats.h"
 #include "saturn.h"
+#include "saturn_ramcart.h"
 
 static int need_reset = 0;
 uint32_t saturn_frame_cnt = 0;
@@ -153,6 +154,105 @@ static int saturn_load_rom(const char *basename, const char *name, int sub_index
 	return 0;
 }
 
+static int saturn_lookup_ram_cart(const char *uuid, uint32_t *cart_type)
+{
+	fileTextReader reader = {};
+	const char *db_path = user_io_make_filepath(HomeDir(), SATURN_RAM_CART_DB_PATH);
+
+	if (!FileExists(db_path, 0))
+	{
+		printf("Saturn: RAM cart lookup failed, database not found: %s\n", db_path);
+		return 0;
+	}
+
+	if (!FileOpenTextReader(&reader, db_path))
+	{
+		printf("Saturn: RAM cart lookup failed, database could not be read: %s\n", db_path);
+		return 0;
+	}
+
+	while (const char *line = FileReadLine(&reader))
+	{
+		if (!saturn_ramcart_parse_db_line(line, uuid, cart_type)) continue;
+
+		printf("Saturn: RAM cart lookup %s -> %s\n", uuid, saturn_ramcart_type_name(*cart_type));
+		return 1;
+	}
+
+	printf("Saturn: RAM cart lookup failed for UUID %s\n", uuid);
+	return 0;
+}
+
+static int saturn_core_has_auto_ram_cart()
+{
+	static const char cart_prefix[] = "O" SATURN_RAM_CART_MODE_STATUS_OPT ",Cartridge,";
+
+	for (int i = 0; ; i++)
+	{
+		char *opt = user_io_get_confstr(i);
+		if (!opt) break;
+		if (strncmp(opt, cart_prefix, sizeof(cart_prefix) - 1)) continue;
+
+		return !strncmp(opt + sizeof(cart_prefix) - 1, "Auto,", 5);
+	}
+
+	return 0;
+}
+
+static void saturn_apply_ram_cart(const char *filename, const uint8_t *boot_header)
+{
+	static int legacy_auto_cart_valid = 0;
+	static uint32_t legacy_auto_cart_type = SATURN_RAM_CART_NONE;
+
+	char uuid[32];
+	uint32_t cart_type = SATURN_RAM_CART_NONE;
+
+	if (!saturn_ramcart_make_uuid(boot_header, uuid, sizeof(uuid)))
+	{
+		printf("Saturn: RAM cart lookup failed, invalid boot header\n");
+		return;
+	}
+
+	user_io_write_gameid(filename, 0, uuid);
+	uint32_t cart_mode = user_io_status_get(SATURN_RAM_CART_MODE_STATUS_OPT);
+	if (saturn_core_has_auto_ram_cart())
+	{
+		legacy_auto_cart_valid = 0;
+		if (cart_mode != SATURN_RAM_CART_MODE_AUTO)
+		{
+			printf("Saturn: RAM cart auto lookup skipped, Cartridge is user-selected\n");
+			return;
+		}
+
+		user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, SATURN_RAM_CART_NONE, 0, USER_IO_STATUS_AUTOMATED);
+		if (saturn_lookup_ram_cart(uuid, &cart_type))
+		{
+			user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, cart_type, 0, USER_IO_STATUS_AUTOMATED);
+			printf("Saturn: RAM cart auto applied -> %s\n", saturn_ramcart_type_name(cart_type));
+		}
+		return;
+	}
+
+	if (cart_mode != SATURN_RAM_CART_OLD_MODE_NONE &&
+		(!legacy_auto_cart_valid || cart_mode != legacy_auto_cart_type))
+	{
+		printf("Saturn: RAM cart auto lookup skipped, Cartridge is user-selected\n");
+		return;
+	}
+
+	uint32_t applied_cart_type = SATURN_RAM_CART_NONE;
+	if (saturn_lookup_ram_cart(uuid, &cart_type))
+	{
+		applied_cart_type = cart_type;
+	}
+
+	user_io_status_set(SATURN_RAM_CART_MODE_STATUS_OPT, applied_cart_type, 0, USER_IO_STATUS_AUTOMATED);
+	user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, applied_cart_type, 0, USER_IO_STATUS_AUTOMATED);
+	legacy_auto_cart_type = applied_cart_type;
+	legacy_auto_cart_valid = 1;
+	printf("Saturn: RAM cart legacy auto applied -> %s\n", saturn_ramcart_type_name(applied_cart_type));
+}
+
 void saturn_set_image(int num, const char *filename)
 {
 	static char last_dir[1024] = {};
@@ -208,6 +308,7 @@ void saturn_set_image(int num, const char *filename)
 			if (satcdd.GetBootHeader((uint8_t*)buf) > 0)
 			{
 				saturn_send_data((uint8_t*)buf, 256, BOOT_IO_INDEX);
+				saturn_apply_ram_cart(filename, (uint8_t*)buf);
 
 				char *id = buf + 0x20;
 				if (!strncmp(id,"T-8126H",7) ||
