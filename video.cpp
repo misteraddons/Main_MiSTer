@@ -1399,6 +1399,29 @@ static void hdmi_config_set_csc()
 	}
 }
 
+static void hdmi_config_apply_profile()
+{
+	if (hdmi_main_fd < 0) return;
+
+	int ypbpr = (cfg.vga_mode_int == 1) && (cfg.direct_video == 1);
+
+	// These values depend on settings that direct_video=2 may update after EDID detection.
+	uint8_t profile_data[] = {
+		0x57, (uint8_t)((cfg.hdmi_game_mode ? 0x80 : 0x00)
+			| ((ypbpr || cfg.hdmi_limited) ? 0b0100 : cfg.hdr ? 0b1101000 : 0b0001000)), // AVI quantization
+		0x15, (uint8_t)((cfg.hdmi_audio_96k ? 0x80 : 0x00) | 0b0100000), // I2S sampling rate
+		0x02, (uint8_t)(cfg.hdmi_audio_96k ? 0x30 : 0x18), // N value 12288/6144
+	};
+
+	for (uint i = 0; i < sizeof(profile_data); i += 2)
+	{
+		int res = i2c_smbus_write_byte_data(hdmi_main_fd, profile_data[i], profile_data[i + 1]);
+		if (res < 0) printf("i2c: write error (%02X %02X): %d\n", profile_data[i], profile_data[i + 1], res);
+	}
+
+	hdmi_config_set_csc();
+}
+
 int hdmi_has_int()
 {
 	static int has_int = -1;
@@ -1412,7 +1435,6 @@ int hdmi_has_int()
 
 static void hdmi_config_init()
 {
-	int ypbpr = (cfg.vga_mode_int == 1) && (cfg.direct_video == 1);
 	uint8_t int0 = hdmi_has_int() ? 0xC4 : 0x00; // HPD, SENSE, EDID
 
 	hdmi_main_fd = i2c_open(0x39, 0);
@@ -1488,11 +1510,6 @@ static void hdmi_config_init()
 		0x56, (uint8_t)( 0b00001000 | (cfg.hdr ? 0xb11000000 : 0)),		// [5:4] Picture Aspect Ratio
 								// [3:0] Active Portion Aspect Ratio b1000 = Same as Picture Aspect Ratio
 
-		0x57, (uint8_t)((cfg.hdmi_game_mode ? 0x80 : 0x00)		// [7] IT Content. 0 - No. 1 - Yes (type set in register 0x59).
-																// [6:4] Color space (ignored for RGB)
-			| ((ypbpr || cfg.hdmi_limited) ? 0b0100 : cfg.hdr ? 0b1101000 : 0b0001000)),	// [3:2] RGB Quantization range
-																// [1:0] Non-Uniform Scaled: 00 - None. 01 - Horiz. 10 - Vert. 11 - Both.
-
 		0x59, (uint8_t)(cfg.hdmi_game_mode ? 0x30 : 0x00),		// [7:6] [YQ1 YQ0] YCC Quantization Range: b00 = Limited Range, b01 = Full Range
 																// [5:4] IT Content Type b11 = Game, b00 = Graphics/None
 																// [3:0] Pixel Repetition Fields b0000 = No Repetition
@@ -1557,12 +1574,9 @@ static void hdmi_config_init()
 
 		0x0D, 0b00010000,		// [4:0] I2S Bit (Word) Width for Right-Justified.
 		0x14, 0b00000010,		// [3:0] Audio Word Length. b0010 = 16 bits.
-		0x15, (uint8_t)((cfg.hdmi_audio_96k ? 0x80 : 0x00) | 0b0100000),	// I2S Sampling Rate [7:4]. b0000 = (44.1KHz). b0010 = 48KHz.
-								// Input ID [3:1] b000 (0) = 24-bit RGB 444 or YCrCb 444 with Separate Syncs.
 
 		// Audio Clock Config
 		0x01, 0x00,				//
-		0x02, (uint8_t)(cfg.hdmi_audio_96k ? 0x30 : 0x18),	// Set N Value 12288/6144
 		0x03, 0x00,				//
 
 		0x07, 0x01,				//
@@ -1575,8 +1589,6 @@ static void hdmi_config_init()
 		int res = i2c_smbus_write_byte_data(hdmi_main_fd, init_data[i], init_data[i + 1]);
 		if (res < 0) printf("i2c: write error (%02X %02X): %d\n", init_data[i], init_data[i + 1], res);
 	}
-
-	hdmi_config_set_csc();
 }
 
 void video_hdmi_power(int on)
@@ -2527,22 +2539,28 @@ static int should_auto_enable_direct_video()
 	return 0;
 }
 
+static bool resolve_direct_video_auto()
+{
+	if (cfg.direct_video != 2) return false;
+
+	if (should_auto_enable_direct_video())
+	{
+		printf("Auto-enabling direct video for known DAC.\n");
+		// Enable direct video, preserve all other user settings
+		cfg.direct_video = 1;
+	}
+	else
+	{
+		// Not a DAC, use normal HDMI mode
+		cfg.direct_video = 0;
+	}
+
+	return true;
+}
+
 static void video_mode_load()
 {
-	// Auto-detect and enable direct video if configured
-	if (cfg.direct_video == 2) {
-		if (should_auto_enable_direct_video()) {
-			printf("Auto-enabling direct video for known DAC.\n");
-			// Enable direct video, preserve all other user settings
-			cfg.direct_video = 1;
-		} else {
-			// Not a DAC, use normal HDMI mode
-			cfg.direct_video = 0;
-		}
-
-		// direct_video=2 resolves here, so refresh HDMI CSC with final mode.
-		hdmi_config_set_csc();
-	}
+	if (resolve_direct_video_auto()) hdmi_config_apply_profile();
 
 	if (cfg.direct_video && cfg.vsync_adjust)
 	{
@@ -2627,6 +2645,8 @@ void video_init()
 	hdmi_config_init();
 	read_edid(true);
 
+	resolve_direct_video_auto();
+	hdmi_config_apply_profile();
 	hdmi_config_set_hdr();
 	video_mode_load();
 
