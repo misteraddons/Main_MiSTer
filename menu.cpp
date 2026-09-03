@@ -5606,7 +5606,7 @@ void HandleUI(void)
 		}
 
 			if (menustate == MENU_FILE_SELECT2) MisterSerialPreviewSelection();
-			else mister_serial_clear_preview();
+			else mister_serial_set_preview(0, 0, 0);
 		if (c & UPSTROKE) PrintDirectory(1);
 		break;
 
@@ -8168,7 +8168,7 @@ static void MisterSerialPreviewSelection()
 {
 	if (!flist_nDirEntries() || flist_SelectedItem()->de.d_type == DT_DIR)
 	{
-		mister_serial_clear_preview();
+		mister_serial_set_preview(0, 0, 0);
 		return;
 	}
 
@@ -8486,7 +8486,7 @@ static char pchar[] = { 0x8C, 0x8E, 0x8F, 0x90, 0x91, 0x7F };
 
 void ProgressMessage(const char* title, const char* text, int current, int max)
 {
-	mister_serial_set_progress(title, text, current, max);
+	mister_serial_set_progress(current, max);
 
 	static int progress;
 	if (!current && !max)

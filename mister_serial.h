@@ -9,8 +9,7 @@ void mister_serial_set_game(const char *filename, uint32_t crc32 = 0,
 	const char *serial = 0);
 void mister_serial_set_osd(int visible);
 void mister_serial_set_preview(const char *kind, const char *name, const char *path);
-void mister_serial_clear_preview();
-void mister_serial_set_progress(const char *action, const char *item, int current, int maximum);
+void mister_serial_set_progress(int current, int maximum);
 void mister_serial_set_idle(int idle);
 void mister_serial_set_video(uint32_t source_width, uint32_t source_height,
 	uint32_t source_refresh_millihz, int interlaced,

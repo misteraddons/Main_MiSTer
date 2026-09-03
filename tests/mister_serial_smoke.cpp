@@ -95,9 +95,9 @@ int main()
 	require(connected, "\tCONTROLLER\tstate=connected\tplayer=2\tvid=16d0\tpid=1460\tid=usb-2");
 	require(connected, "\tCONTROLLER\tstate=assigned\tplayer=3\tvid=16d0\tpid=1460\tid=usb-2");
 	mister_serial_set_game_loading("/media/fat/games/SNES/Super Mario World.sfc");
-	mister_serial_set_progress("Loading", "Super Mario World.sfc", 0, 100);
-	mister_serial_set_progress("Loading", "Super Mario World.sfc", 50, 100);
-	mister_serial_set_progress(0, 0, 0, 0);
+	mister_serial_set_progress(0, 100);
+	mister_serial_set_progress(50, 100);
+	mister_serial_set_progress(0, 0);
 	mister_serial_set_game("/media/fat/games/SNES/Super Mario World.sfc",
 		0x42CF9B5B, "SNS-MW-USA");
 	mister_serial_set_video(256, 224, 60098, 0, 1920, 1080, 59940, 0);

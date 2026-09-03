@@ -24,7 +24,9 @@ namespace
 	constexpr uint64_t NETWORK_POLL_MS = 2000;
 	constexpr uint64_t PREVIEW_DWELL_MS = 75;
 	constexpr size_t MAX_CONTROLLERS = 16;
-	constexpr size_t CONTROLLER_EVENT_QUEUE_SIZE = 32;
+	constexpr size_t CONTROLLER_EVENT_QUEUE_SIZE = MAX_CONTROLLERS * 2 + 1;
+	static_assert(CONTROLLER_EVENT_QUEUE_SIZE > MAX_CONTROLLERS * 2,
+		"controller queue must hold a complete disconnect/connect replacement");
 
 	enum Dirty : uint32_t
 	{
@@ -130,14 +132,6 @@ namespace
 	size_t controller_event_write = 0;
 
 	bool wait_reported = false;
-	uint64_t now_ms()
-	{
-		struct timespec now = {};
-		clock_gettime(CLOCK_MONOTONIC, &now);
-
-		return (uint64_t)now.tv_sec * 1000 + (uint64_t)now.tv_nsec / 1000000;
-	}
-
 	void copy_string(char *dst, size_t size, const char *src)
 	{
 		if (!size) return;
@@ -149,6 +143,11 @@ namespace
 		struct timespec now = {};
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		return (uint64_t)now.tv_sec * 1000000 + (uint64_t)now.tv_nsec / 1000;
+	}
+
+	uint64_t now_ms()
+	{
+		return now_us() / 1000;
 	}
 
 	void copy_field(char *dst, size_t size, const char *src)
@@ -552,6 +551,18 @@ namespace
 		snapshot_dirty &= ~DIRTY_GAME;
 		mister_serial_poll();
 	}
+
+	void clear_preview()
+	{
+		preview_pending = false;
+		preview_deadline = 0;
+		if (!preview_active) return;
+		preview_active = false;
+		preview_kind[0] = preview_name[0] = preview_path[0] = 0;
+		dirty |= DIRTY_PREVIEW;
+		snapshot_dirty &= ~DIRTY_PREVIEW;
+		mister_serial_poll();
+	}
 }
 
 void mister_serial_init(const char *device, const char *core)
@@ -625,7 +636,7 @@ void mister_serial_set_preview(const char *kind, const char *name, const char *p
 {
 	if (!name || !*name)
 	{
-		mister_serial_clear_preview();
+		clear_preview();
 		return;
 	}
 
@@ -645,18 +656,6 @@ void mister_serial_set_preview(const char *kind, const char *name, const char *p
 	copy_string(pending_preview_path, sizeof(pending_preview_path), next_path);
 	preview_pending = true;
 	preview_deadline = now_ms() + PREVIEW_DWELL_MS;
-}
-
-void mister_serial_clear_preview()
-{
-	preview_pending = false;
-	preview_deadline = 0;
-	if (!preview_active) return;
-	preview_active = false;
-	preview_kind[0] = preview_name[0] = preview_path[0] = 0;
-	dirty |= DIRTY_PREVIEW;
-	snapshot_dirty &= ~DIRTY_PREVIEW;
-	mister_serial_poll();
 }
 
 void mister_serial_controller_scan_begin()
@@ -718,10 +717,8 @@ void mister_serial_controller_player(const char *id, int player)
 	}
 }
 
-void mister_serial_set_progress(const char *action, const char *item, int current, int maximum)
+void mister_serial_set_progress(int current, int maximum)
 {
-	(void)action;
-	(void)item;
 	if (current <= 0 && maximum <= 0)
 	{
 		if (!load_active) return;

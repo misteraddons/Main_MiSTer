@@ -86,13 +86,6 @@ namespace
 		return false;
 	}
 
-	bool contains_case_insensitive(const char *text, const char *needle)
-	{
-		if (!needle || !*needle) return false;
-		for (; text && *text; text++)
-			if (!strncasecmp(text, needle, strlen(needle))) return true;
-		return false;
-	}
 }
 
 bool serial_device_resolve(const char *selector, char *path, size_t path_size)
@@ -116,7 +109,11 @@ bool serial_device_resolve(const char *selector, char *path, size_t path_size)
 	char wanted_vid[5] = {};
 	char wanted_pid[5] = {};
 	const char *wanted_serial = "";
-	bool usb_id = parse_usb_selector(selector, wanted_vid, wanted_pid, &wanted_serial);
+	if (!parse_usb_selector(selector, wanted_vid, wanted_pid, &wanted_serial))
+	{
+		errno = EINVAL;
+		return false;
+	}
 	const char *sysfs_root = getenv("MISTER_SERIAL_SYSFS_ROOT");
 	const char *dev_root = getenv("MISTER_SERIAL_DEV_ROOT");
 	if (!sysfs_root || !*sysfs_root) sysfs_root = "/sys/class/tty";
@@ -140,11 +137,8 @@ bool serial_device_resolve(const char *selector, char *path, size_t path_size)
 		char pid[5] = {};
 		char serial[128] = {};
 		if (!find_usb_identity(resolved_path, vid, pid, serial, sizeof(serial))) continue;
-		bool match = usb_id ?
-			(!strcasecmp(vid, wanted_vid) && !strcasecmp(pid, wanted_pid) &&
-				(!*wanted_serial || !strcasecmp(serial, wanted_serial))) :
-			(contains_case_insensitive(resolved_path, selector) ||
-				contains_case_insensitive(serial, selector));
+		bool match = !strcasecmp(vid, wanted_vid) && !strcasecmp(pid, wanted_pid) &&
+			(!*wanted_serial || !strcasecmp(serial, wanted_serial));
 		if (!match) continue;
 
 		matches++;

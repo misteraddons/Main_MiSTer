@@ -89,7 +89,7 @@ int main()
 	assert(serial_device_resolve("16d0_14f7", resolved, sizeof(resolved)));
 	assert(strstr(resolved, "/dev/ttyACM0"));
 	assert(serial_device_resolve("16D0_14F7_NOVA1234", resolved, sizeof(resolved)));
-	assert(serial_device_resolve("1-1:1.0", resolved, sizeof(resolved)));
+	assert(!serial_device_resolve("1-1:1.0", resolved, sizeof(resolved)) && errno == EINVAL);
 	assert(serial_device_resolve("/dev/serial/by-id/example", resolved, sizeof(resolved)));
 	assert(!strcmp(resolved, "/dev/serial/by-id/example"));
 	assert(!serial_device_resolve("054c_09cc", resolved, sizeof(resolved)) && errno == ENOENT);
