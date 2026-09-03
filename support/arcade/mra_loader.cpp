@@ -1173,6 +1173,8 @@ int arcade_send_rom(const char *xml)
 		char mra_path[kBigTextSize];
 		snprintf(mra_path, sizeof(mra_path), "%s.mra", arcade_setname);
 		user_io_write_gameid(mra_path, 0, arcade_setname);
+		if (arc_info.validrom0 || !arc_info.error_msg[0]) user_io_game_state(mra_path);
+		else user_io_game_state(0);
 	}
 
 	switches.dip_cur = switches.dip_def;

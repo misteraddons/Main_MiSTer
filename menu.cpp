@@ -68,6 +68,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "profiling.h"
 #include "str_util.h"
 #include "autofire.h"
+#include "mister_serial.h"
+
+static void MisterSerialPreviewSelection();
 
 /*menu states*/
 enum MENU
@@ -2679,7 +2682,8 @@ void HandleUI(void)
 				if (fs_Options & SCANO_NEOGEO)
 				{
 					neocd_set_en(0);
-					neogeo_romset_tx(selPath, 0);
+					if (neogeo_romset_tx(selPath, 0)) user_io_game_state(selPath);
+					else user_io_game_state(0);
 				}
 				else
 				{
@@ -2693,9 +2697,13 @@ void HandleUI(void)
 					{
 						uint32_t n64_crc;
 						if (!n64_rom_tx(selPath, idx, load_addr, n64_crc))
-                Info("failed to load ROM");
+						{
+							if (!store_name) user_io_game_state(0);
+							Info("failed to load ROM");
+						}
 						else if (!store_name)
 						{
+							user_io_game_state(selPath);
 							game_docs_init(selPath, n64_crc);
 							if (user_io_use_cheats()) cheats_init(selPath, n64_crc);
 						}
@@ -2738,9 +2746,11 @@ void HandleUI(void)
 					}
 					else
 					{
-						user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
+						int loaded = user_io_file_tx(selPath, idx, opensave, 0, 0, load_addr);
 						if (!store_name)
 						{
+							if (!ioctl_index) user_io_game_state(loaded ? selPath : 0);
+
 							game_docs_init(selPath, user_io_get_file_crc());
 							if (user_io_use_cheats()) cheats_init(selPath, user_io_get_file_crc());
 						}
@@ -2756,6 +2766,10 @@ void HandleUI(void)
 			else if(is_atari5200())
 			{
 				atari5200_umount_cartridge();
+			}
+			else if (!store_name && !ioctl_index)
+			{
+				user_io_game_state(0);
 			}
 
 			mgl->state = 3;
@@ -2846,7 +2860,11 @@ void HandleUI(void)
 			else
 			{
 				user_io_set_index(user_io_ext_idx(selPath, fs_pFileExt) << 6 | (menusub + 1));
-				user_io_file_mount(selPath, ioctl_index);
+				int mounted = user_io_file_mount(selPath, ioctl_index);
+				if (!store_name && !ioctl_index)
+				{
+					user_io_game_state(mounted && selPath[0] ? selPath : 0);
+				}
 			}
 
 			if (addon[0] == 'f' && addon[1] == '1') process_addon(addon, idx);
@@ -5587,6 +5605,8 @@ void HandleUI(void)
 			}
 		}
 
+			if (menustate == MENU_FILE_SELECT2) MisterSerialPreviewSelection();
+			else mister_serial_clear_preview();
 		if (c & UPSTROKE) PrintDirectory(1);
 		break;
 
@@ -8144,6 +8164,30 @@ void open_joystick_setup()
 	menustate = MENU_JOYDIGMAP;
 	joymap_first = 1;
 }
+static void MisterSerialPreviewSelection()
+{
+	if (!flist_nDirEntries() || flist_SelectedItem()->de.d_type == DT_DIR)
+	{
+		mister_serial_clear_preview();
+		return;
+	}
+
+	char name[256];
+	snprintf(name, sizeof(name), "%s", flist_SelectedItem()->altname);
+	if (fs_Options & SCANO_CORES)
+	{
+		size_t length = strlen(name);
+		if (length > 4 && name[length - 4] == '.') name[length - 4] = 0;
+		char *date = strstr(name, "_20");
+		if (date) *date = 0;
+	}
+
+	char path[1024];
+	if (*selPath) snprintf(path, sizeof(path), "%s/%s", selPath, flist_SelectedItem()->de.d_name);
+	else snprintf(path, sizeof(path), "%s", flist_SelectedItem()->de.d_name);
+	mister_serial_set_preview((fs_Options & SCANO_CORES) ? "core" : "game", name, path);
+
+}
 
 void ScrollLongName(void)
 {
@@ -8442,6 +8486,8 @@ static char pchar[] = { 0x8C, 0x8E, 0x8F, 0x90, 0x91, 0x7F };
 
 void ProgressMessage(const char* title, const char* text, int current, int max)
 {
+	mister_serial_set_progress(title, text, current, max);
+
 	static int progress;
 	if (!current && !max)
 	{

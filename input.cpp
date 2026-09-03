@@ -36,6 +36,7 @@
 #include "frame_timer.h"
 #include "scaler.h"
 #include "file_io.h"
+#include "mister_serial.h"
 
 #define NUMDEV 30
 #define UINPUT_NAME "MiSTer virtual input"
@@ -1647,8 +1648,19 @@ static void INThandler(int code)
 	exit(0);
 }
 
+
 #define test_bit(bit, array)  (array [bit / 8] & (1 << (bit % 8)))
 
+static bool has_gamepad_controls(int fd)
+{
+	unsigned char keys[(KEY_MAX + 8) / 8] = {};
+	if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) < 0) return false;
+	for (int code = BTN_JOYSTICK; code < BTN_DIGI; code++)
+	{
+		if (test_bit(code, keys)) return true;
+	}
+	return false;
+}
 
 static char has_led(int fd)
 {
@@ -2936,6 +2948,7 @@ static void assign_player(int dev, int num, int force = 0)
 	input[dev].num = num;
 	if (JOYCON_COMBINED(dev)) input[input[dev].bind].num = num;
 	store_player(num, dev);
+	mister_serial_controller_player(input[dev].id, input[dev].num);
 	printf("Device %s %sassigned to player %d\n", input[dev].id, force ? "forcebly " : "", input[dev].num);
 }
 
@@ -5550,13 +5563,18 @@ int input_test(int getchar)
 			}
 			check_joycon();
 			openfire_signal();
+			mister_serial_controller_scan_begin();
 			setup_wheels();
 			for (int i = 0; i < n; i++)
 			{
 				printf("opened %d(%2d): %s (%04x:%04x:%08x) %d \"%s\" \"%s\"\n", i, input[i].bind, input[i].devname, input[i].vid, input[i].pid, input[i].unique_hash, input[i].quirk, input[i].id, input[i].name);
 				restore_player(i);
+				if (!input[i].mouse && has_gamepad_controls(pool[i].fd))
+					mister_serial_controller_scan_add(input[i].id, input[i].name,
+						input[i].vid, input[i].pid, input[i].num);
 				setup_deadzone(&ev, i);
 			}
+			mister_serial_controller_scan_end();
 			unflag_players();
 		}
 		cur_leds |= 0x80;

@@ -42,6 +42,7 @@
 #include "frame_timer.h"
 #include "scaler.h"
 #include "support.h"
+#include "mister_serial.h"
 
 static char core_path[1024] = {};
 static char rbf_path[1024] = {};
@@ -1475,6 +1476,8 @@ void user_io_init(const char *path, const char *xml)
 
 	cfg_parse();
 	cfg_print();
+	const char *state_core = user_io_get_core_name(1);
+	mister_serial_init(cfg.mister_serial, state_core[0] ? state_core : user_io_get_core_name());
 	while (cfg.waitmount[0] && !is_menu())
 	{
 		printf("> > > wait for %s mount < < <\n", cfg.waitmount);
@@ -2561,20 +2564,31 @@ uint32_t user_io_get_file_crc()
 	return file_crc;
 }
 
+static bool user_io_game_trackable(const char *filename)
+{
+	if (!filename || !*filename) return false;
+	const char *fname = strrchr(filename, '/');
+	fname = fname ? fname + 1 : filename;
+	return strncasecmp(fname, "boot", 4) && !strcasestr(fname, "bios");
+}
+
+void user_io_game_state(const char *filename)
+{
+	mister_serial_set_game(filename);
+}
+
 void user_io_write_gameid(const char *filename, uint32_t crc32_val, const char *serial)
 {
-	if (!cfg.log_file_entry) return;
+	if (!user_io_game_trackable(filename)) return;
 
 	// Extract basename from filename
 	const char *fname = strrchr(filename, '/');
 	if (!fname) fname = filename;
 	else fname++;
 
-	// Skip BIOS files
-	if (strncasecmp(fname, "boot", 4) == 0 || strcasestr(fname, "bios"))
-	{
-		return;
-	}
+	// Status serial is independent of the optional /tmp/GAMEID debug file.
+	mister_serial_set_game(filename, crc32_val, serial);
+	if (!cfg.log_file_entry) return;
 
 	FILE *f = fopen("/tmp/GAMEID", "w");
 	if (!f)
@@ -2720,6 +2734,8 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 
 		FileSeek(&f, off, SEEK_SET);
 	}
+
+	if (user_io_game_trackable(name)) mister_serial_set_game_loading(name);
 
 	/* transmit the entire file using one transfer */
 	printf("Selected file %s with %u bytes to send for index %d.%d\n", name, bytes2send, index & 0x3F, index >> 6);
@@ -2930,8 +2946,6 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 	printf("Done.\n");
 	printf("CRC32: %08X\n", file_crc);
 
-	user_io_write_gameid(name, file_crc);
-
 	FileClose(&f);
 
 	if (opensave)
@@ -2951,6 +2965,7 @@ int user_io_file_tx(const char* name, unsigned char index, char opensave, char m
 	}
 
 	ProgressMessage(0, 0, 0, 0);
+	user_io_write_gameid(name, file_crc);
 
 	if ((is_snes() || is_sgb()) && !load_addr)
 	{
@@ -3155,6 +3170,8 @@ void user_io_poll()
 	#ifdef PROFILING
 		PROFILE_FUNCTION();
 	#endif
+
+	mister_serial_poll();
 
 	// every frame, check if a screenshot has been requested.
 	// this is reduce risk of screenshot occurring while the scaler
@@ -3850,6 +3867,7 @@ void user_io_poll()
 			hdmi_timeout = GetTimer(cfg.hdmi_off * 60000);
 			if (!hdmi_on)
 			{
+				mister_serial_set_idle(0);
 				printf("hdmi_on\n");
 				hdmi_on = 1;
 				video_hdmi_power(1);
@@ -3859,6 +3877,7 @@ void user_io_poll()
 		if (CheckTimer(hdmi_timeout) && hdmi_on)
 		{
 			printf("hdmi_off\n");
+			mister_serial_set_idle(1);
 			hdmi_on = 0;
 			video_hdmi_power(0);
 		}
@@ -4223,6 +4242,7 @@ void user_io_osd_key_enable(char on)
 {
 	//printf("OSD is now %s\n", on ? "visible" : "invisible");
 	osd_is_visible = on;
+	mister_serial_set_osd(on);
 	if (cfg.log_file_entry) MakeFile("/tmp/OSD_VISIBLE", on ? "1" : "0");
 	input_switch(-1);
 }

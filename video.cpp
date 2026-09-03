@@ -27,6 +27,7 @@
 #include "profiling.h"
 #include "offload.h"
 #include "hdmi_cec.h"
+#include "mister_serial.h"
 
 #include "support.h"
 #include "support/arcade/mra_loader.h"
@@ -3453,6 +3454,19 @@ void video_mode_adjust(bool force)
 	else
 	{
 		set_vfilter(0); // update filters if flags have changed
+	}
+
+	if (vid_changed || rep_force)
+	{
+		uint32_t source_refresh_millihz = video_info.vtime ?
+			(uint32_t)(100000000000ULL / video_info.vtime) : 0;
+		uint32_t output_refresh_millihz = video_info.vtimeh ?
+			(uint32_t)(100000000000ULL / video_info.vtimeh) : 0;
+		uint32_t output_width = v_cur.item[1] * (v_cur.param.pr ? 2 : 1);
+		uint32_t output_height = v_cur.item[5];
+		mister_serial_set_video(video_info.width, video_info.height,
+			source_refresh_millihz, video_info.interlaced,
+			output_width, output_height, output_refresh_millihz, cfg.direct_video);
 	}
 }
 
