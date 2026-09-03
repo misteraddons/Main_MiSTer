@@ -1,5 +1,6 @@
 #include "mister_serial.h"
 #include "serial_device.h"
+#include "str_util.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -132,11 +133,6 @@ namespace
 	size_t controller_event_write = 0;
 
 	bool wait_reported = false;
-	void copy_string(char *dst, size_t size, const char *src)
-	{
-		if (!size) return;
-		snprintf(dst, size, "%s", src ? src : "");
-	}
 
 	uint64_t now_us()
 	{
@@ -152,13 +148,12 @@ namespace
 
 	void copy_field(char *dst, size_t size, const char *src)
 	{
-		size_t offset = 0;
-		while (src && *src && offset + 1 < size)
+		strcpyz(dst, size, src ? src : "");
+		for (char *next = dst; *next; next++)
 		{
-			unsigned char c = *src++;
-			dst[offset++] = (c < 0x20 || c == 0x7f) ? ' ' : c;
+			unsigned char value = *next;
+			if (value < 0x20 || value == 0x7f) *next = ' ';
 		}
-		dst[offset] = 0;
 	}
 
 	const char *leaf_name(const char *path)
@@ -217,7 +212,7 @@ namespace
 		if (next == controller_event_read) return;
 		ControllerEvent &event = controller_events[controller_event_write];
 		event.controller = controller;
-		copy_string(event.state, sizeof(event.state), state);
+		strcpyz(event.state, state);
 		event.snapshot = snapshot;
 		controller_event_write = next;
 	}
@@ -532,8 +527,8 @@ namespace
 			!strcmp(state_game_name, next_name) && !crc32 && (!serial || !*serial);
 		if (preserve_ids)
 		{
-			copy_string(next_crc32, sizeof(next_crc32), state_game_crc32);
-			copy_string(next_serial, sizeof(next_serial), state_game_serial);
+			strcpyz(next_crc32, state_game_crc32);
+			strcpyz(next_serial, state_game_serial);
 		}
 		else if (next_state == GAME_LOADED)
 		{
@@ -543,9 +538,9 @@ namespace
 		if (game_state == next_state && !strcmp(state_game_name, next_name) &&
 			!strcmp(state_game_crc32, next_crc32) &&
 			!strcmp(state_game_serial, next_serial)) return;
-		copy_string(state_game_name, sizeof(state_game_name), next_name);
-		copy_string(state_game_crc32, sizeof(state_game_crc32), next_crc32);
-		copy_string(state_game_serial, sizeof(state_game_serial), next_serial);
+		strcpyz(state_game_name, next_name);
+		strcpyz(state_game_crc32, next_crc32);
+		strcpyz(state_game_serial, next_serial);
 		game_state = next_state;
 		dirty |= DIRTY_GAME;
 		snapshot_dirty &= ~DIRTY_GAME;
@@ -568,10 +563,10 @@ namespace
 void mister_serial_init(const char *device, const char *core)
 {
 	char next_device[sizeof(device_selector)];
-	copy_string(next_device, sizeof(next_device), device);
+	strcpyz(next_device, device ? device : "");
 	if (strcmp(device_selector, next_device) && serial_fd >= 0) close_port("configuration changed");
 
-	copy_string(device_selector, sizeof(device_selector), next_device);
+	strcpyz(device_selector, next_device);
 	device_path[0] = 0;
 	copy_field(state_core, sizeof(state_core), core);
 	state_game_name[0] = 0;
@@ -651,9 +646,9 @@ void mister_serial_set_preview(const char *kind, const char *name, const char *p
 		(preview_pending && !strcmp(pending_preview_kind, next_kind) &&
 		!strcmp(pending_preview_name, next_name) && !strcmp(pending_preview_path, next_path))) return;
 
-	copy_string(pending_preview_kind, sizeof(pending_preview_kind), next_kind);
-	copy_string(pending_preview_name, sizeof(pending_preview_name), next_name);
-	copy_string(pending_preview_path, sizeof(pending_preview_path), next_path);
+	strcpyz(pending_preview_kind, next_kind);
+	strcpyz(pending_preview_name, next_name);
+	strcpyz(pending_preview_path, next_path);
 	preview_pending = true;
 	preview_deadline = now_ms() + PREVIEW_DWELL_MS;
 }
@@ -722,7 +717,7 @@ void mister_serial_set_progress(int current, int maximum)
 	if (current <= 0 && maximum <= 0)
 	{
 		if (!load_active) return;
-		copy_string(load_state, sizeof(load_state), "done");
+		strcpyz(load_state, "done");
 		load_percent = 100;
 		load_active = false;
 		dirty |= DIRTY_LOAD;
@@ -736,7 +731,7 @@ void mister_serial_set_progress(int current, int maximum)
 	if (next_percent > 100) next_percent = 100;
 	if (load_active && load_percent == next_percent) return;
 
-	copy_string(load_state, sizeof(load_state), load_active ? "progress" : "start");
+	strcpyz(load_state, load_active ? "progress" : "start");
 	load_percent = next_percent;
 	load_active = true;
 	dirty |= DIRTY_LOAD;
@@ -786,9 +781,9 @@ void mister_serial_poll()
 	poll_network(now);
 	if (preview_pending && now >= preview_deadline)
 	{
-		copy_string(preview_kind, sizeof(preview_kind), pending_preview_kind);
-		copy_string(preview_name, sizeof(preview_name), pending_preview_name);
-		copy_string(preview_path, sizeof(preview_path), pending_preview_path);
+		strcpyz(preview_kind, pending_preview_kind);
+		strcpyz(preview_name, pending_preview_name);
+		strcpyz(preview_path, pending_preview_path);
 		preview_pending = false;
 		preview_active = true;
 		preview_deadline = 0;
