@@ -43,6 +43,7 @@
 #include "scaler.h"
 #include "support.h"
 #include "mister_serial.h"
+#include "mister_menu.h"
 
 static char core_path[1024] = {};
 static char rbf_path[1024] = {};
@@ -1474,6 +1475,7 @@ void user_io_init(const char *path, const char *xml)
 		SelectINI();
 	}
 
+	if (is_menu()) mister_menu_start(path);
 	cfg_parse();
 	cfg_print();
 	const char *state_core = user_io_get_core_name(1);
