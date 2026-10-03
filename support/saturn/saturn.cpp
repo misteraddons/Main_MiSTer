@@ -244,10 +244,25 @@ static void saturn_apply_ram_cart(const char *uuid)
 
 int saturn_cart_option_note(const char *opt, uint32_t value, char *note, size_t note_size)
 {
-	if (value != SATURN_RAM_CART_MODE_AUTO || saturn_cart_option_kind_of(opt) != SATURN_CART_OPTION_AUTO) return 0;
+	uint32_t cart_type;
+	switch (saturn_cart_option_kind_of(opt))
+	{
+	case SATURN_CART_OPTION_AUTO:
+		if (value != SATURN_RAM_CART_MODE_AUTO) return 0;
+		cart_type = user_io_status_get(SATURN_RAM_CART_AUTO_STATUS_OPT);
+		break;
 
-	snprintf(note, note_size, "Auto (%s)",
-		saturn_ramcart_type_name(user_io_status_get(SATURN_RAM_CART_AUTO_STATUS_OPT)));
+	case SATURN_CART_OPTION_LEGACY:
+		// The current core has no Auto value; an automatically chosen cart is labelled instead.
+		if (!user_io_status_automated(SATURN_RAM_CART_MODE_STATUS_OPT)) return 0;
+		cart_type = value;
+		break;
+
+	default:
+		return 0;
+	}
+
+	snprintf(note, note_size, "Auto (%s)", saturn_ramcart_type_name(cart_type));
 	return 1;
 }
 
