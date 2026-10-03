@@ -1732,6 +1732,19 @@ static advancedButtonMap *mapping_store = NULL;
 static uint32_t tmp_axis[4];
 static int tmp_axis_n = 0;
 
+static inline uint16_t map_axis_code(uint32_t map)
+{
+	return (uint16_t)(map & MAP_AXIS_MASK);
+}
+
+static int map_axis_offset(uint32_t map, int offset)
+{
+	if (!(map & MAP_FLAG_INVERT)) return offset;
+
+	offset = -offset;
+	return (offset > 127) ? 127 : offset;
+}
+
 static int grabbed = 1;
 
 static uint32_t osd_timer = 0;
@@ -3031,25 +3044,25 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			}
 			else
 			{
-				if (input[dev].mmap[SYS_AXIS_X] == input[dev].mmap[SYS_AXIS1_X])
+				if ((input[dev].mmap[SYS_AXIS_X] & MAP_FLAG_ANALOG) && input[dev].mmap[SYS_AXIS_X] == input[dev].mmap[SYS_AXIS1_X])
 				{
 					input[dev].stick_l[0] = SYS_AXIS1_X;
-					if ((input[dev].mmap[SYS_AXIS2_X] >> 16) == 2) input[dev].stick_r[0] = SYS_AXIS2_X;
+					if (input[dev].mmap[SYS_AXIS2_X] & MAP_FLAG_ANALOG) input[dev].stick_r[0] = SYS_AXIS2_X;
 				}
-				if (input[dev].mmap[SYS_AXIS_Y] == input[dev].mmap[SYS_AXIS1_Y])
+				if ((input[dev].mmap[SYS_AXIS_Y] & MAP_FLAG_ANALOG) && input[dev].mmap[SYS_AXIS_Y] == input[dev].mmap[SYS_AXIS1_Y])
 				{
 					input[dev].stick_l[1] = SYS_AXIS1_Y;
-					if ((input[dev].mmap[SYS_AXIS2_Y] >> 16) == 2) input[dev].stick_r[1] = SYS_AXIS2_Y;
+					if (input[dev].mmap[SYS_AXIS2_Y] & MAP_FLAG_ANALOG) input[dev].stick_r[1] = SYS_AXIS2_Y;
 				}
-				if (input[dev].mmap[SYS_AXIS_X] == input[dev].mmap[SYS_AXIS2_X])
+				if ((input[dev].mmap[SYS_AXIS_X] & MAP_FLAG_ANALOG) && input[dev].mmap[SYS_AXIS_X] == input[dev].mmap[SYS_AXIS2_X])
 				{
 					input[dev].stick_l[0] = SYS_AXIS2_X;
-					if ((input[dev].mmap[SYS_AXIS1_X] >> 16) == 2) input[dev].stick_r[0] = SYS_AXIS1_X;
+					if (input[dev].mmap[SYS_AXIS1_X] & MAP_FLAG_ANALOG) input[dev].stick_r[0] = SYS_AXIS1_X;
 				}
-				if (input[dev].mmap[SYS_AXIS_Y] == input[dev].mmap[SYS_AXIS2_Y])
+				if ((input[dev].mmap[SYS_AXIS_Y] & MAP_FLAG_ANALOG) && input[dev].mmap[SYS_AXIS_Y] == input[dev].mmap[SYS_AXIS2_Y])
 				{
 					input[dev].stick_l[1] = SYS_AXIS2_Y;
-					if ((input[dev].mmap[SYS_AXIS1_Y] >> 16) == 2) input[dev].stick_r[1] = SYS_AXIS1_Y;
+					if (input[dev].mmap[SYS_AXIS1_Y] & MAP_FLAG_ANALOG) input[dev].stick_r[1] = SYS_AXIS1_Y;
 				}
 			}
 		}
@@ -3998,21 +4011,21 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					else
 					{
 						int offset = (value < -1 || value > 1) ? value : 0;
-						if (input[dev].stick_l[0] && ev->code == (uint16_t)input[dev].mmap[input[dev].stick_l[0]])
+						if (input[dev].stick_l[0] && ev->code == map_axis_code(input[dev].mmap[input[dev].stick_l[0]]))
 						{
-							joy_analog(dev, 0, offset, 0);
+							joy_analog(dev, 0, map_axis_offset(input[dev].mmap[input[dev].stick_l[0]], offset), 0);
 						}
-						else if (input[dev].stick_l[1] && ev->code == (uint16_t)input[dev].mmap[input[dev].stick_l[1]])
+						else if (input[dev].stick_l[1] && ev->code == map_axis_code(input[dev].mmap[input[dev].stick_l[1]]))
 						{
-							joy_analog(dev, 1, offset, 0);
+							joy_analog(dev, 1, map_axis_offset(input[dev].mmap[input[dev].stick_l[1]], offset), 0);
 						}
-						else if (input[dev].stick_r[0] && ev->code == (uint16_t)input[dev].mmap[input[dev].stick_r[0]])
+						else if (input[dev].stick_r[0] && ev->code == map_axis_code(input[dev].mmap[input[dev].stick_r[0]]))
 						{
-							joy_analog(dev, 0, offset, 1);
+							joy_analog(dev, 0, map_axis_offset(input[dev].mmap[input[dev].stick_r[0]], offset), 1);
 						}
-						else if (input[dev].stick_r[1] && ev->code == (uint16_t)input[dev].mmap[input[dev].stick_r[1]])
+						else if (input[dev].stick_r[1] && ev->code == map_axis_code(input[dev].mmap[input[dev].stick_r[1]]))
 						{
-							joy_analog(dev, 1, offset, 1);
+							joy_analog(dev, 1, map_axis_offset(input[dev].mmap[input[dev].stick_r[1]], offset), 1);
 						}
 					}
 				}
@@ -6741,8 +6754,8 @@ advancedButtonMap *get_advanced_map_defs(int devnum)
 void get_button_name_for_code(uint16_t btn_code, int devnum, char *bname, size_t bname_sz)
 {
 	static int last_devnum = -1;
-	static uint16_t btn_map[KEY_MAX - BTN_JOYSTICK] = {0};
-	static uint16_t abs_map[ABS_MAX] = {0};
+	static uint16_t btn_map[GCDB_BUTTON_MAP_SIZE] = {};
+	static uint16_t abs_map[GCDB_AXIS_MAP_SIZE] = {};
 	if (devnum != last_devnum)
 	{
 		memset(btn_map, 0xFFFF, sizeof(btn_map));

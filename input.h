@@ -65,6 +65,10 @@
 #define SYS_AXIS_MX        30
 #define SYS_AXIS_MY        31
 
+#define MAP_AXIS_MASK       0x0000FFFF
+#define MAP_FLAG_INVERT     0x00010000
+#define MAP_FLAG_ANALOG     0x00020000
+
 #define SYS_BTN_CNT_OK     21
 #define SYS_BTN_CNT_ESC    22
 
