@@ -3505,7 +3505,16 @@ static uint8_t normalize_analog_trigger(uint32_t map, int value, const input_abs
 	if (!denom)
 		return 0;
 
-	int out = ((value - released) * 255) / denom;
+	// Ignore the first and last stretch of travel, at least 5 raw values (2% of a
+	// wide range): triggers seldom rest exactly at one end or reach the other.
+	// A trigger on half of a shared centred axis gets this on its own half.
+	const int span = abs(denom);
+	int deadzone = span / 50;
+	if (deadzone < 5) deadzone = 5;
+	if (deadzone * 4 > span) deadzone = span / 4;
+
+	const int travel = (value - released) * ((denom > 0) ? 1 : -1) - deadzone;
+	int out = (travel * 255) / (span - 2 * deadzone);
 	if (out < 0) out = 0;
 	if (out > 255) out = 255;
 	return (uint8_t)out;
