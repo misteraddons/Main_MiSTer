@@ -480,6 +480,8 @@ int substrcpy(char *d, const char *s, char idx)
 
 static char cur_status[16] = {};
 static char saved_status[16] = {};
+// Bits last set automatically rather than by the user; saves keep the user's value for them.
+static char automated_status[16] = {};
 
 int user_io_status_bits(const char *opt, int *s, int *e, int ex, int single)
 {
@@ -574,6 +576,7 @@ void user_io_status_set(const char *opt, uint32_t value, int ex, int user_initia
 
 	user_io_status_set_bits(cur_status, start, end, size, value);
 	if (user_initiated) user_io_status_set_bits(saved_status, start, end, size, value);
+	user_io_status_set_bits(automated_status, start, end, size, user_initiated ? 0 : 0xffffffff);
 
 	if (!is_st())
 	{
@@ -588,6 +591,17 @@ void user_io_status_set(const char *opt, uint32_t value, int ex)
 	user_io_status_set(opt, value, ex, USER_IO_STATUS_USER);
 }
 
+int user_io_status_automated(const char *opt, int ex)
+{
+	int start, end;
+	int size = user_io_status_bits(opt, &start, &end, ex);
+	if (!size) return 0;
+
+	uint32_t x = ((uint8_t)automated_status[end / 8] << 8) | (uint8_t)automated_status[start / 8];
+	uint32_t mask = ~(0xffffffff << size);
+	return ((x >> (start % 8)) & mask) == mask;
+}
+
 int user_io_status_save(const char *filename)
 {
 	return FileSaveConfig(filename, saved_status, sizeof(saved_status));
@@ -597,6 +611,7 @@ void user_io_status_reset()
 {
 	memset(cur_status, 0, sizeof(cur_status));
 	memset(saved_status, 0, sizeof(saved_status));
+	memset(automated_status, 0, sizeof(automated_status));
 	user_io_status_set("[0]", 0);
 }
 
@@ -1540,6 +1555,7 @@ void user_io_init(const char *path, const char *xml)
 					memset(cur_status, 0, sizeof(cur_status));
 				}
 				memcpy(saved_status, cur_status, sizeof(saved_status));
+				memset(automated_status, 0, sizeof(automated_status));
 
 				user_io_status_set("[0]", 1);
 			}
@@ -2593,6 +2609,10 @@ static void check_status_change()
 			cur_status[i + 1] = (char)(x >> 8);
 		}
 		DisableIO();
+
+		// A core changing its own options is a setting change to keep; automated bits keep their saved value.
+		for (uint i = 0; i < sizeof(cur_status); i++)
+			saved_status[i] = (cur_status[i] & ~automated_status[i]) | (saved_status[i] & automated_status[i]);
 		user_io_status_set("[0]", 0);
 	}
 	else

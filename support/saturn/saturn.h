@@ -121,5 +121,7 @@ void saturn_reset();
 void saturn_fill_blanksave(uint8_t *buffer, uint32_t lba);
 int saturn_send_data(uint8_t* buf, int len, uint8_t index);
 void saturn_mount_save(const char *filename, bool is_auto = false);
+// OSD value text for the Cartridge option while it is set to Auto, e.g. "Auto (DRAM 4M)".
+int saturn_cart_option_note(const char *opt, uint32_t value, char *note, size_t note_size);
 
 #endif

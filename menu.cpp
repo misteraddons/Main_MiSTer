@@ -2115,6 +2115,10 @@ void HandleUI(void)
 
 							if (arc > 0) l = strlen(cfg.custom_aspect_ratio[arc - 1]);
 
+							char note[32];
+							const int has_note = is_saturn() && saturn_cart_option_note(p, x, note, sizeof(note));
+							if (has_note) l = strlen(note);
+
 							s[0] = ' ';
 							substrcpy(s + 1, p, 1);
 
@@ -2131,6 +2135,7 @@ void HandleUI(void)
 							while (l--) strcat(s, " ");
 
 							if (arc > 0) strcpy(s + strlen(s), cfg.custom_aspect_ratio[arc - 1]);
+							else if (has_note) strcat(s, note);
 							else substrcpy(s + strlen(s), p, 2 + x);
 
 							MenuWrite(entry, s, menusub == selentry, d);

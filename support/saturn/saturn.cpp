@@ -183,74 +183,72 @@ static int saturn_lookup_ram_cart(const char *uuid, uint32_t *cart_type)
 	return 0;
 }
 
-static int saturn_core_has_auto_ram_cart()
+enum saturn_cart_option_kind
 {
-	static const char cart_prefix[] = "O" SATURN_RAM_CART_MODE_STATUS_OPT ",Cartridge,";
+	SATURN_CART_OPTION_UNKNOWN,
+	SATURN_CART_OPTION_LEGACY, // None..BACKUP: Main selects the cart while None is chosen
+	SATURN_CART_OPTION_AUTO,   // Auto..None: Main reports the cart in SATURN_RAM_CART_AUTO_STATUS_OPT
+};
 
-	for (int i = 0; ; i++)
-	{
-		char *opt = user_io_get_confstr(i);
-		if (!opt) break;
-		if (strncmp(opt, cart_prefix, sizeof(cart_prefix) - 1)) continue;
-
-		return !strncmp(opt + sizeof(cart_prefix) - 1, "Auto,", 5);
-	}
-
-	return 0;
+// Matches the core's exact Cartridge option list. Any other list leaves the
+// cartridge alone, since its values may mean something else.
+static saturn_cart_option_kind saturn_cart_option_kind_of(const char *opt)
+{
+	if (!strcmp(opt, SATURN_RAM_CART_AUTO_OPTION)) return SATURN_CART_OPTION_AUTO;
+	if (!strcmp(opt, SATURN_RAM_CART_LEGACY_OPTION)) return SATURN_CART_OPTION_LEGACY;
+	return SATURN_CART_OPTION_UNKNOWN;
 }
 
-static void saturn_apply_ram_cart(const char *filename, const uint8_t *boot_header)
+static saturn_cart_option_kind saturn_cart_option()
 {
-	static int legacy_auto_cart_valid = 0;
-	static uint32_t legacy_auto_cart_type = SATURN_RAM_CART_NONE;
-
-	char uuid[32];
-	uint32_t cart_type = SATURN_RAM_CART_NONE;
-
-	if (!saturn_ramcart_make_uuid(boot_header, uuid, sizeof(uuid)))
+	for (int i = 2; ; i++)
 	{
-		printf("Saturn: RAM cart lookup failed, invalid boot header\n");
+		const char *opt = user_io_get_confstr(i);
+		if (!opt) break;
+
+		// Skip page and disable prefixes such as "P1" or "D0".
+		const char *cart = strstr(opt, "O" SATURN_RAM_CART_MODE_STATUS_OPT ",");
+		if (cart) return saturn_cart_option_kind_of(cart);
+	}
+
+	return SATURN_CART_OPTION_UNKNOWN;
+}
+
+// Callers only use this while a disc insert holds the core in reset, so a
+// running game never sees its cartridge change.
+static void saturn_apply_ram_cart(const char *uuid)
+{
+	const saturn_cart_option_kind option = saturn_cart_option();
+	if (option == SATURN_CART_OPTION_UNKNOWN)
+	{
+		printf("Saturn: RAM cart auto lookup skipped, core has no supported Cartridge option\n");
 		return;
 	}
 
-	user_io_write_gameid(filename, 0, uuid);
-	uint32_t cart_mode = user_io_status_get(SATURN_RAM_CART_MODE_STATUS_OPT);
-	if (saturn_core_has_auto_ram_cart())
-	{
-		legacy_auto_cart_valid = 0;
-		if (cart_mode != SATURN_RAM_CART_MODE_AUTO)
-		{
-			printf("Saturn: RAM cart auto lookup skipped, Cartridge is user-selected\n");
-			return;
-		}
-
-		user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, SATURN_RAM_CART_NONE, 0, USER_IO_STATUS_AUTOMATED);
-		if (saturn_lookup_ram_cart(uuid, &cart_type))
-		{
-			user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, cart_type, 0, USER_IO_STATUS_AUTOMATED);
-			printf("Saturn: RAM cart auto applied -> %s\n", saturn_ramcart_type_name(cart_type));
-		}
-		return;
-	}
-
-	if (cart_mode != SATURN_RAM_CART_OLD_MODE_NONE &&
-		(!legacy_auto_cart_valid || cart_mode != legacy_auto_cart_type))
+	const uint32_t cart_mode = user_io_status_get(SATURN_RAM_CART_MODE_STATUS_OPT);
+	const int automatic = (option == SATURN_CART_OPTION_AUTO) ?
+		cart_mode == SATURN_RAM_CART_MODE_AUTO :
+		cart_mode == SATURN_RAM_CART_NONE || user_io_status_automated(SATURN_RAM_CART_MODE_STATUS_OPT);
+	if (!automatic)
 	{
 		printf("Saturn: RAM cart auto lookup skipped, Cartridge is user-selected\n");
 		return;
 	}
 
-	uint32_t applied_cart_type = SATURN_RAM_CART_NONE;
-	if (saturn_lookup_ram_cart(uuid, &cart_type))
-	{
-		applied_cart_type = cart_type;
-	}
+	uint32_t cart_type = SATURN_RAM_CART_NONE;
+	saturn_lookup_ram_cart(uuid, &cart_type);
+	user_io_status_set((option == SATURN_CART_OPTION_AUTO) ? SATURN_RAM_CART_AUTO_STATUS_OPT : SATURN_RAM_CART_MODE_STATUS_OPT,
+		cart_type, 0, USER_IO_STATUS_AUTOMATED);
+	printf("Saturn: RAM cart auto applied -> %s\n", saturn_ramcart_type_name(cart_type));
+}
 
-	user_io_status_set(SATURN_RAM_CART_MODE_STATUS_OPT, applied_cart_type, 0, USER_IO_STATUS_AUTOMATED);
-	user_io_status_set(SATURN_RAM_CART_AUTO_STATUS_OPT, applied_cart_type, 0, USER_IO_STATUS_AUTOMATED);
-	legacy_auto_cart_type = applied_cart_type;
-	legacy_auto_cart_valid = 1;
-	printf("Saturn: RAM cart legacy auto applied -> %s\n", saturn_ramcart_type_name(applied_cart_type));
+int saturn_cart_option_note(const char *opt, uint32_t value, char *note, size_t note_size)
+{
+	if (value != SATURN_RAM_CART_MODE_AUTO || saturn_cart_option_kind_of(opt) != SATURN_CART_OPTION_AUTO) return 0;
+
+	snprintf(note, note_size, "Auto (%s)",
+		saturn_ramcart_type_name(user_io_status_get(SATURN_RAM_CART_AUTO_STATUS_OPT)));
+	return 1;
 }
 
 void saturn_set_image(int num, const char *filename)
@@ -308,7 +306,18 @@ void saturn_set_image(int num, const char *filename)
 			if (satcdd.GetBootHeader((uint8_t*)buf) > 0)
 			{
 				saturn_send_data((uint8_t*)buf, 256, BOOT_IO_INDEX);
-				saturn_apply_ram_cart(filename, (uint8_t*)buf);
+
+				char uuid[32];
+				if (!saturn_ramcart_make_uuid((uint8_t*)buf, uuid, sizeof(uuid)))
+				{
+					printf("Saturn: RAM cart lookup failed, invalid boot header\n");
+				}
+				else
+				{
+					user_io_write_gameid(filename, 0, uuid);
+					if (!same_game && reset_after_insert_disc) saturn_apply_ram_cart(uuid);
+					else printf("Saturn: RAM cart unchanged, disc inserted without a reset\n");
+				}
 
 				char *id = buf + 0x20;
 				if (!strncmp(id,"T-8126H",7) ||
