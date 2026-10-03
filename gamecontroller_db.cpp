@@ -45,7 +45,23 @@ static const char *sdlname_to_mister_idx[] = {
 	"asysy",
 	NULL,
 	NULL,
+	"lefttrigger",
+	"righttrigger",
+	"leftstick",
+	"rightstick",
 };
+
+#define GCDB_MAP_FLAG_DETECT_TRIGGER_DIRECTION 0x80000000U
+#define MAX_GCDB_AXIS_BASELINES 32
+
+typedef struct {
+	int fd;
+	uint8_t valid[ABS_MAX + 1];
+	int32_t value[ABS_MAX + 1];
+} controller_axis_baseline;
+
+static controller_axis_baseline axis_baselines[MAX_GCDB_AXIS_BASELINES] = {};
+static int axis_baseline_count = 0;
 
 typedef struct {
 	uint16_t id[4]; //bustype, vid, pid, version
@@ -121,11 +137,151 @@ static int find_mister_button_num(char *sdl_name, bool *idx_high)
 	return -1;
 }
 
+static bool is_axis_token(const char *btn_name)
+{
+	if (!btn_name || !btn_name[0]) return false;
+	if (btn_name[0] == 'a') return true;
+	return (btn_name[0] == '-' || btn_name[0] == '+') && btn_name[1] == 'a';
+}
+
 static bool axis_token_is_inverted(const char *btn_name)
 {
 	const size_t len = btn_name ? strlen(btn_name) : 0;
 	return len && btn_name[len - 1] == '~';
 }
+
+static uint16_t axis_from_mapped_code(int mapped_code)
+{
+	return (mapped_code >= KEY_EMU) ? ((mapped_code - KEY_EMU) >> 1) : (uint16_t)mapped_code;
+}
+
+void gcdb_reset_axis_baselines()
+{
+	memset(axis_baselines, 0, sizeof(axis_baselines));
+	axis_baseline_count = 0;
+}
+
+void gcdb_capture_axis_baseline(int dev_fd)
+{
+	if (dev_fd < 0 || axis_baseline_count >= MAX_GCDB_AXIS_BASELINES) return;
+
+	controller_axis_baseline *baseline = &axis_baselines[axis_baseline_count++];
+	memset(baseline, 0, sizeof(*baseline));
+	baseline->fd = dev_fd;
+
+	unsigned char absbits[(ABS_MAX + 8) / 8] = {};
+	if (ioctl(dev_fd, EVIOCGBIT(EV_ABS, sizeof(absbits)), absbits) < 0) return;
+
+	for (int axis = 0; axis <= ABS_MAX; axis++)
+	{
+		if (!(absbits[axis / 8] & (1 << (axis % 8)))) continue;
+
+		input_absinfo absinfo = {};
+		if (ioctl(dev_fd, EVIOCGABS(axis), &absinfo) < 0) continue;
+
+		baseline->valid[axis] = 1;
+		baseline->value[axis] = absinfo.value;
+	}
+}
+
+static int gcdb_axis_baseline_value(int dev_fd, uint16_t axis, int32_t *value)
+{
+	if (axis > ABS_MAX || !value) return 0;
+
+	for (int i = 0; i < axis_baseline_count; i++)
+	{
+		if (axis_baselines[i].fd == dev_fd && axis_baselines[i].valid[axis])
+		{
+			*value = axis_baselines[i].value[axis];
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int trigger_axis_released_near_max(int dev_fd, uint16_t axis)
+{
+	if (dev_fd < 0 || axis > ABS_MAX) return 0;
+
+	input_absinfo absinfo = {};
+	if (ioctl(dev_fd, EVIOCGABS(axis), &absinfo) < 0) return 0;
+
+	const int range = absinfo.maximum - absinfo.minimum;
+	if (range <= 1) return 0;
+
+	const int edge_threshold = (range / 8) > 4 ? (range / 8) : 4;
+	int32_t released_value = absinfo.value;
+	gcdb_axis_baseline_value(dev_fd, axis, &released_value);
+	return released_value >= (absinfo.maximum - edge_threshold);
+}
+
+static uint32_t trigger_axis_map_from_token(const char *btn_name, int mapped_code)
+{
+	if (!is_axis_token(btn_name)) return 0;
+
+	const uint16_t axis = axis_from_mapped_code(mapped_code);
+	if (axis > ABS_MAX) return 0;
+
+	const bool inverted = axis_token_is_inverted(btn_name);
+	uint32_t map = axis | MAP_FLAG_ANALOG | MAP_FLAG_TRIGGER;
+	if (btn_name[0] == '-' || btn_name[0] == '+')
+	{
+		map |= MAP_FLAG_CENTERED;
+		if ((btn_name[0] == '-') != inverted) map |= MAP_FLAG_NEGATIVE;
+	}
+	else if (inverted)
+	{
+		map |= MAP_FLAG_NEGATIVE;
+	}
+	else map |= GCDB_MAP_FLAG_DETECT_TRIGGER_DIRECTION;
+
+	return map;
+}
+
+static int trigger_button_code_from_axis_map(uint32_t axis_map)
+{
+	if (!axis_map) return -1;
+	return KEY_EMU + ((axis_map & MAP_AXIS_MASK) << 1) + ((axis_map & MAP_FLAG_NEGATIVE) ? 0 : 1);
+}
+
+static void resolve_trigger_axis_directions(int dev_fd, uint32_t *map)
+{
+	for (int trigger = 0; trigger < 2; trigger++)
+	{
+		const int axis_idx = SYS_AXIS_L2 + trigger;
+		uint32_t axis_map = map[axis_idx];
+		if (!(axis_map & GCDB_MAP_FLAG_DETECT_TRIGGER_DIRECTION)) continue;
+
+		axis_map &= ~(GCDB_MAP_FLAG_DETECT_TRIGGER_DIRECTION | MAP_FLAG_NEGATIVE);
+		if (trigger_axis_released_near_max(dev_fd, axis_map & MAP_AXIS_MASK))
+			axis_map |= MAP_FLAG_NEGATIVE;
+
+		map[axis_idx] = axis_map;
+		map[SYS_BTN_L2 + trigger] = trigger_button_code_from_axis_map(axis_map);
+	}
+}
+
+static bool print_axis_mapping(const char *sdlname, uint32_t axis_map, uint16_t *abs_map)
+{
+	if (!axis_map) return false;
+
+	const uint16_t axis_idx = axis_map & MAP_AXIS_MASK;
+	for (unsigned int j = 0; j < GCDB_AXIS_MAP_SIZE; j++)
+	{
+		if (abs_map[j] == axis_idx)
+		{
+			if (axis_map & MAP_FLAG_CENTERED)
+				printf("%s:%ca%d,", sdlname, (axis_map & MAP_FLAG_NEGATIVE) ? '-' : '+', j);
+			else
+				printf("%s:a%d%s,", sdlname, j, (axis_map & MAP_FLAG_NEGATIVE) ? "~" : "");
+			return true;
+		}
+	}
+
+	return false;
+}
+
 
 static int parse_mapping_index(const char *text, int max_index, const char **suffix)
 {
@@ -307,6 +463,12 @@ void gcdb_show_string_for_ctrl_map(uint16_t bustype, uint16_t vid, uint16_t pid,
 			if (i >= (int)(sizeof(sdlname_to_mister_idx)/sizeof(sdlname_to_mister_idx[0]))) continue;
 			const char *sdlname = sdlname_to_mister_idx[i];
 			if (!sdlname) continue;
+			if (i == SYS_BTN_L2 || i == SYS_BTN_R2)
+			{
+				const int trigger_axis_idx = SYS_AXIS_L2 + (i - SYS_BTN_L2);
+				if (print_axis_mapping(sdlname, cur_map[trigger_axis_idx], abs_map))
+					continue;
+			}
 			if (cur_map[i])
 			{
 				uint32_t i_code = cur_map[i] & 0xFFFF;
@@ -425,7 +587,17 @@ static bool parse_mapping_string(char *map_str, char *guid, int dev_fd, uint32_t
 				if (m_button_num != -1 && l_button_code != -1)
 				{
 					map_parsed = true;
-					fill_map[m_button_num] =  m_button_high ? ((l_button_code << 16) | fill_map[m_button_num]) : ((l_button_code & 0xFFFF)  | fill_map[m_button_num]);
+					if ((m_button_num == SYS_BTN_L2 || m_button_num == SYS_BTN_R2) && is_axis_token(l_btn))
+					{
+						const int trigger_axis_idx = SYS_AXIS_L2 + (m_button_num - SYS_BTN_L2);
+						fill_map[trigger_axis_idx] = trigger_axis_map_from_token(l_btn, l_button_code);
+						if (fill_map[trigger_axis_idx])
+							fill_map[m_button_num] = trigger_button_code_from_axis_map(fill_map[trigger_axis_idx]);
+					}
+					else
+					{
+						fill_map[m_button_num] =  m_button_high ? ((l_button_code << 16) | fill_map[m_button_num]) : ((l_button_code & 0xFFFF)  | fill_map[m_button_num]);
+					}
 					if (m_button_num >= SYS_AXIS1_X && m_button_num <= SYS_AXIS_Y)
 					{
 						fill_map[m_button_num] = l_button_code | MAP_FLAG_ANALOG |
@@ -580,6 +752,7 @@ bool gcdb_map_for_controller(uint16_t bustype, uint16_t vid, uint16_t pid, uint1
 		if (cache_idx != -1)
 		{
 			memcpy(fill_map, db_maps[cache_idx].map, sizeof(uint32_t)*NUMBUTTONS);
+			resolve_trigger_axis_directions(dev_fd, fill_map);
 
 			return true;
 		}
@@ -598,7 +771,9 @@ bool gcdb_map_for_controller(uint16_t bustype, uint16_t vid, uint16_t pid, uint1
 
 		if (found_entry)
 		{
+			// Cache unresolved maps so each physical device supplies its own trigger polarity.
 			gcdb_cache_controller_map(bustype, vid, pid, version, fill_map);
+			resolve_trigger_axis_directions(dev_fd, fill_map);
 			return true;
 		}
 		return false;

@@ -4379,6 +4379,18 @@ void HandleUI(void)
 			else if (map_hold_feedback) subtitle = map_hold_feedback;
 			else if (map_feedback) subtitle = map_feedback;
 
+			// Live bar while an analog trigger is held at the L2/R2 prompt.
+			char trigger_bar[32];
+			const int trigger_level = get_map_trigger_level();
+			if (!subtitle && !show_hold_feedback_in_prompt && trigger_level >= 0)
+			{
+				const int filled = (trigger_level * 16 + 127) / 255;
+				strcpy(trigger_bar, "Analog [");
+				for (int i = 0; i < 16; i++) strcat(trigger_bar, (i < filled) ? "#" : "-");
+				strcat(trigger_bar, "]");
+				subtitle = trigger_bar;
+			}
+
 			if (get_map_button() >= 0)
 			{
 				if (show_hold_feedback_in_prompt)
@@ -7730,6 +7742,10 @@ void HandleUI(void)
 			strcpy(joy_bnames[SYS_BTN_Y - DPAD_NAMES], "Y");
 			strcpy(joy_bnames[SYS_BTN_L - DPAD_NAMES], "L");
 			strcpy(joy_bnames[SYS_BTN_R - DPAD_NAMES], "R");
+			strcpy(joy_bnames[SYS_MAP_BTN_L2 - DPAD_NAMES], "L2");
+			strcpy(joy_bnames[SYS_MAP_BTN_L2 - DPAD_NAMES + 1], "R2");
+			strcpy(joy_bnames[SYS_MAP_BTN_L2 - DPAD_NAMES + 2], "L3");
+			strcpy(joy_bnames[SYS_MAP_BTN_L2 - DPAD_NAMES + 3], "R3");
 			strcpy(joy_bnames[SYS_MAP_BTN_SELECT - DPAD_NAMES], "Select");
 			strcpy(joy_bnames[SYS_MAP_BTN_SELECT - DPAD_NAMES + 1], "Start");
 			strcpy(joy_bnames[SYS_MAP_POS_OSD - DPAD_NAMES], "Menu");

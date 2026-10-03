@@ -31,8 +31,8 @@
 
 #define NUMPLAYERS          6
 
-#define NUMBUTTONS         32
-#define BUTTON_DPAD_COUNT  12 // dpad + 8 buttons
+#define NUMBUTTONS         38
+#define BUTTON_DPAD_COUNT  16 // dpad + 12 buttons
 
 #define SYS_BTN_RIGHT       0
 #define SYS_BTN_LEFT        1
@@ -64,16 +64,26 @@
 #define SYS_AXIS_Y         29
 #define SYS_AXIS_MX        30
 #define SYS_AXIS_MY        31
+#define SYS_BTN_L2         32
+#define SYS_BTN_R2         33
+#define SYS_BTN_L3         34
+#define SYS_BTN_R3         35
+#define SYS_AXIS_L2        36
+#define SYS_AXIS_R2        37
 
 #define MAP_AXIS_MASK       0x0000FFFF
 #define MAP_FLAG_INVERT     0x00010000
 #define MAP_FLAG_ANALOG     0x00020000
+#define MAP_FLAG_TRIGGER    0x00040000
+#define MAP_FLAG_CENTERED   0x00080000
+#define MAP_FLAG_NEGATIVE   0x00100000
 
 // Positions of the Menu mapping prompts
-#define SYS_MAP_BTN_SELECT 10
-#define SYS_MAP_POS_OSD    12
-#define SYS_MAP_AXIS_X     15
-#define SYS_MAP_AXIS_Y     16
+#define SYS_MAP_BTN_L2     10
+#define SYS_MAP_BTN_SELECT 14
+#define SYS_MAP_POS_OSD    16
+#define SYS_MAP_AXIS_X     19
+#define SYS_MAP_AXIS_Y     20
 
 #define SYS_BTN_CNT_OK     21
 #define SYS_BTN_CNT_ESC    22
@@ -137,7 +147,10 @@ void send_map_cmd(int key);
 void trigger_map_clear();
 int poll_map_hold_action();
 int get_map_active();
+// 0..255 travel of the analog trigger held at the L2/R2 Menu prompt, or -1.
+int get_map_trigger_level();
 void reset_players();
+void input_analog_triggers_resync(int suppress);
 
 uint32_t get_key_mod();
 uint32_t get_ps2_code(uint16_t key);
