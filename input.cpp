@@ -3989,6 +3989,13 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				gcdb_show_string_for_ctrl_map(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, input[sub_dev].name, input[dev].mmap);
 			}
 
+			// process_joycon() already flips the stick axes of a single Joy-Con, and
+			// gamecontrollerdb marks the same axes inverted, which would flip them back.
+			if (input[dev].quirk == QUIRK_JOYCON)
+			{
+				for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; i++) input[dev].mmap[i] &= ~MAP_FLAG_INVERT;
+			}
+
 			if (input[dev].quirk == QUIRK_WHEEL)
 			{
 				input[dev].mmap[SYS_AXIS_MX] = -1;
