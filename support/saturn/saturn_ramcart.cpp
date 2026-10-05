@@ -53,12 +53,6 @@ bool saturn_ramcart_parse_db_line(const char *line, const char *uuid, uint32_t *
 		return true;
 	}
 
-	if (!strcasecmp(db_cart, "BACKUP"))
-	{
-		*cart_type = SATURN_RAM_CART_BACKUP;
-		return true;
-	}
-
 	return false;
 }
 
@@ -70,8 +64,6 @@ const char *saturn_ramcart_type_name(uint32_t cart_type)
 		return "DRAM 1M";
 	case SATURN_RAM_CART_4M:
 		return "DRAM 4M";
-	case SATURN_RAM_CART_BACKUP:
-		return "Backup RAM";
 	default:
 		return "None";
 	}
