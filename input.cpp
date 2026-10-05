@@ -3031,6 +3031,13 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			}
 			if (!input[dev].mmap[SYS_BTN_OSD_KTGL + 2]) input[dev].mmap[SYS_BTN_OSD_KTGL + 2] = input[dev].mmap[SYS_BTN_OSD_KTGL + 1];
 
+			// process_joycon() already flips the stick axes of a single Joy-Con, and
+			// gamecontrollerdb marks the same axes inverted, which would flip them back.
+			if (input[dev].quirk == QUIRK_JOYCON)
+			{
+				for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; i++) input[dev].mmap[i] &= ~MAP_FLAG_INVERT;
+			}
+
 			if (input[dev].quirk == QUIRK_WHEEL)
 			{
 				input[dev].mmap[SYS_AXIS_MX] = -1;
