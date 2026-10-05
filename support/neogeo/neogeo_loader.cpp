@@ -306,7 +306,7 @@ static uint32_t load_rom_to_mem(const char* path, const char* name, uint8_t neo_
 		if (partsz > LOADBUF_SZ) partsz = LOADBUF_SZ;
 
 		uint32_t partszf = remainf;
-		if (partszf > LOADBUF_SZ) partszf = LOADBUF_SZ;
+		if (partszf > partsz) partszf = partsz;
 
 		//printf("partsz=%d, map_addr=0x%X\n", partsz, map_addr);
 		void *base = shmem_map(map_addr, partsz);
@@ -338,6 +338,7 @@ static uint32_t load_rom_to_mem(const char* path, const char* name, uint8_t neo_
 		ProgressMessage("Loading", dispname, size - (remain - partsz), size);
 
 		shmem_unmap(base, partsz);
+		remainf -= partszf;
 		remain -= partsz;
 		map_addr += partsz;
 	}
