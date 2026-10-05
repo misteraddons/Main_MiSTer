@@ -2189,12 +2189,17 @@ static int reserve_tmp_axis_slots_for_pos(int pos)
 	return tmp_axis_n < (int)(sizeof(tmp_axis) / sizeof(tmp_axis[0]));
 }
 
-static int append_tmp_axis_for_pos(int pos, uint16_t axis)
+static int append_tmp_axis_for_pos(int pos, uint16_t axis, int invert)
 {
 	if (!reserve_tmp_axis_slots_for_pos(pos)) return 0;
-	tmp_axis[tmp_axis_n++] = axis | MAP_FLAG_ANALOG;
+	tmp_axis[tmp_axis_n++] = axis | MAP_FLAG_ANALOG | (invert ? MAP_FLAG_INVERT : 0);
 	return 1;
 }
+
+// Axes seen near their centre during the current mapping session. Reaching the
+// minimum maps an axis as inverted only after it passed the centre: sticks rest
+// there, while a resting trigger sits at its minimum and must not be taken.
+static uint64_t mapping_axis_centred = 0;
 
 static int grabbed = 1;
 
@@ -2493,6 +2498,7 @@ void start_map_setting(int cnt, int set, advancedButtonMap *abm_store)
 	mapping_finish = 0;
 	tmp_axis_n = 0;
 	memset(tmp_axis_stage_count, 0, sizeof(tmp_axis_stage_count));
+	mapping_axis_centred = 0;
 	clear_mapping_trigger_capture();
 
 	if (mapping_type <= 1 && is_menu()) mapping_button = menu_mouse_map ? SYS_BTN_A : -6;
@@ -3891,6 +3897,35 @@ static uint16_t def_mmap[] = {
 	0x0000, 0x0000, 0x0000, 0x0000
 };
 
+// Before v4 maps, Main flipped one stick axis of a single Joy-Con held sideways
+// (raw X on the left one, raw RY on the right one) before mapping saw it. v3 maps
+// and the default map assume that flip, so carry it in the map instead: invert the
+// axis where it is used as an analog axis, and swap its two directions where it
+// is used as buttons. system_map selects whether the analog slots exist in map.
+static void joycon_convert_flipped_map(int dev, uint32_t *map, int system_map)
+{
+	if (input[dev].quirk != QUIRK_JOYCON || JOYCON_COMBO(dev)) return;
+
+	const uint16_t axis = JOYCON_LEFT(dev) ? ABS_X : ABS_RY;
+	const uint32_t key_min = KEY_EMU + (axis << 1);
+	const uint32_t key_max = key_min + 1;
+
+	for (int i = 0; i < NUMBUTTONS; i++)
+	{
+		if (system_map && ((i >= SYS_AXIS1_X && i <= SYS_AXIS_MY) || i == SYS_AXIS_L2 || i == SYS_AXIS_R2))
+		{
+			if ((map[i] & MAP_FLAG_ANALOG) && map_axis_code(map[i]) == axis) map[i] ^= MAP_FLAG_INVERT;
+			continue;
+		}
+
+		uint32_t lo = map[i] & 0xFFFF;
+		uint32_t hi = map[i] >> 16;
+		if (lo == key_min) lo = key_max; else if (lo == key_max) lo = key_min;
+		if (hi == key_min) hi = key_max; else if (hi == key_max) hi = key_min;
+		map[i] = (hi << 16) | lo;
+	}
+}
+
 static void assign_player(int dev, int num, int force = 0)
 {
 	input[dev].num = num;
@@ -3963,6 +3998,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		{
 			char legacy_name[1024];
 			int loaded_saved_map = 0;
+			int joycon_flipped_map = 0;
 			memset(input[dev].mmap, 0, sizeof(input[dev].mmap));
 			build_map_name(legacy_name, dev, 1, 3);
 			if (load_map(get_map_name(dev, 1), &input[dev].mmap, sizeof(input[dev].mmap)))
@@ -3974,14 +4010,17 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				if (load_map(legacy_name, &input[dev].mmap, sizeof(input[dev].mmap)))
 				{
 					loaded_saved_map = 1;
+					joycon_flipped_map = 1;
 				}
 				else if (!gcdb_map_for_controller(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, input[dev].mmap))
 				{
 					memset(input[dev].mmap, 0, sizeof(input[dev].mmap));
 					memcpy(input[dev].mmap, def_mmap, sizeof(def_mmap));
+					joycon_flipped_map = 1;
 					//input[dev].has_mmap++;
 				}
 			}
+			if (joycon_flipped_map) joycon_convert_flipped_map(dev, input[dev].mmap, 1);
 
 			if (!input[dev].mmap[SYS_BTN_OSD_KTGL + 2]) input[dev].mmap[SYS_BTN_OSD_KTGL + 2] = input[dev].mmap[SYS_BTN_OSD_KTGL + 1];
 			if (loaded_saved_map)
@@ -3989,9 +4028,9 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				gcdb_show_string_for_ctrl_map(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, input[sub_dev].name, input[dev].mmap);
 			}
 
-			// process_joycon() already flips the stick axes of a single Joy-Con, and
-			// gamecontrollerdb marks the same axes inverted, which would flip them back.
-			if (input[dev].quirk == QUIRK_JOYCON)
+			// gamecontrollerdb's Joy-Con entries describe a single Joy-Con held sideways;
+			// combined Joy-Cons have never used their stick inversion.
+			if (JOYCON_COMBINED(dev))
 			{
 				for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; i++) input[dev].mmap[i] &= ~MAP_FLAG_INVERT;
 			}
@@ -4063,6 +4102,10 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						}
 					}
 					input[dev].has_map++;
+				}
+				else
+				{
+					joycon_convert_flipped_map(dev, input[dev].map, is_menu());
 				}
 			}
 		}
@@ -4477,29 +4520,33 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 			if (mapping_dev == dev || (mapping_dev < 0 && mapping_button < 0))
 			{
-				int max = 0; // , min = 0;
+				int max = 0, min = 0;
 
 				if (ev->type == EV_ABS)
 				{
 					int threshold = (absinfo->maximum - absinfo->minimum) / 5;
+					const int centre = (absinfo->minimum + absinfo->maximum) / 2;
 
 					max = (ev->value >= (absinfo->maximum - threshold));
-					//min = (ev->value <= (absinfo->minimum + threshold));
-					//printf("threshold=%d, min=%d, max=%d\n", threshold, min, max);
+					if (ev->code <= ABS_MAX && abs(ev->value - centre) <= threshold) mapping_axis_centred |= 1ULL << ev->code;
+
+					// An analog axis that moved from its centre to its minimum maps inverted.
+					min = absinfo->maximum > 2 && ev->code <= ABS_MAX && (mapping_axis_centred & (1ULL << ev->code)) &&
+						(ev->value <= (absinfo->minimum + threshold));
 				}
 
 				//check DPAD horz
 				if (mapping_button == -6)
 				{
 					mapping_last_axis = 0;
-					if (ev->type == EV_ABS && max)
+					if (ev->type == EV_ABS && (max || min))
 					{
 						claim_mapping_device(dev);
 						mapping_type = 1;
 
 						if (absinfo->maximum > 2)
 						{
-							tmp_axis[tmp_axis_n++] = ev->code | MAP_FLAG_ANALOG;
+							tmp_axis[tmp_axis_n++] = ev->code | MAP_FLAG_ANALOG | (min ? MAP_FLAG_INVERT : 0);
 							mapping_button++;
 						}
 						else
@@ -4527,9 +4574,9 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				//check DPAD vert
 				else if (mapping_button == -5)
 				{
-					if (ev->type == EV_ABS && max && absinfo->maximum > 1 && ev->code != (tmp_axis[0] & 0xFFFF))
+					if (ev->type == EV_ABS && (max || min) && absinfo->maximum > 1 && ev->code != (tmp_axis[0] & 0xFFFF))
 					{
-						tmp_axis[tmp_axis_n++] = ev->code | MAP_FLAG_ANALOG;
+						tmp_axis[tmp_axis_n++] = ev->code | MAP_FLAG_ANALOG | (min ? MAP_FLAG_INVERT : 0);
 						mapping_button++;
 					}
 				}
@@ -4538,14 +4585,13 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				{
 					claim_mapping_device(dev);
 
-					if (idx && max && absinfo->maximum > 2)
+					if (idx && (max || min) && absinfo->maximum > 2)
 					{
 						if (mapping_button < 0)
 						{
-							if (!tmp_axis_contains_axis(ev->code) && append_tmp_axis_for_pos(mapping_button, ev->code))
+							if (!tmp_axis_contains_axis(ev->code) && append_tmp_axis_for_pos(mapping_button, ev->code, min))
 							{
 								mapping_type = 1;
-								//if (min) tmp_axis[idx - AXIS1_X] |= 0x10000;
 								mapping_button++;
 								if (tmp_axis_n >= 4) mapping_button = 0;
 								mapping_last_axis = KEY_EMU + (ev->code << 1);
@@ -4555,8 +4601,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						{
 							if (idx == SYS_AXIS_X || ev->code != (input[dev].map[idx - 1] & 0xFFFF))
 							{
-								input[dev].map[idx] = ev->code | MAP_FLAG_ANALOG;
-								//if (min) input[dev].map[idx] |= 0x10000;
+								input[dev].map[idx] = ev->code | MAP_FLAG_ANALOG | (min ? MAP_FLAG_INVERT : 0);
 								mapping_button++;
 							}
 						}
@@ -4954,14 +4999,14 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				if (ev->code == (input[dev].mmap[SYS_AXIS_MX] & 0xFFFF) && mouse_emu)
 				{
 					mouse_emu_x = 0;
-					if (value < -1 || value > 1) mouse_emu_x = value;
+					if (value < -1 || value > 1) mouse_emu_x = map_axis_offset(input[dev].mmap[SYS_AXIS_MX], value);
 					mouse_emu_x /= 12;
 					return;
 				}
 				else if (ev->code == (input[dev].mmap[SYS_AXIS_MY] & 0xFFFF) && mouse_emu)
 				{
 					mouse_emu_y = 0;
-					if (value < -1 || value > 1) mouse_emu_y = value;
+					if (value < -1 || value > 1) mouse_emu_y = map_axis_offset(input[dev].mmap[SYS_AXIS_MY], value);
 					mouse_emu_y /= 12;
 					return;
 				}
@@ -5760,13 +5805,9 @@ void check_joycon()
 
 int process_joycon(int dev, input_event *ev, input_absinfo *absinfo)
 {
-	if (ev->type == EV_ABS)
-	{
-		if (JOYCON_COMBO(dev)) return 0;
-		if (ev->code == 4 && JOYCON_RIGHT(dev)) ev->value = -ev->value;
-		if (ev->code == 0 && JOYCON_LEFT(dev)) ev->value = -ev->value;
-		return 0;
-	}
+	// A single Joy-Con's sideways stick orientation comes from its map
+	// (gamecontrollerdb or a v4 map); see joycon_convert_flipped_map().
+	if (ev->type == EV_ABS) return 0;
 
 	int mask = 0;
 
