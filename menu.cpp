@@ -2782,6 +2782,15 @@ void HandleUI(void)
 				if (mgl->item[mgl->current].path[0] == '/') snprintf(selPath, sizeof(selPath), "%s", mgl->item[mgl->current].path);
 				else snprintf(selPath, sizeof(selPath), "%s/%s", HomeDir(((is_pce() && !strncasecmp(fs_pFileExt, "CUE", 3)) ? PCECD_DIR : NULL)), mgl->item[mgl->current].path);
 
+				// An MRA's media only fills an empty slot, and only with a file that exists.
+				if (mgl->mra && (get_image_name(ioctl_index) || !FileExists(selPath)))
+				{
+					menustate = MENU_GENERIC_MAIN1;
+					mgl->state = 3;
+					MenuHide();
+					break;
+				}
+
 				// Update /tmp/ files to reflect the actual image being loaded by MGL
 				if (cfg.log_file_entry)
 				{

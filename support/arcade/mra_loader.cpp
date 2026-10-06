@@ -1189,6 +1189,7 @@ void arcade_pre_parse(const char *xml)
 
 	sax.all_event = xml_read_pre_parse;
 	XMLDoc_parse_file_SAX(xml, &sax, NULL);
+	mgl_parse(xml)->mra = (isXmlName(xml) == 1);
 }
 
 bool arcade_is_vertical()
@@ -1340,7 +1341,7 @@ static int scan_mgl(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const in
 		break;
 
 	case XML_EVENT_START_NODE:
-		if (!strcasecmp(node->tag, "mistergamedescription")) inside_mgl = 1;
+		if (!strcasecmp(node->tag, "mistergamedescription") || !strcasecmp(node->tag, "misterromdescription")) inside_mgl = 1;
 		else if (inside_mgl && mgl.count < (int)(sizeof(mgl.item) / sizeof(mgl.item[0])))
 		{
 			if (!strcasecmp(node->tag, "file"))
@@ -1418,7 +1419,7 @@ static int scan_mgl(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, const in
 		break;
 
 	case XML_EVENT_END_NODE:
-		if (!strcasecmp(node->tag, "mistergamedescription")) inside_mgl = 0;
+		if (!strcasecmp(node->tag, "mistergamedescription") || !strcasecmp(node->tag, "misterromdescription")) inside_mgl = 0;
 		break;
 
 	case XML_EVENT_ERROR:

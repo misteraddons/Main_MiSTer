@@ -53,6 +53,7 @@ struct mgl_struct
 	uint32_t timer;
 	int  state;
 	int  done;
+	int  mra;
 };
 
 sw_struct *arcade_sw();
