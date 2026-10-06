@@ -722,6 +722,26 @@ int user_io_get_joy_transl()
 static int use_cheats = 0;
 static uint32_t ss_base = 0;
 static uint32_t ss_size = 0;
+
+// SDDR (CONF_STR entry 1 "SDDR<base>", hex): the core reads sectors from DDR3.
+// Each sector read is copied to <base> + disk * UIO_BUFFER_SIZE and
+// acknowledged with no data words; the core sees sd_ack rise and fall with no
+// sd_buff_wr and fetches the data through its DDRAM port. Writes are
+// unchanged. A core without the token gets the words as before.
+static uint32_t sddr_base = 0;
+static uint8_t *sddr_mem = 0;
+#define SDDR_SIZE (16 * UIO_BUFFER_SIZE)
+
+static int sddr_map()
+{
+	if (!sddr_mem && sddr_base)
+	{
+		sddr_mem = (uint8_t *)shmem_map(fpga_mem(sddr_base), SDDR_SIZE);
+		if (!sddr_mem) sddr_base = 0;
+	}
+	return sddr_mem != 0;
+}
+
 static uint32_t uart_speeds[13] = {};
 static char uart_speed_labels[13][32] = {};
 static uint32_t midi_speeds[13] = {};
@@ -783,6 +803,22 @@ static void parse_config()
 						ss_size = 0;
 						ss_base = 0;
 						printf("Invalid base!\n");
+					}
+				}
+
+				if (!strncasecmp(p, "SDDR", 4))
+				{
+					char *end = 0;
+					uint32_t base = strtoul(p + 4, &end, 16);
+					p = end;
+					if (base >= 0x20000000 && base < 0x40000000 && (0x40000000 - base) >= SDDR_SIZE && !(base & 7))
+					{
+						sddr_base = base;
+						printf("Got SDDR base=0x%X\n", sddr_base);
+					}
+					else
+					{
+						printf("Invalid SDDR base 0x%X!\n", base);
 					}
 				}
 
@@ -3680,10 +3716,21 @@ void user_io_poll()
 				}
 
 				// data is now stored in buffer. send it to fpga
-				EnableIO();
-				spi_w(UIO_SECTOR_RD | ack);
-				spi_block_write(buffer[disk] + offset, fio_size, sz);
-				DisableIO();
+				if (sddr_base && sz <= UIO_BUFFER_SIZE && sddr_map())
+				{
+					memcpy(sddr_mem + disk * UIO_BUFFER_SIZE, buffer[disk] + offset, sz);
+					__sync_synchronize();
+					EnableIO();
+					spi_w(UIO_SECTOR_RD | ack);
+					DisableIO();
+				}
+				else
+				{
+					EnableIO();
+					spi_w(UIO_SECTOR_RD | ack);
+					spi_block_write(buffer[disk] + offset, fio_size, sz);
+					DisableIO();
+				}
 
 				if (sd_image[disk].type == 2)
 				{
