@@ -723,14 +723,55 @@ static int use_cheats = 0;
 static uint32_t ss_base = 0;
 static uint32_t ss_size = 0;
 
-// SDDR (CONF_STR entry 1 "SDDR<base>", hex): the core reads sectors from DDR3.
+// SDDR (CONF_STR entry 1 "SDDR<base>[:<disable bit>]"): hex DDR3 base,
+// optional decimal status bit (0 = DDR3, 1 = ordinary SPI words).
 // Each sector read is copied to <base> + disk * UIO_BUFFER_SIZE and
 // acknowledged with no data words; the core sees sd_ack rise and fall with no
 // sd_buff_wr and fetches the data through its DDRAM port. Writes are
 // unchanged. A core without the token gets the words as before.
 static uint32_t sddr_base = 0;
 static uint8_t *sddr_mem = 0;
+static char sddr_disable_opt[8] = {};
 #define SDDR_SIZE (16 * UIO_BUFFER_SIZE)
+
+static char *sddr_parse(char *p)
+{
+	char *end = 0;
+	unsigned long base = strtoul(p + 4, &end, 16);
+	bool valid = base >= 0x20000000 && base < 0x40000000 &&
+		(0x40000000 - base) >= SDDR_SIZE && !(base & 7) &&
+		((p[4] >= '0' && p[4] <= '9') || (p[4] >= 'a' && p[4] <= 'f') ||
+		 (p[4] >= 'A' && p[4] <= 'F'));
+	sddr_base = 0;
+	sddr_disable_opt[0] = 0;
+	if (*end == ':')
+	{
+		char *option = end + 1;
+		unsigned long bit = strtoul(option, &end, 10);
+		if (*option < '0' || *option > '9' || bit > 127) valid = false;
+		else snprintf(sddr_disable_opt, sizeof(sddr_disable_opt), "[%lu]", bit);
+	}
+	if (*end && *end != ',') valid = false;
+	if (valid)
+	{
+		sddr_base = (uint32_t)base;
+		printf("Got SDDR base=0x%X disable=%s\n", sddr_base,
+			sddr_disable_opt[0] ? sddr_disable_opt : "none");
+	}
+	else
+	{
+		sddr_disable_opt[0] = 0;
+		printf("Invalid SDDR parameters!\n");
+	}
+	return end;
+}
+
+static bool sddr_enabled()
+{
+	// Resolve after saved status has loaded, once per sector data phase. Do
+	// not cancel an acknowledgement already sent with either transport.
+	return sddr_base && (!sddr_disable_opt[0] || !user_io_status_get(sddr_disable_opt));
+}
 
 static int sddr_map()
 {
@@ -808,18 +849,7 @@ static void parse_config()
 
 				if (!strncasecmp(p, "SDDR", 4))
 				{
-					char *end = 0;
-					uint32_t base = strtoul(p + 4, &end, 16);
-					p = end;
-					if (base >= 0x20000000 && base < 0x40000000 && (0x40000000 - base) >= SDDR_SIZE && !(base & 7))
-					{
-						sddr_base = base;
-						printf("Got SDDR base=0x%X\n", sddr_base);
-					}
-					else
-					{
-						printf("Invalid SDDR base 0x%X!\n", base);
-					}
+					p = sddr_parse(p);
 				}
 
 				if (!strncasecmp(p, "UART", 4))
@@ -3716,7 +3746,7 @@ void user_io_poll()
 				}
 
 				// data is now stored in buffer. send it to fpga
-				if (sddr_base && sz <= UIO_BUFFER_SIZE && sddr_map())
+				if (sddr_enabled() && sz <= UIO_BUFFER_SIZE && sddr_map())
 				{
 					memcpy(sddr_mem + disk * UIO_BUFFER_SIZE, buffer[disk] + offset, sz);
 					__sync_synchronize();
