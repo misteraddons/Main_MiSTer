@@ -1,0 +1,311 @@
+// Production-linked host regressions. No device or on-disk configuration writes.
+#include "../input.cpp"
+#include <map>
+#include <string>
+#include <vector>
+#include "joymap_test_seams.h"
+
+static std::map<std::string, std::vector<unsigned char> > configs;
+char is_menu() { return 1; }
+int FileSaveConfig(const char *name, void *data, int size)
+{
+	const unsigned char *bytes = (const unsigned char *)data;
+	configs[name] = std::vector<unsigned char>(bytes, bytes + size);
+	return size;
+}
+int FileLoadConfig(const char *name, void *data, int size)
+{
+	auto found = configs.find(name);
+	if (found == configs.end()) return 0;
+	if (data) memcpy(data, found->second.data(), std::min((size_t)size, found->second.size()));
+	return (int)found->second.size();
+}
+int FileDeleteConfig(const char *name) { configs.erase(name); return 1; }
+
+extern "C" uint32_t joymap_test_trigger(const char *);
+extern "C" uint32_t joymap_test_cached_trigger(int, const char *, int);
+extern "C" int joymap_test_trigger_code(uint32_t);
+extern "C" bool joymap_test_export(uint32_t, const char *);
+extern "C" bool joymap_test_cached_trigger_pair(const char *, const char *, int, uint32_t *);
+
+static int failures;
+static int checks;
+static void check(bool passed, const char *name)
+{
+	++checks;
+	printf("%s: %s\n", passed ? "PASS" : "FAIL", name);
+	if (!passed) ++failures;
+}
+
+static void mouse_session_tests()
+{
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].mmap[SYS_BTN_A] = BTN_A;
+	input[0].mmap[SYS_AXIS_L2] = ABS_Z | MAP_FLAG_TRIGGER | MAP_FLAG_ANALOG;
+	input[0].mmap[SYS_AXIS_R2] = ABS_RZ | MAP_FLAG_TRIGGER | MAP_FLAG_ANALOG;
+	input[0].mmap[SYS_MS_BTN_L] = BTN_LEFT;
+	mapping_dev = -1;
+	set_menu_mouse_map(1);
+	claim_mapping_device(0);
+	input[0].map[SYS_MS_BTN_L] = BTN_RIGHT;
+	uint32_t reloaded[NUMBUTTONS] = {};
+	save_map("fixture_v4.map", input[0].map, sizeof(input[0].map));
+	load_map("fixture_v4.map", reloaded, sizeof(reloaded));
+	check(reloaded[SYS_BTN_A] == BTN_A && reloaded[SYS_AXIS_L2] == input[0].mmap[SYS_AXIS_L2] &&
+		reloaded[SYS_AXIS_R2] == input[0].mmap[SYS_AXIS_R2] && reloaded[SYS_MS_BTN_L] == BTN_RIGHT,
+		"1 mouse-only claim/save/load retains effective GCDB joypad and triggers");
+	uint32_t map[NUMBUTTONS] = {};
+	map[SYS_AXIS_L2] = input[0].mmap[SYS_AXIS_L2];
+	map[SYS_AXIS_R2] = input[0].mmap[SYS_AXIS_R2];
+	clear_mapping_slot_for_pos(map, SYS_MAP_BTN_L2);
+	clear_mapping_slot_for_pos(map, SYS_MAP_BTN_L2 + 1);
+	check(map[SYS_AXIS_L2] && map[SYS_AXIS_R2], "2 mouse skip retains both trigger axes");
+	memcpy(input[0].map, map, sizeof(map));
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_count = 12; mapping_button = 12;
+	step_back_map_setting();
+	step_back_map_setting();
+	check(input[0].map[SYS_AXIS_L2] && input[0].map[SYS_AXIS_R2], "2 mouse back retains both trigger axes");
+	set_menu_mouse_map(0);
+	map[SYS_AXIS_L2] = ABS_Z | MAP_FLAG_TRIGGER | MAP_FLAG_ANALOG;
+	map[SYS_AXIS_R2] = ABS_RZ | MAP_FLAG_TRIGGER | MAP_FLAG_ANALOG;
+	clear_mapping_slot_for_pos(map, SYS_MAP_BTN_L2);
+	check(!map[SYS_AXIS_L2] && map[SYS_AXIS_R2], "control gamepad L2 unmap clears only L2");
+}
+
+static void trigger_tests()
+{
+	input_absinfo axis = {};
+	axis.minimum = -32768; axis.maximum = 32767;
+	const char *tokens[] = { "+a0", "-a0", "+a0~", "-a0~" };
+	for (int i = 0; i < 4; ++i)
+	{
+		const uint32_t map = joymap_test_trigger(tokens[i]);
+		const bool negative = i & 1;
+		const bool inverted = i & 2;
+		const int selected = negative ? axis.minimum : axis.maximum;
+		const int opposite = negative ? axis.maximum : axis.minimum;
+		char label[160];
+		snprintf(label, sizeof(label), "3 %s preserves selected half and reverses endpoints only", tokens[i]);
+		check(normalize_analog_trigger(map, selected, &axis) == (inverted ? 0 : 255) &&
+			normalize_analog_trigger(map, 0, &axis) == (inverted ? 255 : 0) &&
+			normalize_analog_trigger(map, opposite, &axis) == 0, label);
+		memset(input[0].mmap, 0, sizeof(input[0].mmap));
+		input[0].mmap[SYS_AXIS_L2] = map;
+		uint8_t edge = 0;
+		const int active = inverted ? 0 : selected;
+		trigger_axis_edge(0, ABS_X, active, &axis, 0, &edge);
+		snprintf(label, sizeof(label), "3 %s normalized digital edge matches selected-half button code", tokens[i]);
+		check(edge == (negative ? 1 : 2) && joymap_test_trigger_code(map) == KEY_EMU + (negative ? 0 : 1), label);
+		trigger_axis_edge(0, ABS_X, opposite, &axis, edge, &edge);
+		check(edge == 0, "3 opposite half releases digital trigger");
+		char exported[64];
+		snprintf(exported, sizeof(exported), "lefttrigger:%s,", tokens[i]);
+		check(joymap_test_export(map, exported), exported);
+	}
+	axis.minimum = 0; axis.maximum = 255;
+	uint32_t released = joymap_test_cached_trigger(0, "a0", 1);
+	uint32_t held = joymap_test_cached_trigger(255, "a0", 1);
+	check(released && held && released == held && normalize_analog_trigger(held, 0, &axis) == 0 &&
+		normalize_analog_trigger(held, 255, &axis) == 255, "4 held reconnect/cache lookup never reverses plain a0");
+	uint32_t held_first = joymap_test_cached_trigger(255, "a0", 2);
+	check(held_first && normalize_analog_trigger(held_first, 0, &axis) == 0 &&
+		normalize_analog_trigger(held_first, 255, &axis) == 255, "4 first lookup while held never reverses plain a0");
+	uint32_t explicit_inverse = joymap_test_cached_trigger(255, "a0~", 3);
+	check(normalize_analog_trigger(explicit_inverse, 0, &axis) == 255 &&
+		normalize_analog_trigger(explicit_inverse, 255, &axis) == 0, "control explicit a0~ remains inverted");
+	axis.minimum = -32768; axis.maximum = 32767;
+	input[0].mmap[SYS_AXIS_L2] = joymap_test_trigger("-a0~");
+	input[0].mmap[SYS_AXIS_R2] = joymap_test_trigger("+a0~");
+	uint8_t edge = 0;
+	trigger_axis_edge(0, ABS_X, 0, &axis, 0, &edge);
+	check(edge == 3, "3 shared inverted halves press both digital triggers at center");
+	trigger_axis_edge(0, ABS_X, -8192, &axis, 3, &edge);
+	check(edge == 1, "3 shared inverted halves release positive side independently");
+	trigger_axis_edge(0, ABS_X, 8192, &axis, 3, &edge);
+	check(edge == 2, "3 shared inverted halves release negative side independently");
+	trigger_axis_edge(0, ABS_X, -24000, &axis, 3, &edge);
+	check(edge == 1, "3 shared-half hysteresis retains active negative bit from state 3");
+	trigger_axis_edge(0, ABS_X, -24000, &axis, 0, &edge);
+	check(edge == 0, "control shared-half hysteresis does not newly press below threshold");
+	const int base_code = KEY_EMU + (ABS_Z << 1);
+	joymap_test_emit_axis(0, 3);
+	check(joymap_test_events == std::vector<std::pair<int, int> >{{base_code, 1}, {base_code + 1, 1}},
+		"3 source-derived output emits both shared-axis trigger presses");
+	joymap_test_emit_axis(3, 1);
+	check(joymap_test_events == std::vector<std::pair<int, int> >{{base_code + 1, 0}},
+		"3 source-derived output releases positive trigger without repeating negative press");
+	joymap_test_emit_axis(3, 2);
+	check(joymap_test_events == std::vector<std::pair<int, int> >{{base_code, 0}},
+		"3 source-derived output releases negative trigger independently");
+	joymap_test_emit_axis(1, 2);
+	check(joymap_test_events == std::vector<std::pair<int, int> >{{base_code, 0}, {base_code + 1, 1}},
+		"3 source-derived output releases old side before pressing new side");
+	joymap_test_emit_axis(1, 1);
+	check(joymap_test_events.empty(), "control unchanged axis state emits no synthetic key transition");
+}
+
+static void mixed_half_trigger_tests()
+{
+	input_absinfo axis = {};
+	axis.minimum = -32768; axis.maximum = 32767;
+	for (int negative = 0; negative < 2; ++negative)
+		for (int inverted_left = 0; inverted_left < 2; ++inverted_left)
+		{
+			char left[8], right[8], label[160];
+			snprintf(left, sizeof(left), "%ca0%s", negative ? '-' : '+', inverted_left ? "~" : "");
+			snprintf(right, sizeof(right), "%ca0%s", negative ? '-' : '+', inverted_left ? "" : "~");
+			uint32_t map[NUMBUTTONS] = {}, cached[NUMBUTTONS] = {};
+			const int version = 4 + negative * 2 + inverted_left;
+			const bool imported = joymap_test_cached_trigger_pair(left, right, version, map);
+			const bool from_cache = joymap_test_cached_trigger_pair(left, right, version, cached);
+			snprintf(label, sizeof(label), "3 public GCDB %s/%s retains distinct trigger keys through cache", left, right);
+			check(imported && from_cache && map[SYS_BTN_L2] != map[SYS_BTN_R2] &&
+				!memcmp(map, cached, sizeof(map)), label);
+			char exported[64];
+			snprintf(exported, sizeof(exported), "lefttrigger:%s,", left);
+			check(joymap_test_export(map[SYS_AXIS_L2], exported), "3 mixed-half L2 metadata export retains original token");
+			snprintf(exported, sizeof(exported), "lefttrigger:%s,", right);
+			check(joymap_test_export(map[SYS_AXIS_R2], exported), "3 mixed-half R2 metadata export retains original token");
+			memcpy(input[0].mmap, map, sizeof(map));
+			const int samples[] = {0, negative ? axis.minimum : axis.maximum, negative ? axis.maximum : axis.minimum};
+			for (int sample = 0; sample < 3; ++sample)
+			{
+				const bool expected_left = sample == 0 ? inverted_left : sample == 1 ? !inverted_left : false;
+				const bool expected_right = sample == 0 ? !inverted_left : sample == 1 ? inverted_left : false;
+				uint8_t edge = 0;
+				trigger_axis_edge(0, ABS_X, samples[sample], &axis, 0, &edge);
+				const int left_edge = (int)map[SYS_BTN_L2] - KEY_EMU + 1;
+				const int right_edge = (int)map[SYS_BTN_R2] - KEY_EMU + 1;
+				const bool valid_keys = (left_edge == 1 || left_edge == 2) && (right_edge == 1 || right_edge == 2);
+				snprintf(label, sizeof(label), "3 mixed-half %s/%s sample=%d activates only normalized trigger", left, right, sample);
+				check(valid_keys && !!(edge & left_edge) == expected_left && !!(edge & right_edge) == expected_right &&
+					normalize_analog_trigger(map[SYS_AXIS_L2], samples[sample], &axis) == (expected_left ? 255 : 0) &&
+					normalize_analog_trigger(map[SYS_AXIS_R2], samples[sample], &axis) == (expected_right ? 255 : 0), label);
+			}
+		}
+	uint32_t aliases[NUMBUTTONS] = {};
+	check(joymap_test_cached_trigger_pair("+a0", "+a0", 8, aliases) &&
+		aliases[SYS_AXIS_L2] == aliases[SYS_AXIS_R2] && aliases[SYS_BTN_L2] == aliases[SYS_BTN_R2],
+		"control identical GCDB trigger metadata retains intentional digital aliases");
+	for (int full_left = 0; full_left < 2; ++full_left)
+	{
+		uint32_t map[NUMBUTTONS] = {};
+		check(joymap_test_cached_trigger_pair(full_left ? "a0" : "+a0", full_left ? "+a0" : "a0", 9 + full_left, map) &&
+			map[SYS_BTN_L2] != map[SYS_BTN_R2], "3 distinct full/half-range trigger metadata gets distinct digital keys");
+		memcpy(input[0].mmap, map, sizeof(map));
+		for (int value : {axis.minimum, 0, 8192, axis.maximum})
+		{
+			const bool expected_left = normalize_analog_trigger(map[SYS_AXIS_L2], value, &axis) >= TRIGGER_PRESS_LEVEL;
+			const bool expected_right = normalize_analog_trigger(map[SYS_AXIS_R2], value, &axis) >= TRIGGER_PRESS_LEVEL;
+			uint8_t edge = 0;
+			trigger_axis_edge(0, ABS_X, value, &axis, 0, &edge);
+			const int left_edge = (int)map[SYS_BTN_L2] - KEY_EMU + 1;
+			const int right_edge = (int)map[SYS_BTN_R2] - KEY_EMU + 1;
+			check((left_edge == 1 || left_edge == 2) && (right_edge == 1 || right_edge == 2) &&
+				!!(edge & left_edge) == expected_left && !!(edge & right_edge) == expected_right,
+				"3 full/half-range pair digital states agree with individual analog levels");
+		}
+	}
+	memset(input[0].mmap, 0, sizeof(input[0].mmap));
+	input[0].mmap[SYS_AXIS_L2] = joymap_test_trigger("-a0");
+	input[0].mmap[SYS_BTN_L2] = BTN_TL2;
+	uint8_t edge = 0;
+	trigger_axis_edge(0, ABS_X, axis.minimum, &axis, 0, &edge);
+	check(edge == 1, "control physical trigger button uses metadata direction fallback");
+	input[0].mmap[SYS_BTN_L2] = KEY_EMU + (ABS_Y << 1) + 1;
+	trigger_axis_edge(0, ABS_X, axis.minimum, &axis, 0, &edge);
+	check(edge == 1, "control synthetic button on different axis uses metadata direction fallback");
+}
+
+static void navigation_tests()
+{
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].quirk = QUIRK_JOYCON;
+	input[0].misc_flags = 1U << 31;
+	for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; ++i) input[0].mmap[i] = MAP_FLAG_ANALOG | MAP_FLAG_INVERT;
+	joymap_test_combined_orientation(0, 1);
+	bool retained = true;
+	for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; ++i) retained &= (input[0].mmap[i] & MAP_FLAG_INVERT) != 0;
+	check(retained, "5 combined Joy-Con retains saved v4 stick inversion");
+	joymap_test_combined_orientation(0, 0);
+	bool corrected = true;
+	for (int i = SYS_AXIS1_X; i <= SYS_AXIS_Y; ++i) corrected &= (input[0].mmap[i] & MAP_FLAG_INVERT) == 0;
+	check(corrected, "control combined Joy-Con inherited sideways orientation corrected");
+	for (int axis = 0; axis < 2; ++axis)
+		for (int invert = 0; invert < 2; ++invert)
+			for (int max = 0; max < 2; ++max)
+			{
+				uint32_t map = (axis ? ABS_Y : ABS_X) | MAP_FLAG_ANALOG | (invert ? MAP_FLAG_INVERT : 0);
+				const int expected = axis * 2 + ((max != invert) ? 0 : 1);
+				char label[100];
+				snprintf(label, sizeof(label), "6 OSD axis=%d invert=%d endpoint=%d direction=%d", axis, invert, max, expected);
+				check(joymap_test_osd_direction(0, axis, map, max) == expected, label);
+			}
+	set_menu_mouse_map(0);
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_count = SYS_MAP_GAMEPAD_COUNT; mapping_button = -6;
+	tmp_axis_n = 0; memset(tmp_axis, 0, sizeof(tmp_axis));
+	advance_map_button();
+	check(mapping_button == -4 && tmp_axis_n == 0, "7 initial DPAD skip advances past both detector prompts");
+	append_tmp_axis_for_pos(mapping_button, ABS_X, 0);
+	advance_map_button();
+	append_tmp_axis_for_pos(mapping_button, ABS_Y, 0);
+	check(map_axis_code(tmp_axis[0]) == ABS_X && map_axis_code(tmp_axis[1]) == ABS_Y && tmp_axis_n == 2,
+		"7 DPAD skip then stick X/Y occupies correct detector slots");
+	mapping_button = -6; tmp_axis_n = 0;
+	memset(tmp_axis, 0, sizeof(tmp_axis));
+	memset(tmp_axis_stage_count, 0, sizeof(tmp_axis_stage_count));
+	advance_map_button();
+	step_back_map_setting();
+	check(mapping_button == -6 && tmp_axis_n == 0, "7 Previous after paired DPAD skip returns to initial detector");
+	advance_map_button();
+	append_tmp_axis_for_pos(mapping_button, ABS_X, 0);
+	advance_map_button();
+	append_tmp_axis_for_pos(mapping_button, ABS_Y, 0);
+	check(mapping_button == -3 && map_axis_code(tmp_axis[0]) == ABS_X && map_axis_code(tmp_axis[1]) == ABS_Y,
+		"7 skip/back/skip then stick axes preserves horizontal and vertical stage identity");
+	mapping_button = -6; tmp_axis_n = 0;
+	memset(tmp_axis, 0, sizeof(tmp_axis));
+	memset(tmp_axis_stage_count, 0, sizeof(tmp_axis_stage_count));
+	append_tmp_axis_for_pos(-6, ABS_X, 0);
+	mapping_button = -5;
+	record_menu_tmp_axis_stage();
+	step_back_map_setting();
+	advance_map_button();
+	step_back_map_setting();
+	check(mapping_button == -6 && tmp_axis_n == 0,
+		"7 recaptured DPAD X then back/paired-skip/back discards stale DOWN-stage snapshot");
+	for (int standard_hat = 0; standard_hat < 2; ++standard_hat)
+	{
+		mapping_button = -6; tmp_axis_n = 0;
+		memset(tmp_axis, 0, sizeof(tmp_axis));
+		memset(tmp_axis_stage_count, 0, sizeof(tmp_axis_stage_count));
+		append_tmp_axis_for_pos(-6, ABS_X, 0);
+		mapping_button = -5;
+		record_menu_tmp_axis_stage();
+		step_back_map_setting();
+		check(tmp_axis_stage_count[1] == 0,
+			"7 returning to initial DPAD detector centrally invalidates stale DOWN snapshot");
+		// Replay the direct +=2 transition used by digital-DPAD and standard-hat detection.
+		mapping_button += 2;
+		step_back_map_setting();
+		check(mapping_button == -6 && tmp_axis_n == 0, standard_hat ?
+			"7 analog-X/back/implicit standard-hat pair/back restores initial detector" :
+			"7 analog-X/back/implicit digital-DPAD pair/back restores initial detector");
+	}
+}
+
+int main(int argc, char **argv)
+{
+	if (argc > 1 && !strcmp(argv[1], "--negative-control"))
+	{
+		check(normalize_analog_trigger(joymap_test_trigger("a0"), 255, NULL) == 255,
+			"negative control deliberately wrong expectation must fail");
+		return failures ? 1 : 0;
+	}
+	mouse_session_tests();
+	trigger_tests();
+	mixed_half_trigger_tests();
+	navigation_tests();
+	printf("Joymap v4 runtime regressions: %d checks, %d failures\n", checks, failures);
+	return failures ? 1 : 0;
+}
