@@ -47,11 +47,19 @@ The gamepad Menu (OSD) binding is system-map slots 21 and 22
   build without hold support sees no gamepad Menu button (keyboard F12 still
   works). Upstream builds read `*_v3.map` and never see the marker.
 - At runtime a hold-mode button acts normally in the core. Held for the hold
-  time (polled in `input_poll()`), it sends the Menu press; its release ends the
-  press. When that press opened the OSD, the release is not passed to the OSD.
+  time (polled in `input_poll()`), it sends a whole Menu press: the press, then
+  the release 100 ms later. The menu takes one debounced key at a time and
+  opens the OSD on the release, so the OSD opens while the button is still
+  held. The button's own release sends nothing more. This also works for
+  gamepad codes below 256 (for example Android-mode Back).
 - Holding it again for the hold time closes the OSD.
+- Releasing the button before the hold time clears an advanced-map chord's Menu
+  inhibit. A real Menu release is what normally clears it.
 - In a core's own mapping screen, a tap maps the button and a completed hold
-  then release cancels (Menu-hold).
+  then release cancels (Menu-hold). If the button also has a mapping hold
+  action (Select = Clear, Right = Skip, Left = Back), that action fires at 1 s
+  and replaces the Menu hold. The Undefine hint drops "Menu" for hold
+  bindings.
 - At the Menu core's Menu prompt:
   - tap a button for a single button;
   - press a second button within 2 s for a combo;
@@ -140,6 +148,18 @@ For Menu hold mode, check on hardware:
   in the game on a tap;
 - a hold cancelling a core's button definition;
 - the lightgun and mouse-mode toggles.
+
+Known limitation: the joystick-to-keyboard mapping screen still says
+`Menu → Finish` and `Menu-hold → Clear`. With a hold binding, Finish needs the
+2 s hold, and Clear needs that plus the screen's own hold time.
+
+Pre-existing issues noticed during the hold-mode review, not changed here:
+- `handle_autofire_toggle()` indexes `lastcode[num]`/`lastmask[num]` with
+  `num = -1` for OSD navigation calls (`joy_digital(0, ...)`).
+- `clear_mapping_slot_for_pos(SYS_MAP_POS_OSD)` does not clear the keyboard
+  slot 20.
+- Gamepad Menu bindings with codes below 256 never worked as tap or combo:
+  the Menu release is only sent from the joystick-button branch.
 
 Generic GCDB digital-button bindings to inverted half-axes have a pre-existing
 representation limitation: swapping an axis's synthetic minimum/maximum key

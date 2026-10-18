@@ -34,6 +34,7 @@ extern "C" bool joymap_test_export(uint32_t, const char *);
 extern "C" bool joymap_test_cached_trigger_pair(const char *, const char *, int, uint32_t *);
 extern "C" bool joymap_test_export_map(const uint32_t *, char *, size_t);
 extern "C" void joymap_test_core_names(const char *, const uint32_t *, uint32_t *);
+extern "C" void joymap_test_core_jn(const char *, const char *, const uint32_t *, uint32_t *);
 #ifdef JOYMAP_TEST_HAS_PAD
 #include "joymap_pad.h"
 extern "C" uint32_t joymap_test_pad_controls(int);
@@ -357,7 +358,7 @@ static void osd_hold_tests()
 	fake_ms = 5000;
 	check(key(0, BTN_SELECT, 2) == 0 && input[0].osd_hold_timer == 6000, "H2 key auto-repeat does not restart the hold");
 	fake_ms = 6000;
-	check(osd_hold_expired(0) && input[0].osd_combo == 3 && input[0].osd_hold_fired, "H2 held for 2 s completes the Menu press");
+	check(osd_hold_expired(0) && input[0].osd_combo == 3, "H2 held for 2 s completes the Menu press");
 	check(!osd_hold_expired(0), "H2 a hold completes only once");
 	check(key(0, BTN_SELECT, 0) == 2 && !input[0].osd_combo, "H2 release after the hold ends the Menu press");
 	check(key(0, BTN_START, 1) == 0 && key(0, BTN_START, 0) == 0 && !input[0].osd_hold_timer,
@@ -459,6 +460,11 @@ static void core_name_tests()
 		"P1 L1/R1 map to L/R; L2/R2/L3/R3, Select and Start unchanged");
 	joymap_test_core_names("circle(Fire),CROSS", mmap, map);
 	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B], "P1 PlayStation names ignore case and a (description)");
+	joymap_test_core_jn("Fire,Jump", "Circle,Cross", mmap, map);
+	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B], "P1 PlayStation names work in a jn default map");
+	joymap_test_core_jn("Triangle,Circle,Cross,Square", "X,A,B,Y", mmap, map);
+	check(map[4] == mmap[SYS_BTN_X] && map[5] == mmap[SYS_BTN_A] && map[6] == mmap[SYS_BTN_B] && map[7] == mmap[SYS_BTN_Y],
+		"control a jn map still takes precedence over the J1 names (PSX core)");
 	joymap_test_core_names("A,B,X,Y,L,R,Select,Start", mmap, map);
 	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B] && map[6] == mmap[SYS_BTN_X] && map[7] == mmap[SYS_BTN_Y] &&
 		map[8] == mmap[SYS_BTN_L] && map[9] == mmap[SYS_BTN_R], "control SNES names map as before; X stays the SNES X");
@@ -517,6 +523,92 @@ static void pad_tests()
 }
 #endif
 
+#ifdef JOYMAP_TEST_HAS_HOLD_POLL
+static void hold_poll_tests()
+{
+	typedef std::vector<std::pair<int, int> > joy_events;
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].num = 1;
+	input[0].mmap[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	input[0].mmap[SYS_BTN_OSD_2] = BTN_SELECT;
+	mapping = 0; joymap_test_is_menu = 0; joymap_test_osd_visible = 0;
+
+	joymap_test_joy.clear();
+	fake_ms = 50000; key(0, BTN_SELECT, 1);
+	fake_ms = 52000; joymap_test_osd_hold_poll();
+	check(joymap_test_joy == joy_events{{BTN_OSD, 1}} && input[0].osd_combo == 0 && input[0].osd_hold_release_at == 52100,
+		"H6 a completed hold sends the Menu press at 2 s");
+	joymap_test_joy.clear();
+	fake_ms = 52050; joymap_test_osd_hold_poll();
+	check(joymap_test_joy.empty(), "H6 no Menu release before the click time");
+	fake_ms = 52100; joymap_test_osd_hold_poll();
+	check(joymap_test_joy == joy_events{{BTN_OSD, 0}}, "H6 the Menu release follows 100 ms later, while the button is still held");
+	joymap_test_joy.clear();
+	check(key(0, BTN_SELECT, 0) == 0 && joymap_test_joy.empty(), "H6 the button's own release sends nothing more");
+
+	fake_ms = 60000; key(0, BTN_SELECT, 1);
+	fake_ms = 62000; joymap_test_osd_hold_poll();
+	fake_ms = 62020; key(0, BTN_SELECT, 0);
+	fake_ms = 62100; joymap_test_osd_hold_poll();
+	check(joymap_test_joy == joy_events{{BTN_OSD, 1}, {BTN_OSD, 0}}, "H6 releasing during the click still completes it");
+
+	joymap_test_joy.clear();
+	input[0].mmap[SYS_BTN_OSD_2] = KEY_BACK;  // Android-mode Back, a code below 256
+	fake_ms = 70000; key(0, KEY_BACK, 1);
+	fake_ms = 72000; joymap_test_osd_hold_poll();
+	fake_ms = 72100; joymap_test_osd_hold_poll();
+	check(joymap_test_joy == joy_events{{BTN_OSD, 1}, {BTN_OSD, 0}}, "H6 a hold on a key code below 256 sends press and release too");
+	input[0].mmap[SYS_BTN_OSD_2] = BTN_SELECT;
+	key(0, KEY_BACK, 0);
+
+	joymap_test_joy.clear();
+	mapping = 1; mapping_type = 1; osd_timer = 0;
+	fake_ms = 80000; key(0, BTN_SELECT, 1);
+	fake_ms = 82000; joymap_test_osd_hold_poll();
+	check(joymap_test_joy.empty() && osd_timer == 1 && input[0].osd_combo == 3 && key(0, BTN_SELECT, 0) == 2,
+		"H6 in a core's button definition a completed hold cancels on release");
+
+	joymap_test_is_menu = 1; osd_timer = 0;
+	fake_ms = 90000; key(0, BTN_SELECT, 1);
+	fake_ms = 92000; joymap_test_osd_hold_poll();
+	check(joymap_test_joy.empty() && !osd_timer, "H6 the Menu core's mapping screen ignores a Menu hold");
+	key(0, BTN_SELECT, 0);
+	mapping = 0; joymap_test_is_menu = 0;
+
+	input[0].lightgun_req = 1;
+	fake_ms = 100000; key(0, BTN_SELECT, 1);
+	fake_ms = 102000; joymap_test_osd_hold_poll();
+	check(joymap_test_joy.empty() && input[0].lightgun == 1, "H6 with a light gun connected a completed hold toggles light gun mode");
+	key(0, BTN_SELECT, 0);
+	input[0].lightgun_req = 0; input[0].lightgun = 0;
+
+	osd_autofire_consumed[0] = true;
+	fake_ms = 110000; key(0, BTN_SELECT, 1);
+	fake_ms = 111000; key(0, BTN_SELECT, 0);
+	check(!osd_autofire_consumed[0], "H7 an early hold release clears an advanced-map chord's Menu inhibit");
+
+	fake_ms = 120000; key(0, BTN_SELECT, 1);
+	input[0].mmap[SYS_BTN_OSD_1] = BTN_START;  // the map is reloaded as a combo mid-hold
+	fake_ms = 122000; joymap_test_osd_hold_poll();
+	check(joymap_test_joy.empty(), "H7 a hold timer does not fire once the map is no longer hold mode");
+	input[0].mmap[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	key(0, BTN_SELECT, 0);
+
+	// a mapping hold action on the hold button (Select = Clear in a core) replaces the Menu hold
+	mapping = 1; mapping_type = 1; mapping_dev = 0;
+	fake_ms = 130000; key(0, BTN_SELECT, 1);
+	mapping_hold_key = BTN_SELECT; mapping_current_dev = 0; mapping_current_key = BTN_SELECT;
+	mapping_hold_timer = GetTimer(MAP_HOLD_ACTION_MS); mapping_hold_action = MAP_HOLD_CLEAR;
+	fake_ms = 131000;
+	const int action = poll_map_hold_action();
+	fake_ms = 132000; joymap_test_osd_hold_poll();
+	check(action == MAP_HOLD_CLEAR && !input[0].osd_hold_timer && osd_timer != 1 && joymap_test_joy.empty(),
+		"H7 a mapping hold action on the Menu button cancels its Menu hold");
+	key(0, BTN_SELECT, 0);
+	mapping = 0;
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	if (argc > 1 && !strcmp(argv[1], "--negative-control"))
@@ -530,6 +622,9 @@ int main(int argc, char **argv)
 	mixed_half_trigger_tests();
 	navigation_tests();
 	osd_hold_tests();
+#ifdef JOYMAP_TEST_HAS_HOLD_POLL
+	hold_poll_tests();
+#endif
 	core_name_tests();
 #ifdef JOYMAP_TEST_HAS_PAD
 	pad_tests();

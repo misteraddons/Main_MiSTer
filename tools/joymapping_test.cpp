@@ -26,7 +26,19 @@ int substrcpy(char *d, const char *s, char idx)
 	return (int)(d - b);
 }
 
-// Translates a core's J1 button names against a system map.
+// Translates a core's J1 button names, and optionally a jn map, against a system map.
+extern "C" void joymap_test_core_jn(const char *names, const char *jn, const uint32_t *mmap, uint32_t *map)
+{
+	static char j1[1024], nmap[1024], none[1] = "";
+	snprintf(j1, sizeof(j1), "%s", names);
+	snprintf(nmap, sizeof(nmap), "%s", jn);
+	set_ovr_buttons(j1, 0);
+	set_ovr_buttons(nmap, 1);
+	memset(map, 0, NUMBUTTONS * sizeof(*map));
+	map_joystick(map, (uint32_t *)mmap);
+	set_ovr_buttons(none, 1);
+}
+
 extern "C" void joymap_test_core_names(const char *names, const uint32_t *mmap, uint32_t *map)
 {
 	static char buffer[1024];

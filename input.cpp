@@ -1470,8 +1470,8 @@ typedef struct
 	int      map_shown;
 
 	uint8_t  osd_combo;
-	uint32_t osd_hold_timer;  // hold-mode Menu button: when the hold completes
-	uint8_t  osd_hold_fired;  // the hold completed; the release ends the Menu press
+	uint32_t osd_hold_timer;      // hold-mode Menu button: when the hold completes
+	uint32_t osd_hold_release_at; // a completed hold: when to send its Menu release
 
 	uint8_t  has_mmap;
 	uint32_t mmap[NUMBUTTONS];
@@ -2562,6 +2562,8 @@ int poll_map_hold_action()
 		return 0;
 
 	// Clearing the current key also swallows its release, so the held key is never mapped.
+	// If it is also a hold-mode Menu button, the action replaces the Menu hold.
+	if (mapping_current_dev >= 0) input[mapping_current_dev].osd_hold_timer = 0;
 	int action = mapping_hold_action;
 	clear_mapping_current_input();
 	return action;
@@ -3639,6 +3641,12 @@ void get_map_osd_positions(int *first, int *second)
 	}
 }
 
+// The mapping device's current Menu binding is hold mode.
+int get_map_menu_is_hold()
+{
+	return mapping_dev >= 0 && osd_map_is_hold(input[mapping_dev].mmap);
+}
+
 int get_map_trigger_level()
 {
 	if (!mapping || !is_menu() || !is_menu_trigger_map_pos(mapping_button) || mapping_dev < 0 || !mapping_key_mapped)
@@ -4035,6 +4043,10 @@ static int osd_combo_event(int dev, const input_event *ev)
 	{
 		if (ev->code == mmap[SYS_BTN_OSD_2] && ev->value <= 1)
 		{
+			// Released early, the hold sends no Menu release, which is what clears an
+			// advanced-map chord's Menu inhibit; clear it here instead.
+			if (!ev->value && old_combo == 2 && input[dev].num && input[dev].num <= NUMPLAYERS)
+				osd_autofire_consumed[input[dev].num - 1] = false;
 			input[dev].osd_hold_timer = ev->value ? GetTimer(osd_map_hold_ms(mmap)) : 0;
 			input[dev].osd_combo = ev->value ? 2 : 0;
 		}
@@ -4065,18 +4077,30 @@ static int osd_hold_expired(int dev)
 {
 	if (!input[dev].osd_hold_timer || !CheckTimer(input[dev].osd_hold_timer)) return 0;
 	input[dev].osd_hold_timer = 0;
-	if (input[dev].osd_combo != 2) return 0;
+	if (input[dev].osd_combo != 2 || !osd_map_is_hold(input[dev].mmap)) return 0;
 	input[dev].osd_combo = 3;
-	input[dev].osd_hold_fired = 1;
 	return 1;
 }
 
+// The menu takes one debounced key at a time and opens the OSD on the Menu
+// release, so a completed hold sends the release this long after the press.
+#define OSD_HOLD_CLICK_MS 100
+
 // Hold timers run while no input events arrive, so input_poll() checks them.
+// A completed hold is a whole Menu press: the press now and the release
+// OSD_HOLD_CLICK_MS later, so the OSD opens while the button is still held
+// and the button's own release does nothing more.
 static void osd_hold_poll()
 {
 	map_osd_hold_poll();
 	for (int dev = 0; dev < NUMDEV; dev++)
 	{
+		if (input[dev].osd_hold_release_at && CheckTimer(input[dev].osd_hold_release_at))
+		{
+			input[dev].osd_hold_release_at = 0;
+			joy_digital(input[dev].num, 0, 0, 0, BTN_OSD);
+		}
+
 		if (!osd_hold_expired(dev)) continue;
 
 		// The Menu core's mapping screen ignores the Menu button. Mapping in a
@@ -4087,6 +4111,7 @@ static void osd_hold_poll()
 			continue;
 		}
 
+		input[dev].osd_combo = 0;
 		if (input[dev].lightgun_req && !user_io_osd_is_visible())
 		{
 			input[dev].lightgun = !input[dev].lightgun;
@@ -4095,6 +4120,7 @@ static void osd_hold_poll()
 		else
 		{
 			joy_digital(input[dev].num, 0, 0, 1, BTN_OSD);
+			input[dev].osd_hold_release_at = GetTimer(OSD_HOLD_CLICK_MS);
 		}
 	}
 }
@@ -4151,6 +4177,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	if (!input[dev].has_mmap)
 	{
+		input[dev].osd_hold_timer = 0;
 		if (input[dev].quirk == QUIRK_TOUCHGUN)
 		{
 			memset(input[dev].mmap, 0, sizeof(input[dev].mmap));
@@ -4381,8 +4408,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 	}
 
 	int osd_event = osd_combo_event(dev, ev);
-	const int osd_hold_release = osd_event == 2 && input[dev].osd_hold_fired;
-	if (osd_event == 2) input[dev].osd_hold_fired = 0;
 	if (osd_event == 1)
 	{
 		if (mapping && !is_menu()) osd_timer = mapping_type == 3 ? ((mapping_count < 3 || mapping_set == 1) ? GetTimer(5000) : 0) : GetTimer(1000);
@@ -4813,9 +4838,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					if (osd_event == 1) joy_digital(input[dev].num, 0, 0, 1, BTN_OSD);
 					if (osd_event == 2) joy_digital(input[dev].num, 0, 0, 0, BTN_OSD);
 				}
-
-				// A completed hold opened the OSD; keep its release from acting there too.
-				if (osd_hold_release && user_io_osd_is_visible()) return;
 
 				if (user_io_osd_is_visible() || video_fb_state())
 				{

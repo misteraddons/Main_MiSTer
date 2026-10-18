@@ -65,7 +65,21 @@ def generate_seams(source):
                + y_block.replace("joy_digital", "joymap_capture_direction") + "\nreturn joymap_test_direction;")
     emission_start = source.index("if (last_state != axis_edge)", source.index("if (!trigger_axis_edge("))
     emission = braced_block(source, emission_start).replace("input_cb(&ev, pai, i)", "joymap_capture_event(&ev, pai, i)")
-    return ("static int joymap_test_direction;\n"
+    hold_poll = ""
+    if "static void osd_hold_poll()" in source:
+        body = braced_block(source, source.index("static void osd_hold_poll()"))
+        for old, new in (("static void osd_hold_poll()", "static void joymap_test_osd_hold_poll()"),
+                         ("joy_digital(", "joymap_capture_joy("), ("Info(", "joymap_capture_info("),
+                         ("user_io_osd_is_visible()", "joymap_test_osd_visible"), ("is_menu()", "joymap_test_is_menu")):
+            if old not in body:
+                raise ValueError(f"osd_hold_poll() no longer contains {old}")
+            body = body.replace(old, new)
+        hold_poll = ("#define JOYMAP_TEST_HAS_HOLD_POLL 1\n"
+                     "static std::vector<std::pair<int, int> > joymap_test_joy;\n"
+                     "static void joymap_capture_joy(int, uint32_t, uint32_t, char press, int bnum, int = 0) { joymap_test_joy.emplace_back(bnum, press); }\n"
+                     "static void joymap_capture_info(const char *, int = 0, int = 0, int = 0, int = 0) {}\n"
+                     "static int joymap_test_osd_visible;\nstatic int joymap_test_is_menu = 1;\n" + body + "\n")
+    return (hold_poll + "static int joymap_test_direction;\n"
             "static void joymap_capture_direction(int, int, int, int, int direction) { joymap_test_direction = direction; }\n"
             "static void joymap_test_combined_orientation(int dev, int loaded_saved_map) { " + joycon + " }\n"
             "static int joymap_test_osd_direction(int dev, int axis, uint32_t map, int endpoint) { " + osd + " }\n"
@@ -85,7 +99,8 @@ def menu_checks(source):
 
 def hold_wiring_checks(source):
     """Source guards for the hold-mode wiring inside input_cb()/input_poll()."""
-    cb = source[source.index("static void input_cb("):source.index("int input_poll(")]
+    cb_start = source.index("static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int dev, bool menu_event)\n{")
+    cb = source[cb_start:source.index("int input_poll(")]
     poll = source[source.index("int input_poll("):]
     combo = re.search(r"if \(ev->value == 1 && mapping_key_mapped && mapping_key_mapped != ev->code && is_menu\(\) && "
                       r"mapping_button == SYS_MAP_POS_OSD && mapping_type && !mapping_osd_hold_latched\)\s*\{\s*"
@@ -93,7 +108,8 @@ def hold_wiring_checks(source):
     return [("int osd_event = osd_combo_event(dev, ev);" in cb, "H5 input_cb takes Menu events from osd_combo_event (source guard)"),
             (re.search(r"if \(getchar\) return ret;\s*osd_hold_poll\(\);", poll) is not None, "H5 input_poll runs the hold timers (source guard)"),
             (combo is not None, "H5 a combo cancels the hold capture and is refused once hold is set (source guard)"),
-            ("if (osd_hold_release && user_io_osd_is_visible()) return;" in cb, "H5 a completed hold's release does not reach the OSD (source guard)")]
+            ("if (osd_hold_release" not in source and "osd_hold_fired" not in source, "H5 no early return on a hold release (source guard)"),
+            ("if (!input[dev].has_mmap)\n\t{\n\t\tinput[dev].osd_hold_timer = 0;" in source, "H5 a reloaded system map drops a pending hold (source guard)")]
 
 
 def main():

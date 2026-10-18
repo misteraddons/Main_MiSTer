@@ -4427,8 +4427,10 @@ void HandleUI(void)
 				OsdWrite(1, s, 0, 0);
 				OsdWrite(2, info_line, 0, 0);
 				OsdWrite(3, id_line, 0, 0);
-				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" : "Space/Hold RIGHT \x16 Undefine");
-				OsdWrite(5, " Backspace/Hold LEFT \x16 Prev");
+				const int menu_prompt = get_map_button() == SYS_MAP_POS_OSD;
+				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" :
+					menu_prompt ? "   Space/User \x16 Undefine" : "Space/Hold RIGHT \x16 Undefine");
+				OsdWrite(5, menu_prompt ? "    Backspace \x16 Prev" : " Backspace/Hold LEFT \x16 Prev");
 				OsdWrite(6, "          Esc \x16 Cancel");
 				OsdWrite(7, "        Enter \x16 Finish");
 			}
@@ -4506,7 +4508,8 @@ void HandleUI(void)
 						if (!show_gamepad)
 						{
 							OsdWrite(7, (!get_map_type()) ? "         User \x16 Undefine" :
-								is_menu() ? "   User/Space \x16 Undefine" : "    User/Menu \x16 Undefine");
+								is_menu() ? "   User/Space \x16 Undefine" :
+								get_map_menu_is_hold() ? "         User \x16 Undefine" : "    User/Menu \x16 Undefine");
 						}
 
 						if (!get_map_type() && !show_gamepad) OsdWrite(9);
