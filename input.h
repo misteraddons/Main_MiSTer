@@ -3,6 +3,7 @@
 #define EVINPUT_H
 
 #include <linux/input.h>
+#include <stdint.h>
 
 #define HID_LED_NUM_LOCK    1
 #define HID_LED_CAPS_LOCK   2
@@ -78,14 +79,33 @@
 #define MAP_FLAG_CENTERED   0x00080000
 #define MAP_FLAG_NEGATIVE   0x00100000
 
+// Gamepad Menu (OSD) binding in a system map. A single button stores its code
+// in both slots; a two-button combo stores one code in each.
+#define SYS_BTN_OSD_1      (SYS_BTN_OSD_KTGL + 1)
+#define SYS_BTN_OSD_2      (SYS_BTN_OSD_KTGL + 2)
+
+static inline int osd_map_has_code(const uint32_t *map, uint32_t code)
+{
+	return code == map[SYS_BTN_OSD_1] || code == map[SYS_BTN_OSD_2];
+}
+
+// A map with only the first slot set means a single button.
+static inline void osd_map_fill_second(uint32_t *map)
+{
+	if (!map[SYS_BTN_OSD_2]) map[SYS_BTN_OSD_2] = map[SYS_BTN_OSD_1];
+}
+
+// The second slot names its own button (a combo) rather than repeating the first.
+static inline int osd_map_second_is_separate(const uint32_t *map)
+{
+	return map[SYS_BTN_OSD_2] != map[SYS_BTN_OSD_1];
+}
+
 #define SYS_MAP_BTN_L2     10
 #define SYS_MAP_BTN_SELECT 14
 #define SYS_MAP_POS_OSD    16
 #define SYS_MAP_AXIS_X     19
 #define SYS_MAP_AXIS_Y     20
-
-#define SYS_BTN_CNT_OK     21
-#define SYS_BTN_CNT_ESC    22
 
 #define SPIN_LEFT          30
 #define SPIN_RIGHT         31

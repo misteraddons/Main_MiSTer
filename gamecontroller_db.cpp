@@ -370,7 +370,7 @@ void gcdb_show_string_for_ctrl_map(uint16_t bustype, uint16_t vid, uint16_t pid,
 	for(int i=0; i < NUMBUTTONS; i++)
 	{
 			if (i >= SYS_MS_RIGHT && i <= SYS_MS_BTN_EMU) continue; //Skip mouse buttons
-			if (i == SYS_BTN_OSD_KTGL+2 && (cur_map[i] == cur_map[i-1])) continue;
+			if (i == SYS_BTN_OSD_2 && !osd_map_second_is_separate(cur_map)) continue;
 			if (i >= (int)(sizeof(sdlname_to_mister_idx)/sizeof(sdlname_to_mister_idx[0]))) continue;
 			const char *sdlname = sdlname_to_mister_idx[i];
 			if (!sdlname) continue;
@@ -554,7 +554,7 @@ static bool parse_mapping_string(char *map_str, char *guid, int dev_fd, uint32_t
 			fill_map[SYS_BTN_MENU_FUNC] = (fill_map[SYS_BTN_B] << 16) | fill_map[SYS_BTN_MENU_FUNC];
 		}
 
-		if (fill_map[SYS_BTN_OSD_KTGL+2] == 0) fill_map[SYS_BTN_OSD_KTGL+2] = fill_map[SYS_BTN_OSD_KTGL+1];
+		osd_map_fill_second(fill_map);
 
 
     //Some controllers without analog sticks use the left stick axes for the dpad instead of using the hat axes

@@ -2356,7 +2356,7 @@ static int map_menu_button_code(int dev, int code, const input_absinfo *absinfo)
 	else if (mapping_button == SYS_MAP_POS_OSD)
 	{
 		input[dev].map[SYS_BTN_OSD_KTGL + mapping_type] = code;
-		input[dev].map[SYS_BTN_OSD_KTGL + 2] = input[dev].map[SYS_BTN_OSD_KTGL + 1];
+		input[dev].map[SYS_BTN_OSD_2] = input[dev].map[SYS_BTN_OSD_1];
 		mapping_current_key = 0; // allow 2 buttons to be pressed
 	}
 	else
@@ -2429,8 +2429,8 @@ static void clear_mapping_slot_for_pos(uint32_t *map, int pos)
 		}
 		else if (pos == SYS_MAP_POS_OSD)
 		{
-			map[SYS_BTN_OSD_KTGL + 1] = 0;
-			map[SYS_BTN_OSD_KTGL + 2] = 0;
+			map[SYS_BTN_OSD_1] = 0;
+			map[SYS_BTN_OSD_2] = 0;
 		}
 		else if (pos == SYS_MAP_POS_OSD + 1)
 		{
@@ -4045,7 +4045,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			}
 			if (joycon_flipped_map) joycon_convert_flipped_map(dev, input[dev].mmap, 1);
 
-			if (!input[dev].mmap[SYS_BTN_OSD_KTGL + 2]) input[dev].mmap[SYS_BTN_OSD_KTGL + 2] = input[dev].mmap[SYS_BTN_OSD_KTGL + 1];
+			osd_map_fill_second(input[dev].mmap);
 			if (loaded_saved_map)
 			{
 				gcdb_show_string_for_ctrl_map(input[sub_dev].bustype, input[sub_dev].vid, input[sub_dev].pid, input[sub_dev].gcdb_version, pool[sub_dev].fd, input[sub_dev].name, input[dev].mmap);
@@ -4242,13 +4242,13 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 	if (ev->type == EV_KEY)
 	{
-		if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2])
+		if (ev->code == input[dev].mmap[SYS_BTN_OSD_2])
 		{
 			if (ev->value) input[dev].osd_combo |= 2;
 			else input[dev].osd_combo &= ~2;
 		}
 
-		if (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1])
+		if (ev->code == input[dev].mmap[SYS_BTN_OSD_1])
 		{
 			if (ev->value) input[dev].osd_combo |= 1;
 			else input[dev].osd_combo &= ~1;
@@ -4467,8 +4467,8 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						}
 						mapping_combo_second_key = ev->code;
 						mapping_combo_release_mask = 0;
-						input[dev].map[SYS_BTN_OSD_KTGL + 2] = ev->code;
-						printf("Set combo: %x + %x\n", input[dev].map[SYS_BTN_OSD_KTGL + 1], input[dev].map[SYS_BTN_OSD_KTGL + 2]);
+						input[dev].map[SYS_BTN_OSD_2] = ev->code;
+						printf("Set combo: %x + %x\n", input[dev].map[SYS_BTN_OSD_1], input[dev].map[SYS_BTN_OSD_2]);
 					}
 					else if (mapping_dev == dev && ev->value == 0 && mapping_button == SYS_MAP_POS_OSD && mapping_type && mapping_key_mapped && mapping_combo_second_key)
 					{
@@ -4823,7 +4823,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					for (uint i = 0; i < BTN_NUM && i < 32; i++)
 					{
 						if (ev->code == (input[dev].map[i] & 0xFFFF) || ev->code == (input[dev].map[i] >> 16)) {
-							if (ev->value <= 1) joy_digital(input[dev].num, 1u << i, origcode, ev->value, i, (ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 1] || ev->code == input[dev].mmap[SYS_BTN_OSD_KTGL + 2]));
+							if (ev->value <= 1) joy_digital(input[dev].num, 1u << i, origcode, ev->value, i, osd_map_has_code(input[dev].mmap, ev->code));
 						}
 					}
 
@@ -7705,7 +7705,7 @@ uint8_t advanced_entry_pressed_state(advancedButtonMap *abm, advancedButtonState
 	int pressed_cnt = 0;
 	bool chord_has_osd = false;
 	bool is_pressed = true;
-	bool code_is_osd_btn = (evcode == input[devnum].mmap[SYS_BTN_OSD_KTGL+1] || evcode == input[devnum].mmap[SYS_BTN_OSD_KTGL+2]);
+	bool code_is_osd_btn = osd_map_has_code(input[devnum].mmap, evcode);
 
 	for (unsigned int i = 0; i < sizeof(abm->input_codes)/sizeof(abm->input_codes[0]); i++)
 	{
@@ -7721,7 +7721,7 @@ uint8_t advanced_entry_pressed_state(advancedButtonMap *abm, advancedButtonState
 		}
 		code_cnt++;
 		if (abs->input_state & 1<<i) pressed_cnt++;
-		if (abm->input_codes[i] == input[devnum].mmap[SYS_BTN_OSD_KTGL+1] || abm->input_codes[i] == input[devnum].mmap[SYS_BTN_OSD_KTGL+2])
+		if (osd_map_has_code(input[devnum].mmap, abm->input_codes[i]))
 			chord_has_osd = true;
 	}
 
