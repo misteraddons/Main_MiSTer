@@ -51,6 +51,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "hardware.h"
 #include "menu.h"
 #include "joymap_pad.h"
+
+static void progress_boxes(char *out, int boxes, int value, int max);
 #include "user_io.h"
 #include "debug.h"
 #include "fpga_io.h"
@@ -4366,10 +4368,8 @@ void HandleUI(void)
 			}
 			else if (!subtitle && osd_hold >= 15)
 			{
-				const int filled = (osd_hold * 16 + 50) / 100;
-				strcpy(osd_hold_bar, "Hold [");
-				for (int i = 0; i < 16; i++) strcat(osd_hold_bar, (i < filled) ? "#" : "-");
-				strcat(osd_hold_bar, "]");
+				strcpy(osd_hold_bar, "Hold ");
+				progress_boxes(osd_hold_bar + 5, 16, osd_hold, 100);
 				subtitle = osd_hold_bar;
 			}
 
@@ -4463,7 +4463,7 @@ void HandleUI(void)
 							controls = (first >= 0 ? joymap_pad_controls_for_pos(first) : 0) |
 								(second >= 0 ? joymap_pad_controls_for_pos(second) : 0);
 					}
-					joymap_pad_draw(cfg.mapping_pad ? JOYMAP_PAD_SNES : JOYMAP_PAD_PSX, 8, flash_state ? controls : 0);
+					joymap_pad_draw(JOYMAP_PAD_PSX, 8, flash_state ? controls : 0);
 					flash_state = !flash_state;
 				}
 			}
@@ -8861,6 +8861,22 @@ static char pchar[] = { 0x8C, 0x8E, 0x8F, 0x90, 0x91, 0x7F };
 #define PROGRESS_CNT    28
 #define PROGRESS_CHARS  (int)(sizeof(pchar)/sizeof(pchar[0]))
 #define PROGRESS_MAX    ((PROGRESS_CHARS*PROGRESS_CNT)-1)
+
+// A row of loading-bar boxes for value out of max: boxes fill left to right,
+// each from an empty box up through pchar's bottom-up steps to full.
+static void progress_boxes(char *out, int boxes, int value, int max)
+{
+	const int per_box = PROGRESS_CHARS - 1;
+	int steps = (int)(((int64_t)value * boxes * per_box) / max);
+	for (int i = 0; i < boxes; i++)
+	{
+		int n = steps - i * per_box;
+		if (n < 0) n = 0;
+		if (n > per_box) n = per_box;
+		out[i] = pchar[n];
+	}
+	out[boxes] = 0;
+}
 
 void ProgressMessage(const char* title, const char* text, int current, int max)
 {

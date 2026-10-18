@@ -475,12 +475,10 @@ static void core_name_tests()
 static void pad_tests()
 {
 	const uint32_t all = PAD_BIT(PAD_CONTROL_COUNT) - 1;
-	const uint32_t snes = PAD_BIT(PAD_START + 1) - 1;  // RIGHT .. START
 	check(joymap_test_pad_controls(JOYMAP_PAD_PSX) == all, "D1 PSX pad has every control, L2/R2/L3/R3 and Home included");
-	check(joymap_test_pad_controls(JOYMAP_PAD_SNES) == snes, "D1 SNES fallback pad has the twelve SNES controls");
-	check(joymap_test_pad_flash_frames(JOYMAP_PAD_PSX) && joymap_test_pad_flash_frames(JOYMAP_PAD_SNES),
+	check(joymap_test_pad_flash_frames(JOYMAP_PAD_PSX),
 		"D2 each control flashes solid with its glyph inverted and nothing else changes");
-	check(joymap_test_pad_draw(JOYMAP_PAD_PSX, 8, PAD_BIT(PAD_L2)) && joymap_test_pad_draw(JOYMAP_PAD_SNES, 8, PAD_BIT(PAD_A)),
+	check(joymap_test_pad_draw(JOYMAP_PAD_PSX, 8, PAD_BIT(PAD_L2)) && joymap_test_pad_draw(JOYMAP_PAD_PSX, 8, PAD_BIT(PAD_A) | PAD_BIT(PAD_R3)),
 		"D2 the pad is drawn on OSD rows 8-15");
 
 	bool table = true;
@@ -506,8 +504,7 @@ static void pad_tests()
 		if (pad == JOYMAP_PAD_PSX)
 			placed &= y[PAD_L2] < y[PAD_L] && y[PAD_R2] < y[PAD_R] && x[PAD_L2] < x[PAD_R2] && x[PAD_L3] < x[PAD_R3] &&
 				y[PAD_L3] > y[PAD_DOWN] && y[PAD_R3] > y[PAD_X] && x[PAD_SELECT] < x[PAD_HOME] && x[PAD_HOME] < x[PAD_START];
-		check(placed, pad == JOYMAP_PAD_PSX ? "D6 PSX regions sit on the right buttons (directions, face, shoulders, sticks)" :
-			"D6 SNES regions sit on the right buttons (directions, face, shoulders)");
+		check(placed, "D6 PSX regions sit on the right buttons (directions, face, shoulders, sticks)");
 	}
 	bool covered = true;
 	for (int pos = -6; pos <= SYS_MAP_POS_OSD + 2; pos++)

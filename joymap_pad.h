@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-// Pad drawings for the Define buttons screen, from tools/joymap_pads/*.bmp.
-enum { JOYMAP_PAD_PSX, JOYMAP_PAD_SNES, JOYMAP_PAD_COUNT };
+// Pad drawings for the Define buttons screen, from tools/joymap_pads/*.bmp:
+// the PlayStation DualShock.
+enum { JOYMAP_PAD_PSX, JOYMAP_PAD_COUNT };
 
 // Pad controls. The first twelve follow the system map (SYS_BTN_RIGHT ..
 // SYS_BTN_START); on the PlayStation pad A, B, X, Y, L and R are Circle,

@@ -44,7 +44,6 @@ typedef struct {
 	uint8_t osd_rotate;
 	uint16_t osd_timeout;
 	uint8_t gamepad_defaults;
-	uint8_t mapping_pad;
 	uint8_t recents;
 	uint16_t jamma_vid;
 	uint16_t jamma_pid;

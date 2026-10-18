@@ -23,7 +23,7 @@ ROOT = HERE.parents[1]
 # PAD_* order in joymap_pad.h; region value = index + 1.
 PAD_IDS = ["PAD_RIGHT", "PAD_LEFT", "PAD_DOWN", "PAD_UP", "PAD_A", "PAD_B", "PAD_X", "PAD_Y", "PAD_L", "PAD_R",
            "PAD_SELECT", "PAD_START", "PAD_L2", "PAD_R2", "PAD_L3", "PAD_R3", "PAD_HOME"]
-PADS = ["psx", "snes"]  # JOYMAP_PAD_PSX, JOYMAP_PAD_SNES
+PADS = ["psx"]  # JOYMAP_PAD_PSX
 
 
 def read_bmp(path):

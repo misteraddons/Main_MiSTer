@@ -86,7 +86,7 @@ SNES X, never the PlayStation Cross.
 ## Define buttons pad
 
 The Menu core's Define buttons screen draws a 1-bit pad on OSD rows 8–15,
-with the text on rows 1–7. By default this is a DualShock 2 drawing, 104×64.
+with the text on rows 1–7. The drawing is a PlayStation DualShock, 104×64.
 It is shown for the whole gamepad session, stick stages included:
 - The control being asked for flashes solid, with its glyph inverted.
 - At the Menu prompt, the pad flashes the buttons pressed so far: one, both
@@ -94,9 +94,9 @@ It is shown for the whole gamepad session, stick stages included:
 - Menu OK and Back flash A and B.
 
 The PlayStation buttons stand for the SNES positions listed above, so maps
-stay SNES-based. `mapping_pad=1` in MiSTer.ini selects the SNES fallback pad,
-136×64, which has no L2/R2/L3/R3, sticks or Home button: those prompts flash
-nothing.
+stay SNES-based. An SNES drawing (136×64, without L2/R2/L3/R3, sticks or
+Home) was retired before release; it is in commit 0e919e1a
+(`tools/joymap_pads/snes*.bmp`) if it is wanted back as a fallback.
 
 A keyboard's first key skips the stick stages. Keyboards get the pad with
 keyboard hints (User → Undefine, Backspace → Prev). Nothing flashes at their
