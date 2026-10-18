@@ -1470,6 +1470,8 @@ typedef struct
 	int      map_shown;
 
 	uint8_t  osd_combo;
+	uint32_t osd_hold_timer;  // hold-mode Menu button: when the hold completes
+	uint8_t  osd_hold_fired;  // the hold completed; the release ends the Menu press
 
 	uint8_t  has_mmap;
 	uint32_t mmap[NUMBUTTONS];
@@ -1806,6 +1808,8 @@ static int mapping_hold_action = MAP_HOLD_NONE;
 static int mapping_pending_hold_action = MAP_HOLD_NONE;
 static int mapping_combo_second_key = 0;
 static uint8_t mapping_combo_release_mask = 0;
+static uint32_t mapping_osd_hold_timer = 0;  // Menu prompt: a button held alone becomes hold mode
+static uint8_t mapping_osd_hold_latched = 0;
 static char mapping_feedback[32] = {};
 static uint32_t mapping_feedback_timer = 0;
 static int mapping_feedback_advance = 0;
@@ -2234,10 +2238,17 @@ static void clear_mapping_current_input()
 	clear_mapping_hold_state();
 }
 
+static void clear_mapping_osd_hold_capture()
+{
+	mapping_osd_hold_timer = 0;
+	mapping_osd_hold_latched = 0;
+}
+
 static void clear_mapping_combo_state()
 {
 	mapping_combo_second_key = 0;
 	mapping_combo_release_mask = 0;
+	clear_mapping_osd_hold_capture();
 }
 
 static void set_mapping_ignore_release_keys(int key1, int key2 = 0)
@@ -2358,6 +2369,8 @@ static int map_menu_button_code(int dev, int code, const input_absinfo *absinfo)
 		input[dev].map[SYS_BTN_OSD_KTGL + mapping_type] = code;
 		input[dev].map[SYS_BTN_OSD_2] = input[dev].map[SYS_BTN_OSD_1];
 		mapping_current_key = 0; // allow 2 buttons to be pressed
+		// held alone it becomes hold mode (map_osd_hold_poll)
+		if (mapping_type) mapping_osd_hold_timer = GetTimer(OSD_HOLD_DEFAULT_MS);
 	}
 	else
 	{
@@ -2475,6 +2488,7 @@ int step_back_map_setting()
 	mapping_button = pos;
 	if (is_menu() && !menu_mouse_map && pos < 0) restore_menu_tmp_axis_stage(pos);
 	clear_mapping_current_input();
+	clear_mapping_osd_hold_capture();
 	mapping_clear = 0;
 	mapping_finish = 0;
 	prepare_mapping_trigger_capture();
@@ -3573,6 +3587,34 @@ static int trigger_axis_edge(int dev, uint16_t axis, int value, const input_absi
 	return is_trigger;
 }
 
+// At the Menu prompt a gamepad button held alone for OSD_HOLD_DEFAULT_MS
+// becomes hold mode; a second button pressed first makes a combo instead.
+static int map_osd_hold_poll()
+{
+	if (!mapping_osd_hold_timer || !CheckTimer(mapping_osd_hold_timer)) return 0;
+	mapping_osd_hold_timer = 0;
+	if (!mapping || !is_menu() || mapping_type != 1 || mapping_dev < 0 ||
+		mapping_button != SYS_MAP_POS_OSD || !mapping_key_mapped || mapping_combo_second_key)
+		return 0;
+
+	input[mapping_dev].map[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	input[mapping_dev].map[SYS_BTN_OSD_2] = mapping_key_mapped;
+	mapping_osd_hold_latched = 1;
+	printf("Set hold: %x\n", mapping_key_mapped);
+	return 1;
+}
+
+// Menu prompt hold progress: -1 none, 0-99 while a button is held, 100 once
+// hold mode is set.
+int get_map_osd_hold()
+{
+	if (mapping_osd_hold_latched) return 100;
+	if (!mapping_osd_hold_timer) return -1;
+	const unsigned long now = GetTimer(0);
+	if (now >= mapping_osd_hold_timer) return 99;
+	return 100 - (int)((mapping_osd_hold_timer - now) * 100 / OSD_HOLD_DEFAULT_MS);
+}
+
 int get_map_trigger_level()
 {
 	if (!mapping || !is_menu() || !is_menu_trigger_map_pos(mapping_button) || mapping_dev < 0 || !mapping_key_mapped)
@@ -3957,6 +3999,82 @@ static void assign_player(int dev, int num, int force = 0)
 	printf("Device %s %sassigned to player %d\n", input[dev].id, force ? "forcebly " : "", input[dev].num);
 }
 
+// Updates the device's Menu-button state from a key event and returns the
+// Menu event it makes: 1 press, 2 release, 0 none. A hold-mode press only
+// starts the hold timer; osd_hold_expired() completes it.
+static int osd_combo_event(int dev, const input_event *ev)
+{
+	const int old_combo = input[dev].osd_combo;
+	const uint32_t *mmap = input[dev].mmap;
+
+	if (ev->type == EV_KEY && osd_map_is_hold(mmap))
+	{
+		if (ev->code == mmap[SYS_BTN_OSD_2] && ev->value <= 1)
+		{
+			input[dev].osd_hold_timer = ev->value ? GetTimer(osd_map_hold_ms(mmap)) : 0;
+			input[dev].osd_combo = ev->value ? 2 : 0;
+		}
+	}
+	else if (ev->type == EV_KEY)
+	{
+		if (ev->code == mmap[SYS_BTN_OSD_2])
+		{
+			if (ev->value) input[dev].osd_combo |= 2;
+			else input[dev].osd_combo &= ~2;
+		}
+
+		if (ev->code == mmap[SYS_BTN_OSD_1])
+		{
+			if (ev->value) input[dev].osd_combo |= 1;
+			else input[dev].osd_combo &= ~1;
+		}
+	}
+
+	if (old_combo != 3 && input[dev].osd_combo == 3) return 1;
+	if (old_combo == 3 && input[dev].osd_combo != 3) return 2;
+	return 0;
+}
+
+// A hold-mode Menu button held for its hold time completes the Menu press.
+// Returns 1 once per hold.
+static int osd_hold_expired(int dev)
+{
+	if (!input[dev].osd_hold_timer || !CheckTimer(input[dev].osd_hold_timer)) return 0;
+	input[dev].osd_hold_timer = 0;
+	if (input[dev].osd_combo != 2) return 0;
+	input[dev].osd_combo = 3;
+	input[dev].osd_hold_fired = 1;
+	return 1;
+}
+
+// Hold timers run while no input events arrive, so input_poll() checks them.
+static void osd_hold_poll()
+{
+	map_osd_hold_poll();
+	for (int dev = 0; dev < NUMDEV; dev++)
+	{
+		if (!osd_hold_expired(dev)) continue;
+
+		// The Menu core's mapping screen ignores the Menu button. Mapping in a
+		// core treats a completed hold as Menu-hold, which cancels on release.
+		if (mapping)
+		{
+			if (!is_menu()) osd_timer = mapping_type == 3 ? ((mapping_count < 3 || mapping_set == 1) ? GetTimer(5000) : 0) : 1;
+			continue;
+		}
+
+		if (input[dev].lightgun_req && !user_io_osd_is_visible())
+		{
+			input[dev].lightgun = !input[dev].lightgun;
+			Info(input[dev].lightgun ? "Light Gun mode is ON" : "Light Gun mode is OFF");
+		}
+		else
+		{
+			joy_digital(input[dev].num, 0, 0, 1, BTN_OSD);
+		}
+	}
+}
+
 static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int dev, bool menu_event)
 {
 	if (ev->type != EV_KEY && ev->type != EV_ABS && ev->type != EV_REL) return;
@@ -4238,32 +4356,15 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		}
 	}
 
-	int old_combo = input[dev].osd_combo;
-
-	if (ev->type == EV_KEY)
+	int osd_event = osd_combo_event(dev, ev);
+	const int osd_hold_release = osd_event == 2 && input[dev].osd_hold_fired;
+	if (osd_event == 2) input[dev].osd_hold_fired = 0;
+	if (osd_event == 1)
 	{
-		if (ev->code == input[dev].mmap[SYS_BTN_OSD_2])
-		{
-			if (ev->value) input[dev].osd_combo |= 2;
-			else input[dev].osd_combo &= ~2;
-		}
-
-		if (ev->code == input[dev].mmap[SYS_BTN_OSD_1])
-		{
-			if (ev->value) input[dev].osd_combo |= 1;
-			else input[dev].osd_combo &= ~1;
-		}
-	}
-
-	int osd_event = 0;
-	if (old_combo != 3 && input[dev].osd_combo == 3)
-	{
-		osd_event = 1;
 		if (mapping && !is_menu()) osd_timer = mapping_type == 3 ? ((mapping_count < 3 || mapping_set == 1) ? GetTimer(5000) : 0) : GetTimer(1000);
 	}
-	else if (old_combo == 3 && input[dev].osd_combo != 3)
+	else if (osd_event == 2)
 	{
-		osd_event = 2;
 		if (mapping && !is_menu())
 		{
 			if (CheckTimer(osd_timer))
@@ -4459,8 +4560,9 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 						}
 					}
 					//combo for osd button
-					if (ev->value == 1 && mapping_key_mapped && mapping_key_mapped != ev->code && is_menu() && mapping_button == SYS_MAP_POS_OSD && mapping_type)
+					if (ev->value == 1 && mapping_key_mapped && mapping_key_mapped != ev->code && is_menu() && mapping_button == SYS_MAP_POS_OSD && mapping_type && !mapping_osd_hold_latched)
 					{
+						mapping_osd_hold_timer = 0;
 						if (mapping_hold_key && ev->code != mapping_hold_key)
 						{
 							clear_mapping_hold_state();
@@ -4687,6 +4789,9 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 					if (osd_event == 1) joy_digital(input[dev].num, 0, 0, 1, BTN_OSD);
 					if (osd_event == 2) joy_digital(input[dev].num, 0, 0, 0, BTN_OSD);
 				}
+
+				// A completed hold opened the OSD; keep its release from acting there too.
+				if (osd_hold_release && user_io_osd_is_visible()) return;
 
 				if (user_io_osd_is_visible() || video_fb_state())
 				{
@@ -7426,6 +7531,8 @@ int input_poll(int getchar)
 
 	int ret = input_test(getchar);
 	if (getchar) return ret;
+
+	osd_hold_poll();
 
 	uinp_check_key();
 

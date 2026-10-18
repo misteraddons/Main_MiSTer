@@ -1,5 +1,6 @@
 // Host-only wrappers around the production GCDB parser. Synthetic evdev axes.
 #include "../gamecontroller_db.cpp"
+#include <algorithm>
 #include <stdarg.h>
 #include <string>
 #include <unistd.h>
@@ -7,6 +8,7 @@
 static input_absinfo fixture_axis;
 static char fixture_line[256];
 static int fixture_line_read;
+static unsigned char fixture_keys[KEY_MAX / 8 + 1];
 
 extern "C" int __wrap_ioctl(int, unsigned long request, ...)
 {
@@ -28,6 +30,7 @@ extern "C" int __wrap_ioctl(int, unsigned long request, ...)
 	if (_IOC_NR(request) == _IOC_NR(EVIOCGBIT(EV_KEY, 0)))
 	{
 		memset(out, 0, _IOC_SIZE(request));
+		memcpy(out, fixture_keys, std::min((size_t)_IOC_SIZE(request), sizeof(fixture_keys)));
 		return 0;
 	}
 	return -1;
@@ -72,6 +75,32 @@ extern "C" bool joymap_test_cached_trigger_pair(const char *left, const char *ri
 	snprintf(fixture_line, sizeof(fixture_line), "030000003412000078560000%02x000000,Fixture,lefttrigger:%s,righttrigger:%s,platform:Linux,", version, left, right);
 	memset(map, 0, NUMBUTTONS * sizeof(*map));
 	return gcdb_map_for_controller(3, 0x1234, 0x5678, version, 17, map);
+}
+
+// The full mapping string for a system map, on a fixture pad with A, Select,
+// Start and Mode buttons.
+extern "C" bool joymap_test_export_map(const uint32_t *map, char *out, size_t size)
+{
+	memset(fixture_keys, 0, sizeof(fixture_keys));
+	for (int code : {BTN_A, BTN_SELECT, BTN_START, BTN_MODE}) fixture_keys[code / 8] |= 1 << (code % 8);
+	uint32_t copy[NUMBUTTONS];
+	memcpy(copy, map, sizeof(copy));
+	FILE *capture = tmpfile();
+	if (!capture) return false;
+	fflush(stdout);
+	int saved = dup(STDOUT_FILENO);
+	if (saved < 0) { fclose(capture); return false; }
+	if (dup2(fileno(capture), STDOUT_FILENO) < 0) { close(saved); fclose(capture); return false; }
+	gcdb_show_string_for_ctrl_map(3, 0x1234, 0x5678, 0x77, 17, "Fixture", copy);
+	fflush(stdout);
+	dup2(saved, STDOUT_FILENO);
+	close(saved);
+	rewind(capture);
+	const size_t length = fread(out, 1, size - 1, capture);
+	out[length] = 0;
+	fclose(capture);
+	memset(fixture_keys, 0, sizeof(fixture_keys));
+	return length > 0;
 }
 
 extern "C" bool joymap_test_export(uint32_t map, const char *expected)

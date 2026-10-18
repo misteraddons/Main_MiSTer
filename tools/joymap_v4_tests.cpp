@@ -22,11 +22,17 @@ int FileLoadConfig(const char *name, void *data, int size)
 }
 int FileDeleteConfig(const char *name) { configs.erase(name); return 1; }
 
+// Fake millisecond clock with the production CheckTimer() contract (0 = expired).
+static unsigned long fake_ms = 1000;
+unsigned long GetTimer(unsigned long offset) { return fake_ms + offset; }
+unsigned long CheckTimer(unsigned long time) { return !time || fake_ms >= time; }
+
 extern "C" uint32_t joymap_test_trigger(const char *);
 extern "C" uint32_t joymap_test_cached_trigger(int, const char *, int);
 extern "C" int joymap_test_trigger_code(uint32_t);
 extern "C" bool joymap_test_export(uint32_t, const char *);
 extern "C" bool joymap_test_cached_trigger_pair(const char *, const char *, int, uint32_t *);
+extern "C" bool joymap_test_export_map(const uint32_t *, char *, size_t);
 
 static int failures;
 static int checks;
@@ -294,6 +300,142 @@ static void navigation_tests()
 	}
 }
 
+static input_event key_event(int code, int value)
+{
+	input_event ev = {};
+	ev.type = EV_KEY;
+	ev.code = code;
+	ev.value = value;
+	return ev;
+}
+
+static int key(int dev, int code, int value)
+{
+	const input_event ev = key_event(code, value);
+	return osd_combo_event(dev, &ev);
+}
+
+static void osd_hold_tests()
+{
+	uint32_t map[NUMBUTTONS] = {};
+	map[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	map[SYS_BTN_OSD_2] = BTN_SELECT;
+	check(osd_map_is_hold(map) && osd_map_hold_ms(map) == OSD_HOLD_DEFAULT_MS,
+		"H1 marker in slot 1 is hold mode with the default 2 s");
+	map[SYS_BTN_OSD_1] = OSD_HOLD_MARKER | (10 << 16);
+	check(osd_map_hold_ms(map) == 1000, "H1 high half of slot 1 is the hold time in 100 ms units");
+	check(osd_map_has_code(map, BTN_SELECT) && !osd_map_has_code(map, OSD_HOLD_MARKER) && !osd_map_has_code(map, map[SYS_BTN_OSD_1]),
+		"H1 hold button is a Menu button; the marker never matches a code");
+	map[SYS_BTN_OSD_2] = 0;
+	osd_map_fill_second(map);
+	check(!map[SYS_BTN_OSD_2], "H1 an empty second slot is not filled with the marker");
+	uint32_t tap[NUMBUTTONS] = {};
+	tap[SYS_BTN_OSD_1] = BTN_MODE;
+	osd_map_fill_second(tap);
+	check(!osd_map_is_hold(tap) && tap[SYS_BTN_OSD_2] == BTN_MODE, "control a single button still fills the second slot");
+
+	// runtime: tap vs hold on a hold-mode map
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].mmap[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	input[0].mmap[SYS_BTN_OSD_2] = BTN_SELECT;
+	fake_ms = 1000;
+	check(key(0, BTN_SELECT, 1) == 0 && input[0].osd_hold_timer == 3000, "H2 hold press starts the timer, no Menu event yet");
+	fake_ms = 2500;
+	check(!osd_hold_expired(0), "H2 no Menu press before the hold time");
+	check(key(0, BTN_SELECT, 0) == 0 && !input[0].osd_hold_timer, "H2 a tap releases without a Menu event");
+	fake_ms = 4000;
+	check(!osd_hold_expired(0), "H2 a released tap never completes later");
+	check(key(0, BTN_SELECT, 1) == 0, "H2 second press starts again");
+	fake_ms = 5000;
+	check(key(0, BTN_SELECT, 2) == 0 && input[0].osd_hold_timer == 6000, "H2 key auto-repeat does not restart the hold");
+	fake_ms = 6000;
+	check(osd_hold_expired(0) && input[0].osd_combo == 3 && input[0].osd_hold_fired, "H2 held for 2 s completes the Menu press");
+	check(!osd_hold_expired(0), "H2 a hold completes only once");
+	check(key(0, BTN_SELECT, 0) == 2 && !input[0].osd_combo, "H2 release after the hold ends the Menu press");
+	check(key(0, BTN_START, 1) == 0 && key(0, BTN_START, 0) == 0 && !input[0].osd_hold_timer,
+		"H2 other buttons do not touch the hold");
+
+	// controls: tap and combo maps behave as before
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].mmap[SYS_BTN_OSD_1] = BTN_MODE;
+	input[0].mmap[SYS_BTN_OSD_2] = BTN_MODE;
+	check(key(0, BTN_MODE, 1) == 1 && key(0, BTN_MODE, 0) == 2 && !input[0].osd_hold_timer,
+		"control single-button Menu press and release are immediate");
+	input[0].mmap[SYS_BTN_OSD_2] = BTN_START;
+	input[0].mmap[SYS_BTN_OSD_1] = BTN_SELECT;
+	check(key(0, BTN_SELECT, 1) == 0 && key(0, BTN_START, 1) == 1 && key(0, BTN_SELECT, 0) == 2,
+		"control combo Menu press needs both buttons");
+
+	// mapping capture at the Menu prompt
+	set_menu_mouse_map(0);
+	memset(&input[0], 0, sizeof(input[0]));
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_count = SYS_MAP_GAMEPAD_COUNT;
+	mapping_button = SYS_MAP_POS_OSD; mapping_key_mapped = 0; mapping_last_axis = 0;
+	clear_mapping_combo_state();
+	fake_ms = 10000;
+	check(map_menu_button_code(0, BTN_SELECT, NULL) && input[0].map[SYS_BTN_OSD_1] == BTN_SELECT &&
+		input[0].map[SYS_BTN_OSD_2] == BTN_SELECT && get_map_osd_hold() == 0,
+		"H3 first Menu button maps as a single button and starts the hold capture");
+	fake_ms = 11000;
+	check(!map_osd_hold_poll() && get_map_osd_hold() == 50, "H3 hold progress is reported halfway through");
+	fake_ms = 12000;
+	check(map_osd_hold_poll() && osd_map_is_hold(input[0].map) && input[0].map[SYS_BTN_OSD_2] == BTN_SELECT &&
+		get_map_osd_hold() == 100, "H3 held alone for 2 s it becomes hold mode");
+	uint32_t reloaded[NUMBUTTONS] = {};
+	save_map("hold_v4.map", input[0].map, sizeof(input[0].map));
+	load_map("hold_v4.map", reloaded, sizeof(reloaded));
+	osd_map_fill_second(reloaded);
+	check(osd_map_is_hold(reloaded) && reloaded[SYS_BTN_OSD_1] == OSD_HOLD_MARKER && reloaded[SYS_BTN_OSD_2] == BTN_SELECT,
+		"H3 hold mode survives save and load as FF FF 00 00 + button");
+
+	clear_mapping_combo_state();
+	memset(input[0].map, 0, sizeof(input[0].map));
+	mapping_key_mapped = 0;
+	fake_ms = 20000;
+	map_menu_button_code(0, BTN_SELECT, NULL);
+	mapping_combo_second_key = BTN_START;  // what the combo branch records
+	input[0].map[SYS_BTN_OSD_2] = BTN_START;
+	fake_ms = 23000;
+	check(!map_osd_hold_poll() && input[0].map[SYS_BTN_OSD_1] == BTN_SELECT && input[0].map[SYS_BTN_OSD_2] == BTN_START,
+		"H3 a second button first makes a combo, never hold mode");
+
+	clear_mapping_combo_state();
+	memset(input[0].map, 0, sizeof(input[0].map));
+	mapping_key_mapped = 0;
+	fake_ms = 30000;
+	map_menu_button_code(0, BTN_SELECT, NULL);
+	clear_mapping_combo_state();  // the release path advances the prompt
+	fake_ms = 33000;
+	check(!map_osd_hold_poll() && !osd_map_is_hold(input[0].map) && get_map_osd_hold() == -1,
+		"H3 releasing early keeps a single button");
+
+	memset(input[0].map, 0, sizeof(input[0].map));
+	mapping_key_mapped = 0;
+	mapping_button = SYS_MAP_POS_OSD;
+	fake_ms = 40000;
+	map_menu_button_code(0, BTN_SELECT, NULL);
+	mapping_button = SYS_MAP_POS_OSD + 1;
+	step_back_map_setting();
+	check(get_map_osd_hold() == -1 && mapping_button == SYS_MAP_POS_OSD, "H3 Previous cancels a hold capture in progress");
+	mapping = 0;
+
+	// GamecontrollerDB export: SDL has no hold mode, so hold exports as the guide button
+	char held[512], single[512], combo[512];
+	uint32_t hold_map[NUMBUTTONS] = {}, tap_map[NUMBUTTONS] = {}, combo_map[NUMBUTTONS] = {};
+	hold_map[SYS_BTN_OSD_1] = OSD_HOLD_MARKER; hold_map[SYS_BTN_OSD_2] = BTN_SELECT;
+	tap_map[SYS_BTN_OSD_1] = tap_map[SYS_BTN_OSD_2] = BTN_SELECT;
+	combo_map[SYS_BTN_OSD_1] = BTN_SELECT; combo_map[SYS_BTN_OSD_2] = BTN_START;
+	const bool exported = joymap_test_export_map(hold_map, held, sizeof(held)) &&
+		joymap_test_export_map(tap_map, single, sizeof(single)) && joymap_test_export_map(combo_map, combo, sizeof(combo));
+	// the first export also logs the index-map cache fill; compare the mapping lines
+	const char *held_line = exported ? strstr(held, "Gamecontrollerdb for mapping:") : NULL;
+	const char *single_line = exported ? strstr(single, "Gamecontrollerdb for mapping:") : NULL;
+	if (!held_line || !single_line || strcmp(held_line, single_line)) printf("hold:   %s\nsingle: %s\n", held, single);
+	check(held_line && single_line && !strcmp(held_line, single_line) && strstr(held_line, "guide:b") && !strstr(held_line, "guide2"),
+		"H4 hold map exports exactly like a single guide button");
+	check(exported && strstr(combo, "guide:b") && strstr(combo, "guide2:b"), "control combo map exports guide and guide2");
+}
+
 int main(int argc, char **argv)
 {
 	if (argc > 1 && !strcmp(argv[1], "--negative-control"))
@@ -306,6 +448,7 @@ int main(int argc, char **argv)
 	trigger_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();
+	osd_hold_tests();
 	printf("Joymap v4 runtime regressions: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

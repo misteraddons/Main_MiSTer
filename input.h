@@ -80,19 +80,36 @@
 #define MAP_FLAG_NEGATIVE   0x00100000
 
 // Gamepad Menu (OSD) binding in a system map. A single button stores its code
-// in both slots; a two-button combo stores one code in each.
+// in both slots; a two-button combo stores one code in each. Hold mode stores
+// OSD_HOLD_MARKER in the low half of the first slot and the button in the
+// second; the high half of the first slot is the hold time in 100 ms units,
+// 0 meaning OSD_HOLD_DEFAULT_MS. No key code reaches 0xFFFF, so older readers
+// never match the marker as a button.
 #define SYS_BTN_OSD_1      (SYS_BTN_OSD_KTGL + 1)
 #define SYS_BTN_OSD_2      (SYS_BTN_OSD_KTGL + 2)
+#define OSD_HOLD_MARKER     0xFFFF
+#define OSD_HOLD_DEFAULT_MS 2000
+
+static inline int osd_map_is_hold(const uint32_t *map)
+{
+	return (map[SYS_BTN_OSD_1] & 0xFFFF) == OSD_HOLD_MARKER;
+}
+
+static inline uint32_t osd_map_hold_ms(const uint32_t *map)
+{
+	const uint32_t tenths = map[SYS_BTN_OSD_1] >> 16;
+	return tenths ? tenths * 100 : OSD_HOLD_DEFAULT_MS;
+}
 
 static inline int osd_map_has_code(const uint32_t *map, uint32_t code)
 {
-	return code == map[SYS_BTN_OSD_1] || code == map[SYS_BTN_OSD_2];
+	return code == map[SYS_BTN_OSD_2] || (code == map[SYS_BTN_OSD_1] && !osd_map_is_hold(map));
 }
 
 // A map with only the first slot set means a single button.
 static inline void osd_map_fill_second(uint32_t *map)
 {
-	if (!map[SYS_BTN_OSD_2]) map[SYS_BTN_OSD_2] = map[SYS_BTN_OSD_1];
+	if (!map[SYS_BTN_OSD_2] && !osd_map_is_hold(map)) map[SYS_BTN_OSD_2] = map[SYS_BTN_OSD_1];
 }
 
 // The second slot names its own button (a combo) rather than repeating the first.
@@ -168,6 +185,7 @@ int poll_map_hold_action();
 int get_map_active();
 // 0..255 travel of the analog trigger held at the L2/R2 Menu prompt, or -1.
 int get_map_trigger_level();
+int get_map_osd_hold();
 void reset_players();
 void input_analog_triggers_resync(int suppress);
 

@@ -355,6 +355,15 @@ void gcdb_show_string_for_ctrl_map(uint16_t bustype, uint16_t vid, uint16_t pid,
 	static uint16_t abs_map[GCDB_AXIS_MAP_SIZE] = {0xFFFF};
 	if (!cur_map) return;
 
+	// SDL strings have no hold mode: export the hold button as the guide button.
+	uint32_t hold_map[NUMBUTTONS];
+	if (osd_map_is_hold(cur_map))
+	{
+		memcpy(hold_map, cur_map, sizeof(hold_map));
+		hold_map[SYS_BTN_OSD_1] = hold_map[SYS_BTN_OSD_2];
+		cur_map = hold_map;
+	}
+
 	char guid_str[GUID_LEN] = {0};
 	sprintf(guid_str, "%04x0000%04x0000%04x0000%04x0000", (uint16_t)(bustype << 8 | bustype >> 8), (uint16_t)( vid << 8 |  vid >> 8), (uint16_t)(pid << 8 | pid >> 8), (uint16_t)(version << 8 | version >> 8));
 	if (strcmp(map_guid, guid_str))

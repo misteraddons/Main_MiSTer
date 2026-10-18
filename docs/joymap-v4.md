@@ -29,6 +29,37 @@ v3 fields and append the v4 button/trigger fields.
   digital-DPAD/hat recognition, keeping later stick X/Y stages in order.
 - Core-selector and Misc return paths use the named Exit/Help menu entries.
 
+## Menu button: tap, combo or hold
+
+The gamepad Menu (OSD) binding is system-map slots 21 and 22
+(`SYS_BTN_OSD_1/2`), little-endian `uint32` at file offsets 0x54 and 0x58:
+
+| Mode | Slot 21 | Slot 22 | Bytes at 0x54 |
+|---|---|---|---|
+| Tap (Guide, `BTN_MODE`) | `0x013C` | `0x013C` | `3C 01 00 00 3C 01 00 00` |
+| Combo (Select + Start) | `0x013A` | `0x013B` | `3A 01 00 00 3B 01 00 00` |
+| Hold 2 s (Select) | `0xFFFF` | `0x013A` | `FF FF 00 00 3A 01 00 00` |
+
+- In hold mode, `OSD_HOLD_MARKER` occupies the low half of slot 21. Its high
+  half is reserved for the hold time in 100 ms units; 0 means 2 s.
+- No key code reaches 0xFFFF; synthetic axis keys end at 0x37F. Code that
+  compares event codes with slot 21 therefore never matches the marker. A v4
+  build without hold support sees no gamepad Menu button (keyboard F12 still
+  works). Upstream builds read `*_v3.map` and never see the marker.
+- At runtime a hold-mode button acts normally in the core. Held for the hold
+  time (polled in `input_poll()`), it sends the Menu press; its release ends the
+  press. When that press opened the OSD, the release is not passed to the OSD.
+- Holding it again for the hold time closes the OSD.
+- In a core's own mapping screen, a tap maps the button and a completed hold
+  then release cancels (Menu-hold).
+- At the Menu core's Menu prompt:
+  - tap a button for a single button;
+  - press a second button within 2 s for a combo;
+  - or hold one button alone for 2 s for hold mode.
+  Line 2 shows the hold filling, then `Menu: hold 2s`.
+- GamecontrollerDB export writes a hold button as `guide`, since SDL strings
+  have no hold.
+
 ## Host regression suite
 
 Run on Linux/WSL with Python 3 and a C++ compiler:
@@ -42,8 +73,16 @@ The harness compiles the production `input.cpp` and `gamecontroller_db.cpp` with
 synthetic evdev/GCDB input and in-memory configuration storage. Unsigned `char`
 matches the ARM target. It checks partial-map save/load, skip/Previous state,
 trigger normalization and export, held-input cache lookups, shared-axis digital
-transitions, Joy-Con orientation, and OSD directions. Ordinary-mapping controls
-and deliberately wrong expectations exercise the checker itself.
+transitions, Joy-Con orientation, and OSD directions. It also checks the
+Menu-button hold mode against a fake millisecond clock:
+- encoding;
+- tap versus hold;
+- capture at the Menu prompt, including combo-first, early release and
+  Previous;
+- save and load;
+- GamecontrollerDB export.
+Source guards cover its `input_cb()`/`input_poll()` wiring. Ordinary-mapping
+controls and deliberately wrong expectations exercise the checker itself.
 
 Joy-Con/OSD integration and synthetic event emission use source-derived seams;
 the two menu return paths use source guards, not a complete UI emulator. Unknown
@@ -58,6 +97,12 @@ built binary on MiSTer for fresh GCDB mouse-only save/reload, mouse skip/Previou
 held-trigger USB hotplug, combined Joy-Con saved inversion, inverted OSD and
 framebuffer navigation, DPAD skip/back, and the two menu return highlights.
 Verify analog and digital trigger delivery with a core supporting `UIO_ATRIG`.
+For Menu hold mode, check on hardware:
+- capture at the Menu prompt (tap, combo and hold);
+- a hold opening and closing the OSD in a core, with the button still working
+  in the game on a tap;
+- a hold cancelling a core's button definition;
+- the lightgun and mouse-mode toggles.
 
 Generic GCDB digital-button bindings to inverted half-axes have a pre-existing
 representation limitation: swapping an axis's synthetic minimum/maximum key

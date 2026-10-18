@@ -4356,6 +4356,22 @@ void HandleUI(void)
 				subtitle = trigger_bar;
 			}
 
+			// Menu prompt: a button held alone fills the bar, then becomes hold mode
+			char osd_hold_bar[32];
+			const int osd_hold = show_combo_hint ? get_map_osd_hold() : -1;
+			if (!subtitle && osd_hold >= 100)
+			{
+				subtitle = "Menu: hold 2s";
+			}
+			else if (!subtitle && osd_hold >= 15)
+			{
+				const int filled = (osd_hold * 16 + 50) / 100;
+				strcpy(osd_hold_bar, "Hold [");
+				for (int i = 0; i < 16; i++) strcat(osd_hold_bar, (i < filled) ? "#" : "-");
+				strcat(osd_hold_bar, "]");
+				subtitle = osd_hold_bar;
+			}
+
 			if (get_map_button() >= 0)
 			{
 				if (show_hold_feedback_in_prompt)
@@ -4401,7 +4417,7 @@ void HandleUI(void)
 			}
 			else if (show_combo_hint)
 			{
-				strcpy(info_line, "   (can use 2-button combo)");
+				strcpy(info_line, " Tap, 2-btn combo or hold 2s");
 				combo_hint_below_prompt = 1;
 			}
 

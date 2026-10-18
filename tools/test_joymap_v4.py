@@ -80,6 +80,19 @@ def menu_checks(source):
             (back is not None and back.group(1).strip() == "MENU_SYSTEM_SUB_HELP", "8 Misc return uses Help enum (source guard)")]
 
 
+def hold_wiring_checks(source):
+    """Source guards for the hold-mode wiring inside input_cb()/input_poll()."""
+    cb = source[source.index("static void input_cb("):source.index("int input_poll(")]
+    poll = source[source.index("int input_poll("):]
+    combo = re.search(r"if \(ev->value == 1 && mapping_key_mapped && mapping_key_mapped != ev->code && is_menu\(\) && "
+                      r"mapping_button == SYS_MAP_POS_OSD && mapping_type && !mapping_osd_hold_latched\)\s*\{\s*"
+                      r"mapping_osd_hold_timer = 0;", cb)
+    return [("int osd_event = osd_combo_event(dev, ev);" in cb, "H5 input_cb takes Menu events from osd_combo_event (source guard)"),
+            (re.search(r"if \(getchar\) return ret;\s*osd_hold_poll\(\);", poll) is not None, "H5 input_poll runs the hold timers (source guard)"),
+            (combo is not None, "H5 a combo cancels the hold capture and is refused once hold is set (source guard)"),
+            ("if (osd_hold_release && user_io_osd_is_visible()) return;" in cb, "H5 a completed hold's release does not reach the OSD (source guard)")]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True, help="ignored build/evidence directory")
@@ -150,7 +163,7 @@ def main():
         return built.returncode
     results = []
     results.append(subprocess.run([str(binary)], timeout=30).returncode == 0)
-    for passed, label in menu_checks((source_root / "menu.cpp").read_text()):
+    for passed, label in menu_checks((source_root / "menu.cpp").read_text()) + hold_wiring_checks(source):
         print(f"{'PASS' if passed else 'FAIL'}: {label}", flush=True)
         results.append(passed)
     negative = subprocess.run([str(binary), "--negative-control"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
@@ -161,6 +174,9 @@ def main():
     rejected = not menu_checks(mutant)[0][0]
     print(f"{'PASS' if rejected else 'FAIL'}: deliberately wrong menu-return enum rejected", flush=True)
     results.append(rejected)
+    unwired = not hold_wiring_checks(re.sub(r"(if \(getchar\) return ret;\s*)osd_hold_poll\(\);", r"\1", source, count=1))[1][0]
+    print(f"{'PASS' if unwired else 'FAIL'}: deliberately unwired hold poll rejected", flush=True)
+    results.append(unwired)
     print(f"Joymap v4 suite: {'PASS' if all(results) else 'FAIL'}", flush=True)
     return 0 if all(results) else 1
 
