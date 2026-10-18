@@ -29,6 +29,70 @@ v3 fields and append the v4 button/trigger fields.
   digital-DPAD/hat recognition, keeping later stick X/Y stages in order.
 - Core-selector and Misc return paths use the named Exit/Help menu entries.
 
+## Map file layout
+
+`input_<vid>_<pid>_v4.map` is the system map, defined in the Menu core.
+`<core>_input_<vid>_<pid>_v4.map` is a core's own map. Both are a raw,
+little-endian `uint32_t map[NUMBUTTONS]` with no header: slot n is at byte
+n × 4.
+
+The version is only in the file name. v3 had 32 slots (128 bytes); v4 appends
+six more (152 bytes) and leaves the first 32 unchanged. A shorter file loads
+with the missing slots zero, and v3 files stay in place for older builds.
+
+Each slot is two 16-bit halves, low half first. The low half is a Linux input
+code:
+- **Buttons:** `BTN_*` codes, for example `BTN_A` 0x130 and `BTN_SELECT`
+  0x13A. Codes below 0x100 are keyboard keys.
+- **Stick and hat directions:** synthetic codes 0x300 + 2 × axis, plus 1 for
+  the positive end. For example, `ABS_X` right is 0x301 and `ABS_HAT0Y` up is
+  0x322.
+
+The high half's meaning depends on the slot:
+
+| Slot | Offset | System map meaning | High half |
+|---|---|---|---|
+| 0–3 | 0x00–0x0C | D-pad Right, Left, Down, Up | 0 |
+| 4–9 | 0x10–0x24 | A, B, X, Y, L, R | 0 |
+| 10–11 | 0x28–0x2C | Select, Start | 0 |
+| 12–19 | 0x30–0x4C | Mouse emulation: directions, left/right/middle, toggle | 0 |
+| 20 | 0x50 | Keyboard OSD/toggle key | 0 |
+| 21–22 | 0x54–0x58 | Gamepad Menu: first and second button (below) | 0 |
+| 23 | 0x5C | Menu OK | Menu Back |
+| 24–27 | 0x60–0x6C | Stick 1 X/Y, Stick 2 X/Y: axis number | flags |
+| 28–29 | 0x70–0x74 | Axis pair from the D-pad test | flags |
+| 30–31 | 0x78–0x7C | Mouse emulation axes X/Y | flags |
+| 32–35 | 0x80–0x8C | v4: L2, R2, L3, R3 | 0 |
+| 36–37 | 0x90–0x94 | v4: L2/R2 analog trigger axis | flags |
+
+Axis flags (`MAP_FLAG_*`, in the high half):
+- 0x0001: inverted
+- 0x0002: analog
+- 0x0004: trigger
+- 0x0008: half axis
+- 0x0010: negative half
+
+In a core map, slots 0–3 are the d-pad and slots 4 onward follow the core's
+`J1` button order. The low half is the primary button and the high half is
+the alternative button, from the "set up alternative buttons?" pass. Without a
+saved core map, Main builds one from the system map by button name.
+
+**Why not GamecontrollerDB strings:**
+- A core map assigns physical buttons to that core's own buttons, each with an
+  alternative; an SDL string describes only one fixed pad.
+- Mouse emulation, the keyboard toggle, Menu combo/hold, Menu OK/Back and the
+  trigger metadata have no SDL keys. The export already has to invent `guide2`
+  and `menufunc`.
+- GCDB rows are keyed by the SDL GUID, which includes the device version, and
+  index SDL's own button order. A `.map` stores Linux codes under the
+  vid:pid, so it survives a firmware version change.
+- Upstream and existing installs read `.map`, and appending slots keeps older
+  builds working.
+- A fixed-size file loads with no text parser on the input path.
+
+The cost is readability, which this table and the console's GamecontrollerDB
+printout cover.
+
 ## Menu button: tap, combo or hold
 
 The gamepad Menu (OSD) binding is system-map slots 21 and 22
