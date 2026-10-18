@@ -34,6 +34,13 @@ extern "C" bool joymap_test_export(uint32_t, const char *);
 extern "C" bool joymap_test_cached_trigger_pair(const char *, const char *, int, uint32_t *);
 extern "C" bool joymap_test_export_map(const uint32_t *, char *, size_t);
 extern "C" void joymap_test_core_names(const char *, const uint32_t *, uint32_t *);
+#ifdef JOYMAP_TEST_HAS_PAD
+#include "joymap_pad.h"
+extern "C" uint32_t joymap_test_pad_controls(int);
+extern "C" uint32_t joymap_test_pad_controls_for_pos(int);
+extern "C" bool joymap_test_pad_flash_frames(int);
+extern "C" bool joymap_test_pad_draw(int, int, uint32_t);
+#endif
 
 static int failures;
 static int checks;
@@ -457,6 +464,59 @@ static void core_name_tests()
 		map[8] == mmap[SYS_BTN_L] && map[9] == mmap[SYS_BTN_R], "control SNES names map as before; X stays the SNES X");
 }
 
+#ifdef JOYMAP_TEST_HAS_PAD
+static void pad_tests()
+{
+	const uint32_t all = PAD_BIT(PAD_CONTROL_COUNT) - 1;
+	const uint32_t snes = PAD_BIT(PAD_START + 1) - 1;  // RIGHT .. START
+	check(joymap_test_pad_controls(JOYMAP_PAD_PSX) == all, "D1 PSX pad has every control, L2/R2/L3/R3 and Home included");
+	check(joymap_test_pad_controls(JOYMAP_PAD_SNES) == snes, "D1 SNES fallback pad has the twelve SNES controls");
+	check(joymap_test_pad_flash_frames(JOYMAP_PAD_PSX) && joymap_test_pad_flash_frames(JOYMAP_PAD_SNES),
+		"D2 each control flashes solid with its glyph inverted and nothing else changes");
+	check(joymap_test_pad_draw(JOYMAP_PAD_PSX, 8, PAD_BIT(PAD_L2)) && joymap_test_pad_draw(JOYMAP_PAD_SNES, 8, PAD_BIT(PAD_A)),
+		"D2 the pad is drawn on OSD rows 8-15");
+
+	bool table = true;
+	for (int pos = 0; pos <= SYS_BTN_R; pos++) table &= joymap_test_pad_controls_for_pos(pos) == PAD_BIT(PAD_RIGHT + pos);
+	table &= joymap_test_pad_controls_for_pos(SYS_MAP_BTN_L2) == PAD_BIT(PAD_L2) &&
+		joymap_test_pad_controls_for_pos(SYS_MAP_BTN_L2 + 3) == PAD_BIT(PAD_R3) &&
+		joymap_test_pad_controls_for_pos(SYS_MAP_BTN_SELECT) == PAD_BIT(PAD_SELECT) &&
+		joymap_test_pad_controls_for_pos(SYS_MAP_BTN_SELECT + 1) == PAD_BIT(PAD_START) &&
+		joymap_test_pad_controls_for_pos(SYS_MAP_POS_OSD) == PAD_BIT(PAD_HOME) &&
+		joymap_test_pad_controls_for_pos(-6) == PAD_BIT(PAD_RIGHT) && joymap_test_pad_controls_for_pos(-5) == PAD_BIT(PAD_DOWN) &&
+		joymap_test_pad_controls_for_pos(-4) == PAD_BIT(PAD_L3) && joymap_test_pad_controls_for_pos(-1) == PAD_BIT(PAD_R3);
+	check(table, "D3 each Define buttons prompt flashes its pad control");
+	bool covered = true;
+	for (int pos = -6; pos <= SYS_MAP_POS_OSD + 2; pos++)
+		covered &= joymap_test_pad_controls_for_pos(pos) && !(joymap_test_pad_controls_for_pos(pos) & ~joymap_test_pad_controls(JOYMAP_PAD_PSX));
+	check(covered, "D3 every prompt of a gamepad session has a control on the PSX pad");
+
+	// Menu prompt: the pad flashes the buttons pressed for Menu
+	set_menu_mouse_map(0);
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].map[SYS_BTN_SELECT] = BTN_SELECT;
+	input[0].map[SYS_BTN_START] = BTN_START;
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_count = SYS_MAP_GAMEPAD_COUNT;
+	mapping_button = SYS_MAP_POS_OSD; mapping_key_mapped = 0;
+	clear_mapping_combo_state();
+	int first, second;
+	get_map_osd_positions(&first, &second);
+	check(first == -1 && second == -1, "D4 nothing flashes before a Menu button is pressed");
+	map_menu_button_code(0, BTN_SELECT, NULL);
+	get_map_osd_positions(&first, &second);
+	check(first == SYS_MAP_BTN_SELECT && second == SYS_MAP_BTN_SELECT, "D4 a single Menu button flashes its position");
+	input[0].map[SYS_BTN_OSD_2] = BTN_START;
+	get_map_osd_positions(&first, &second);
+	check(first == SYS_MAP_BTN_SELECT && second == SYS_MAP_BTN_SELECT + 1, "D4 a combo flashes both buttons");
+	input[0].map[SYS_BTN_OSD_1] = OSD_HOLD_MARKER;
+	input[0].map[SYS_BTN_OSD_2] = BTN_SELECT;
+	get_map_osd_positions(&first, &second);
+	check(first == -1 && second == SYS_MAP_BTN_SELECT, "D4 hold mode flashes the hold button, never the marker");
+	clear_mapping_combo_state();
+	mapping = 0;
+}
+#endif
+
 int main(int argc, char **argv)
 {
 	if (argc > 1 && !strcmp(argv[1], "--negative-control"))
@@ -471,6 +531,9 @@ int main(int argc, char **argv)
 	navigation_tests();
 	osd_hold_tests();
 	core_name_tests();
+#ifdef JOYMAP_TEST_HAS_PAD
+	pad_tests();
+#endif
 	printf("Joymap v4 runtime regressions: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

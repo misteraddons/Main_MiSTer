@@ -186,6 +186,7 @@ int get_map_active();
 // 0..255 travel of the analog trigger held at the L2/R2 Menu prompt, or -1.
 int get_map_trigger_level();
 int get_map_osd_hold();
+void get_map_osd_positions(int *first, int *second);
 void reset_players();
 void input_analog_triggers_resync(int suppress);
 

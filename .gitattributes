@@ -24,6 +24,7 @@ Makefile text eol=lf
 *.cmd  text eol=crlf
 
 *.png  binary
+*.bmp  binary
 *.jpg  binary
 *.jpeg binary
 *.pdf  binary

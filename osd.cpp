@@ -420,6 +420,21 @@ void OsdDrawLogo(int row)
 	}
 }
 
+// Draws one 8-px row of a 1-bit picture (one byte per pixel column, bit 0 =
+// top) centred in line n's text area.
+void OsdDrawBitmapRow(unsigned char n, const unsigned char *cols, int width)
+{
+	osd_start(n);
+	draw_title(&titlebuffer[(osd_size - 1 - n) * 8]);
+
+	const int area = OSDLINELEN - 22;
+	const int left = (area - width) / 2;
+	for (int x = 0; x < area; x++)
+	{
+		osdbuf[osdbufpos++] = (x >= left && x < left + width) ? cols[x - left] : 0;
+	}
+}
+
 #define INFO_MAXW 32
 #define INFO_MAXH 16
 

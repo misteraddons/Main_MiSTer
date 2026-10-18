@@ -3615,6 +3615,30 @@ int get_map_osd_hold()
 	return 100 - (int)((mapping_osd_hold_timer - now) * 100 / OSD_HOLD_DEFAULT_MS);
 }
 
+// At the Menu prompt, the mapping positions (0-15) of the buttons pressed for
+// Menu so far; -1 for none. The mapping screen flashes them on the pad.
+void get_map_osd_positions(int *first, int *second)
+{
+	*first = *second = -1;
+	if (!mapping || mapping_dev < 0 || mapping_button != SYS_MAP_POS_OSD || !mapping_key_mapped) return;
+
+	const uint32_t *map = input[mapping_dev].map;
+	const uint32_t codes[2] = { osd_map_is_hold(map) ? 0 : map[SYS_BTN_OSD_1], map[SYS_BTN_OSD_2] };
+	int *found[2] = { first, second };
+	for (int n = 0; n < 2; n++)
+	{
+		for (int pos = 0; codes[n] && pos < SYS_MAP_POS_OSD; pos++)
+		{
+			const int idx = get_system_map_button_idx(pos);
+			if (idx >= 0 && map[idx] == codes[n])
+			{
+				*found[n] = pos;
+				break;
+			}
+		}
+	}
+}
+
 int get_map_trigger_level()
 {
 	if (!mapping || !is_menu() || !is_menu_trigger_map_pos(mapping_button) || mapping_dev < 0 || !mapping_key_mapped)

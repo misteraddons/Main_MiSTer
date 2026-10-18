@@ -50,6 +50,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "osd.h"
 #include "hardware.h"
 #include "menu.h"
+#include "joymap_pad.h"
 #include "user_io.h"
 #include "debug.h"
 #include "fpga_io.h"
@@ -4254,7 +4255,7 @@ void HandleUI(void)
 			const int show_hold_feedback_in_prompt = is_map_nav_hold_feedback(map_hold_feedback);
 			char info_line[32] = { 0 };
 			const int show_gamepad = is_menu() && joy_bcount && !get_menu_mouse_map() &&
-				get_map_button() >= SYS_BTN_RIGHT && get_map_button() <= SYS_MAP_POS_OSD + 2;
+				get_map_button() <= SYS_MAP_POS_OSD + 2 && (get_map_button() >= SYS_BTN_RIGHT || get_map_type() == 1);
 			if (get_map_clear())
 			{
 				OsdWrite(3);
@@ -4278,7 +4279,7 @@ void HandleUI(void)
 				save_now = 0;
 			}
 
-			if (is_menu() && !get_map_button()) OsdWrite(7);
+			if (is_menu() && !get_map_button() && !show_gamepad) OsdWrite(7);
 
 			const char* p = 0;
 			if (get_map_button() < 0)
@@ -4292,7 +4293,7 @@ void HandleUI(void)
 					len--;
 				}
 				strcat(s, pa);
-				OsdWrite(7, "   Space/User \x16 Skip");
+				if (!show_gamepad) OsdWrite(7, "   Space/User \x16 Skip");
 			}
 			else if (get_map_button() < DPAD_NAMES)
 			{
@@ -4426,12 +4427,10 @@ void HandleUI(void)
 				OsdWrite(1, s, 0, 0);
 				OsdWrite(2, info_line, 0, 0);
 				OsdWrite(3, id_line, 0, 0);
-				OsdWrite(4);
-				OsdWrite(5, "User/Space/Hold RIGHT \x16 Undefine");
-				OsdWrite(6, " Backspace/Hold LEFT \x16 Prev");
-				OsdWrite(7, "          Esc \x16 Cancel");
-				OsdWrite(8, "        Enter \x16 Finish");
-				OsdWrite(9);
+				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" : "Space/Hold RIGHT \x16 Undefine");
+				OsdWrite(5, " Backspace/Hold LEFT \x16 Prev");
+				OsdWrite(6, "          Esc \x16 Cancel");
+				OsdWrite(7, "        Enter \x16 Finish");
 			}
 			else
 			{
@@ -4446,37 +4445,21 @@ void HandleUI(void)
 
 			if (show_gamepad)
 			{
-				// draw an on-screen gamepad to help with central button mapping
+				// draw the pad, flashing the control being asked for; at the Menu
+				// prompt, the buttons pressed for it so far
 				if (!flash_timer || CheckTimer(flash_timer))
 				{
 					flash_timer = GetTimer(100);
-					if (flash_state)
+					uint32_t controls = joymap_pad_controls_for_pos(get_map_button());
+					if (get_map_button() == SYS_MAP_POS_OSD)
 					{
-						switch (get_map_button())
-						{
-							case SYS_BTN_L:              OsdWrite(10, "  \x86   \x88               \x86 R \x88  "); break;
-							case SYS_BTN_R:              OsdWrite(10, "  \x86 L \x88               \x86   \x88  "); break;
-							case SYS_BTN_UP:             OsdWrite(12, " \x83                     X   \x83");        break;
-							case SYS_BTN_X:              OsdWrite(12, " \x83   U                     \x83");        break;
-							case SYS_BTN_A:              OsdWrite(13, " \x83 L \x1b R  Sel Start  Y     \x83");     break;
-							case SYS_BTN_Y:              OsdWrite(13, " \x83 L \x1b R  Sel Start      A \x83");     break;
-							case SYS_BTN_LEFT:           OsdWrite(13, " \x83   \x1b R  Sel Start  Y   A \x83");     break;
-							case SYS_BTN_RIGHT:          OsdWrite(13, " \x83 L \x1b    Sel Start  Y   A \x83");     break;
-							case SYS_MAP_BTN_SELECT:     OsdWrite(13, " \x83 L \x1b R      Start  Y   A \x83");     break;
-							case SYS_MAP_BTN_SELECT + 1: OsdWrite(13, " \x83 L \x1b R  Sel        Y   A \x83");     break;
-							case SYS_BTN_DOWN:           OsdWrite(14, " \x83       \x86\x81\x81\x81\x81\x81\x81\x81\x81\x81\x88   B   \x83"); break;
-							case SYS_BTN_B:              OsdWrite(14, " \x83   D   \x86\x81\x81\x81\x81\x81\x81\x81\x81\x81\x88       \x83"); break;
-						}
+						int first, second;
+						get_map_osd_positions(&first, &second);
+						if (first >= 0 || second >= 0)
+							controls = (first >= 0 ? joymap_pad_controls_for_pos(first) : 0) |
+								(second >= 0 ? joymap_pad_controls_for_pos(second) : 0);
 					}
-					else
-					{
-						OsdWrite(10, "  \x86 L \x88               \x86 R \x88  ");
-						OsdWrite(11, " \x86\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x81\x88");
-						OsdWrite(12, " \x83   U                 X   \x83");
-						OsdWrite(13, " \x83 L \x1b R  Sel Start  Y   A \x83");
-						OsdWrite(14, " \x83   D   \x86\x81\x81\x81\x81\x81\x81\x81\x81\x81\x88   B   \x83");
-						OsdWrite(15, " \x8b\x81\x81\x81\x81\x81\x81\x81\x8a         \x8b\x81\x81\x81\x81\x81\x81\x81\x8a");
-					}
+					joymap_pad_draw(cfg.mapping_pad ? JOYMAP_PAD_SNES : JOYMAP_PAD_PSX, 8, flash_state ? controls : 0);
 					flash_state = !flash_state;
 				}
 			}
@@ -4526,7 +4509,7 @@ void HandleUI(void)
 								is_menu() ? "   User/Space \x16 Undefine" : "    User/Menu \x16 Undefine");
 						}
 
-						if (!get_map_type()) OsdWrite(9);
+						if (!get_map_type() && !show_gamepad) OsdWrite(9);
 					}
 					if (!is_menu()) OsdWrite(10, "          F12 \x16 Clear all");
 				}

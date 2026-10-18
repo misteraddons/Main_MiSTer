@@ -75,6 +75,28 @@ positions:
 `L2`, `R2`, `L3` and `R3` keep their own slots. A plain `X` is always the
 SNES X, never the PlayStation Cross.
 
+## Define buttons pad
+
+The Menu core's Define buttons screen draws a 1-bit pad on OSD rows 8–15,
+with the text on rows 1–7. By default this is a DualShock 2 drawing, 104×64.
+It is shown for the whole gamepad session, stick stages included:
+- The control being asked for flashes solid, with its glyph inverted.
+- At the Menu prompt, the pad flashes the buttons pressed so far: one, both
+  halves of a combo, or the hold button.
+- Menu OK and Back flash A and B.
+
+The PlayStation buttons stand for the SNES positions listed above, so maps
+stay SNES-based. `mapping_pad=1` in MiSTer.ini selects the SNES fallback pad,
+136×64, which has no L2/R2/L3/R3 or sticks. Keyboard sessions keep the text
+layout for the stick stages.
+
+The drawings are `tools/joymap_pads/<pad>.bmp`, a 1-bit picture, and
+`<pad>_regions.bmp`, an 8-bit map with pixel value = `PAD_*` id + 1.
+`tools/joymap_pads/pad2h.py` converts them to `joymap_pads.h`: column bytes
+per 8-px row, as in `logo.h`. A control's glyph is the drawing's pixels
+strictly inside its region. After editing a BMP, rerun the script; the host
+suite fails while the header is stale.
+
 ## Host regression suite
 
 Run on Linux/WSL with Python 3 and a C++ compiler:

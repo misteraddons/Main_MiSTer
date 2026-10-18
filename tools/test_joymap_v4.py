@@ -17,6 +17,9 @@ import sys
 import tempfile
 
 
+PAD_SOURCES = ("joymap_pad.cpp", "joymap_pad.h", "joymap_pads.h")
+
+
 def git_read(root, arguments):
     # Older Git requires global safe.directory; isolate it from the user configuration.
     with tempfile.TemporaryDirectory(prefix="joymap-v4-git-") as scratch:
@@ -117,8 +120,10 @@ def main():
     if args.revision:
         source_root = output / "source-snapshot"
         source_root.mkdir(exist_ok=True)
-        for name in ("input.cpp", "input.h", "gamecontroller_db.cpp", "gamecontroller_db.h", "menu.cpp", "joymapping.cpp"):
+        for name in ("input.cpp", "input.h", "gamecontroller_db.cpp", "gamecontroller_db.h", "menu.cpp", "joymapping.cpp", *PAD_SOURCES):
             result = git_read(root, ["show", f"{args.revision}:{name}"])
+            if result.returncode and name in PAD_SOURCES:
+                continue
             if result.returncode:
                 print(result.stderr.decode(errors="replace"), file=sys.stderr)
                 return result.returncode
@@ -127,20 +132,24 @@ def main():
     gcdb = (source_root / "gamecontroller_db.cpp").read_text()
     (output / "joymap_test_seams.h").write_text(generate_seams(source))
     flags = ["-std=gnu++14", "-O1", "-g", "-funsigned-char", "-ffunction-sections", "-fdata-sections", "-I", str(root), "-I", str(root / "lib/libchdr/include"), "-I", str(output)]
+    has_pad = all((source_root / name).exists() for name in PAD_SOURCES)
+    if has_pad:
+        flags.append("-DJOYMAP_TEST_HAS_PAD=1")
     if "void gcdb_capture_axis_baseline(" in gcdb:
         flags.append("-DJOYMAP_TEST_HAS_BASELINES=1")
     if args.sanitize:
         flags += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
     binary = output / "joymap_v4_tests"
     wrappers = []
-    for name, production_name in (("joymap_v4_tests.cpp", "input.cpp"), ("joymap_gcdb_test.cpp", "gamecontroller_db.cpp"), ("joymapping_test.cpp", "joymapping.cpp")):
+    for name, production_name in (("joymap_v4_tests.cpp", "input.cpp"), ("joymap_gcdb_test.cpp", "gamecontroller_db.cpp"), ("joymapping_test.cpp", "joymapping.cpp"),
+                                  *((("joymap_pad_test.cpp", "joymap_pad.cpp"),) if has_pad else ())):
         wrapper = (root / "tools" / name).read_text().replace(f'#include "../{production_name}"', f'#include "{source_root / production_name}"', 1)
         target = output / name
         target.write_text(wrapper)
         wrappers.append(str(target))
     command = [args.cxx, *flags, *wrappers, "-Wl,--gc-sections", "-Wl,--wrap=ioctl", "-o", str(binary)]
-    tracked_sources = {name: hashlib.sha256((source_root / name).read_bytes()).hexdigest() for name in ("input.cpp", "input.h", "gamecontroller_db.cpp", "gamecontroller_db.h", "menu.cpp", "joymapping.cpp")}
-    test_sources = {name: hashlib.sha256((root / "tools" / name).read_bytes()).hexdigest() for name in ("test_joymap_v4.py", "joymap_v4_tests.cpp", "joymap_gcdb_test.cpp", "joymapping_test.cpp")}
+    tracked_sources = {name: hashlib.sha256((source_root / name).read_bytes()).hexdigest() for name in ("input.cpp", "input.h", "gamecontroller_db.cpp", "gamecontroller_db.h", "menu.cpp", "joymapping.cpp", *(PAD_SOURCES if has_pad else ()))}
+    test_sources = {name: hashlib.sha256((root / "tools" / name).read_bytes()).hexdigest() for name in ("test_joymap_v4.py", "joymap_v4_tests.cpp", "joymap_gcdb_test.cpp", "joymapping_test.cpp", "joymap_pad_test.cpp")}
     compiler = subprocess.check_output([args.cxx, "--version"], text=True, timeout=15).splitlines()[0]
     coverage = {"runtime": "Production helpers; synthetic evdev ioctl/GCDB text and in-memory config save/load",
                 "source_derived_runtime": "Exact production synthetic-key transition statements with callback capture; baseline-only inline Joy-Con/OSD replay",
@@ -177,6 +186,10 @@ def main():
     unwired = not hold_wiring_checks(re.sub(r"(if \(getchar\) return ret;\s*)osd_hold_poll\(\);", r"\1", source, count=1))[1][0]
     print(f"{'PASS' if unwired else 'FAIL'}: deliberately unwired hold poll rejected", flush=True)
     results.append(unwired)
+    if not args.revision:
+        current = subprocess.run([sys.executable, str(root / "tools/joymap_pads/pad2h.py"), "--check"], timeout=60).returncode == 0
+        print(f"{'PASS' if current else 'FAIL'}: D5 joymap_pads.h matches tools/joymap_pads/*.bmp", flush=True)
+        results.append(current)
     print(f"Joymap v4 suite: {'PASS' if all(results) else 'FAIL'}", flush=True)
     return 0 if all(results) else 1
 
