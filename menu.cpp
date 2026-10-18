@@ -4255,7 +4255,7 @@ void HandleUI(void)
 			const int show_hold_feedback_in_prompt = is_map_nav_hold_feedback(map_hold_feedback);
 			char info_line[32] = { 0 };
 			const int show_gamepad = is_menu() && joy_bcount && !get_menu_mouse_map() &&
-				get_map_button() <= SYS_MAP_POS_OSD + 2 && (get_map_button() >= SYS_BTN_RIGHT || get_map_type() == 1);
+				get_map_button() <= SYS_MAP_POS_OSD + 2;
 			if (get_map_clear())
 			{
 				OsdWrite(3);
@@ -4427,10 +4427,11 @@ void HandleUI(void)
 				OsdWrite(1, s, 0, 0);
 				OsdWrite(2, info_line, 0, 0);
 				OsdWrite(3, id_line, 0, 0);
+				const int keyboard = !get_map_type();
 				const int menu_prompt = get_map_button() == SYS_MAP_POS_OSD;
-				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" :
+				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" : keyboard ? "         User \x16 Undefine" :
 					menu_prompt ? "   Space/User \x16 Undefine" : "Space/Hold RIGHT \x16 Undefine");
-				OsdWrite(5, menu_prompt ? "    Backspace \x16 Prev" : " Backspace/Hold LEFT \x16 Prev");
+				OsdWrite(5, (keyboard || menu_prompt) ? "    Backspace \x16 Prev" : " Backspace/Hold LEFT \x16 Prev");
 				OsdWrite(6, "          Esc \x16 Cancel");
 				OsdWrite(7, "        Enter \x16 Finish");
 			}
@@ -4452,7 +4453,8 @@ void HandleUI(void)
 				if (!flash_timer || CheckTimer(flash_timer))
 				{
 					flash_timer = GetTimer(100);
-					uint32_t controls = joymap_pad_controls_for_pos(get_map_button());
+					uint32_t controls = (get_map_button() == SYS_MAP_POS_OSD && !get_map_type()) ? 0 :
+						joymap_pad_controls_for_pos(get_map_button());
 					if (get_map_button() == SYS_MAP_POS_OSD)
 					{
 						int first, second;
@@ -4470,6 +4472,7 @@ void HandleUI(void)
 				if (flash_timer)
 				{
 					//clear all gamepad gfx
+					OsdWrite(7);
 					OsdWrite(10);
 					OsdWrite(11);
 					OsdWrite(12);

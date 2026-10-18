@@ -22,6 +22,30 @@ extern "C" uint32_t joymap_test_pad_controls(int pad)
 	return ids;
 }
 
+// Centre of a control's box in pixels, or false if the pad lacks it.
+extern "C" bool joymap_test_pad_centre(int pad, int id, int *x, int *y)
+{
+	for (int i = 0; i < joymap_pads[pad].count; i++)
+	{
+		const pad_control *c = &joymap_pads[pad].controls[i];
+		if (c->id != id) continue;
+		int top = 64, bottom = -1;
+		for (int r = 0; r < c->rows; r++)
+			for (int x0 = 0; x0 < c->w; x0++)
+				for (int n = 0; n < 8; n++)
+					if (c->fill[r * c->w + x0] & (1 << n))
+					{
+						const int y = (c->row + r) * 8 + n;
+						if (y < top) top = y;
+						if (y > bottom) bottom = y;
+					}
+		*x = c->x + c->w / 2;
+		*y = (top + bottom) / 2;
+		return true;
+	}
+	return false;
+}
+
 extern "C" uint32_t joymap_test_pad_controls_for_pos(int pos)
 {
 	return joymap_pad_controls_for_pos(pos);

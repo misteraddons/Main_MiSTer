@@ -139,6 +139,7 @@ def main():
         for name in ("input.cpp", "input.h", "gamecontroller_db.cpp", "gamecontroller_db.h", "menu.cpp", "joymapping.cpp", *PAD_SOURCES):
             result = git_read(root, ["show", f"{args.revision}:{name}"])
             if result.returncode and name in PAD_SOURCES:
+                (source_root / name).unlink(missing_ok=True)
                 continue
             if result.returncode:
                 print(result.stderr.decode(errors="replace"), file=sys.stderr)
@@ -206,6 +207,12 @@ def main():
         current = subprocess.run([sys.executable, str(root / "tools/joymap_pads/pad2h.py"), "--check"], timeout=60).returncode == 0
         print(f"{'PASS' if current else 'FAIL'}: D5 joymap_pads.h matches tools/joymap_pads/*.bmp", flush=True)
         results.append(current)
+        mutant = output / "joymap_pads_mutant.h"
+        mutant.write_text((root / "joymap_pads.h").read_text().replace("0x00,", "0x01,", 1))
+        rejected = subprocess.run([sys.executable, str(root / "tools/joymap_pads/pad2h.py"), "--check", str(mutant)],
+                                  stderr=subprocess.DEVNULL, timeout=60).returncode != 0
+        print(f"{'PASS' if rejected else 'FAIL'}: deliberately changed joymap_pads.h rejected", flush=True)
+        results.append(rejected)
     print(f"Joymap v4 suite: {'PASS' if all(results) else 'FAIL'}", flush=True)
     return 0 if all(results) else 1
 

@@ -425,7 +425,15 @@ void OsdDrawLogo(int row)
 void OsdDrawBitmapRow(unsigned char n, const unsigned char *cols, int width)
 {
 	osd_start(n);
-	draw_title(&titlebuffer[(osd_size - 1 - n) * 8]);
+	if (n < osd_size)
+	{
+		draw_title(&titlebuffer[(osd_size - 1 - n) * 8]);
+	}
+	else
+	{
+		memset(&osdbuf[osdbufpos], 0, 22);
+		osdbufpos += 22;
+	}
 
 	const int area = OSDLINELEN - 22;
 	const int left = (area - width) / 2;

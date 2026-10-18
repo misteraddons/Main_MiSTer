@@ -95,8 +95,12 @@ It is shown for the whole gamepad session, stick stages included:
 
 The PlayStation buttons stand for the SNES positions listed above, so maps
 stay SNES-based. `mapping_pad=1` in MiSTer.ini selects the SNES fallback pad,
-136×64, which has no L2/R2/L3/R3 or sticks. Keyboard sessions keep the text
-layout for the stick stages.
+136×64, which has no L2/R2/L3/R3, sticks or Home button: those prompts flash
+nothing.
+
+A keyboard's first key skips the stick stages. Keyboards get the pad with
+keyboard hints (User → Undefine, Backspace → Prev). Nothing flashes at their
+KBD TOGGLE prompt.
 
 The drawings are `tools/joymap_pads/<pad>.bmp`, a 1-bit picture, and
 `<pad>_regions.bmp`, an 8-bit map with pixel value = `PAD_*` id + 1.

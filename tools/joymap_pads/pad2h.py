@@ -57,8 +57,13 @@ def load_pad(stem):
     rw, rh, regions, _ = read_bmp(HERE / f"{stem}_regions.bmp")
     if (rw, rh) != (w, h):
         raise ValueError(f"{stem}: drawing is {w}x{h} but regions are {rw}x{rh}")
-    if h % 8:
-        raise ValueError(f"{stem}: height {h} is not whole 8-px OSD rows")
+    if h % 8 or h > 64:
+        raise ValueError(f"{stem}: height {h} must be whole 8-px OSD rows, at most 64 (rows 8-15)")
+    if w > 234:
+        raise ValueError(f"{stem}: width {w} is wider than the OSD text area (234)")
+    bad = {v for row in regions for v in row if v > len(PAD_IDS)}
+    if bad:
+        raise ValueError(f"{stem}: region values {sorted(bad)} are not PAD_* ids + 1")
     return w, h, lit, regions
 
 

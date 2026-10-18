@@ -41,6 +41,7 @@ extern "C" uint32_t joymap_test_pad_controls(int);
 extern "C" uint32_t joymap_test_pad_controls_for_pos(int);
 extern "C" bool joymap_test_pad_flash_frames(int);
 extern "C" bool joymap_test_pad_draw(int, int, uint32_t);
+extern "C" bool joymap_test_pad_centre(int, int, int *, int *);
 #endif
 
 static int failures;
@@ -492,6 +493,22 @@ static void pad_tests()
 		joymap_test_pad_controls_for_pos(-6) == PAD_BIT(PAD_RIGHT) && joymap_test_pad_controls_for_pos(-5) == PAD_BIT(PAD_DOWN) &&
 		joymap_test_pad_controls_for_pos(-4) == PAD_BIT(PAD_L3) && joymap_test_pad_controls_for_pos(-1) == PAD_BIT(PAD_R3);
 	check(table, "D3 each Define buttons prompt flashes its pad control");
+	for (int pad = 0; pad < JOYMAP_PAD_COUNT; pad++)
+	{
+		int x[PAD_CONTROL_COUNT] = {}, y[PAD_CONTROL_COUNT] = {};
+		bool has[PAD_CONTROL_COUNT] = {};
+		for (int id = 0; id < PAD_CONTROL_COUNT; id++) has[id] = joymap_test_pad_centre(pad, id, &x[id], &y[id]);
+		const int dpad = (x[PAD_LEFT] + x[PAD_RIGHT]) / 2, face = (x[PAD_Y] + x[PAD_A]) / 2;
+		bool placed = x[PAD_LEFT] < x[PAD_UP] && x[PAD_UP] < x[PAD_RIGHT] && y[PAD_UP] < y[PAD_LEFT] && y[PAD_LEFT] < y[PAD_DOWN] &&
+			x[PAD_Y] < x[PAD_X] && x[PAD_X] < x[PAD_A] && y[PAD_X] < y[PAD_Y] && y[PAD_Y] < y[PAD_B] &&
+			dpad < x[PAD_SELECT] && x[PAD_SELECT] < x[PAD_START] && x[PAD_START] < face &&
+			x[PAD_L] < x[PAD_SELECT] && x[PAD_R] > x[PAD_START] && y[PAD_L] < y[PAD_UP] && y[PAD_R] < y[PAD_X];
+		if (pad == JOYMAP_PAD_PSX)
+			placed &= y[PAD_L2] < y[PAD_L] && y[PAD_R2] < y[PAD_R] && x[PAD_L2] < x[PAD_R2] && x[PAD_L3] < x[PAD_R3] &&
+				y[PAD_L3] > y[PAD_DOWN] && y[PAD_R3] > y[PAD_X] && x[PAD_SELECT] < x[PAD_HOME] && x[PAD_HOME] < x[PAD_START];
+		check(placed, pad == JOYMAP_PAD_PSX ? "D6 PSX regions sit on the right buttons (directions, face, shoulders, sticks)" :
+			"D6 SNES regions sit on the right buttons (directions, face, shoulders)");
+	}
 	bool covered = true;
 	for (int pos = -6; pos <= SYS_MAP_POS_OSD + 2; pos++)
 		covered &= joymap_test_pad_controls_for_pos(pos) && !(joymap_test_pad_controls_for_pos(pos) & ~joymap_test_pad_controls(JOYMAP_PAD_PSX));
