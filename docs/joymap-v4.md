@@ -60,6 +60,21 @@ The gamepad Menu (OSD) binding is system-map slots 21 and 22
 - GamecontrollerDB export writes a hold button as `guide`, since SDL strings
   have no hold.
 
+## PlayStation button names
+
+Core mapping stays on the virtual SNES layout. In a core's `J1`/`jn`/`jp`
+button names, `map_joystick()` also accepts PlayStation names for the same
+positions:
+- `Circle` = A
+- `Cross` = B
+- `Triangle` = X
+- `Square` = Y
+- `L1` = L
+- `R1` = R
+
+`L2`, `R2`, `L3` and `R3` keep their own slots. A plain `X` is always the
+SNES X, never the PlayStation Cross.
+
 ## Host regression suite
 
 Run on Linux/WSL with Python 3 and a C++ compiler:

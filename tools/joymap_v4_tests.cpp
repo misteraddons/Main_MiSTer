@@ -33,6 +33,7 @@ extern "C" int joymap_test_trigger_code(uint32_t);
 extern "C" bool joymap_test_export(uint32_t, const char *);
 extern "C" bool joymap_test_cached_trigger_pair(const char *, const char *, int, uint32_t *);
 extern "C" bool joymap_test_export_map(const uint32_t *, char *, size_t);
+extern "C" void joymap_test_core_names(const char *, const uint32_t *, uint32_t *);
 
 static int failures;
 static int checks;
@@ -436,6 +437,26 @@ static void osd_hold_tests()
 	check(exported && strstr(combo, "guide:b") && strstr(combo, "guide2:b"), "control combo map exports guide and guide2");
 }
 
+static void core_name_tests()
+{
+	uint32_t mmap[NUMBUTTONS] = {}, map[NUMBUTTONS];
+	const int slots[] = { SYS_BTN_A, SYS_BTN_B, SYS_BTN_X, SYS_BTN_Y, SYS_BTN_L, SYS_BTN_R, SYS_BTN_L2, SYS_BTN_R2,
+		SYS_BTN_L3, SYS_BTN_R3, SYS_BTN_SELECT, SYS_BTN_START };
+	for (unsigned i = 0; i < sizeof(slots) / sizeof(slots[0]); i++) mmap[slots[i]] = BTN_TRIGGER_HAPPY1 + i;
+
+	joymap_test_core_names("Triangle,Circle,Cross,Square,L1,R1,L2,R2,L3,R3,Select,Start", mmap, map);
+	check(map[4] == mmap[SYS_BTN_X] && map[5] == mmap[SYS_BTN_A] && map[6] == mmap[SYS_BTN_B] && map[7] == mmap[SYS_BTN_Y],
+		"P1 PlayStation face names map Triangle=X, Circle=A, Cross=B, Square=Y");
+	check(map[8] == mmap[SYS_BTN_L] && map[9] == mmap[SYS_BTN_R] && map[10] == mmap[SYS_BTN_L2] && map[11] == mmap[SYS_BTN_R2] &&
+		map[12] == mmap[SYS_BTN_L3] && map[13] == mmap[SYS_BTN_R3] && map[14] == mmap[SYS_BTN_SELECT] && map[15] == mmap[SYS_BTN_START],
+		"P1 L1/R1 map to L/R; L2/R2/L3/R3, Select and Start unchanged");
+	joymap_test_core_names("circle(Fire),CROSS", mmap, map);
+	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B], "P1 PlayStation names ignore case and a (description)");
+	joymap_test_core_names("A,B,X,Y,L,R,Select,Start", mmap, map);
+	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B] && map[6] == mmap[SYS_BTN_X] && map[7] == mmap[SYS_BTN_Y] &&
+		map[8] == mmap[SYS_BTN_L] && map[9] == mmap[SYS_BTN_R], "control SNES names map as before; X stays the SNES X");
+}
+
 int main(int argc, char **argv)
 {
 	if (argc > 1 && !strcmp(argv[1], "--negative-control"))
@@ -449,6 +470,7 @@ int main(int argc, char **argv)
 	mixed_half_trigger_tests();
 	navigation_tests();
 	osd_hold_tests();
+	core_name_tests();
 	printf("Joymap v4 runtime regressions: %d checks, %d failures\n", checks, failures);
 	return failures ? 1 : 0;
 }

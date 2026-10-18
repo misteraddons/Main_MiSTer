@@ -139,6 +139,9 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 
 	Input button order is "virtual SNES" i.e.:
 		A, B, X, Y, L, R, Select, Start
+
+	PlayStation names map to the same positions: Circle = A, Cross = B,
+	Triangle = X, Square = Y, L1 = L, R1 = R. A plain "X" stays the SNES X.
 	*/
 	read_buttons();
 
@@ -187,6 +190,7 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		if (p) *p = 0;
 
 		if(!strcasecmp(btn_name, "A")
+		|| !strcasecmp(btn_name, "Circle")
 		|| !strcasecmp(btn_name, "Jump")
 		|| is_fire(btn_name) == 1)
 		{
@@ -194,12 +198,14 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		}
 
 		else if(!strcasecmp(btn_name, "B")
+		|| !strcasecmp(btn_name, "Cross")
 		|| is_fire(btn_name) == 2)
 		{
 			map[idx] = mmap[SYS_BTN_B];
 		}
 
 		else if(!strcasecmp(btn_name, "X")
+		|| !strcasecmp(btn_name, "Triangle")
 		|| !strcasecmp(btn_name, "C")
 		|| is_fire(btn_name) == 3)
 		{
@@ -207,6 +213,7 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		}
 
 		else if(!strcasecmp(btn_name, "Y")
+		|| !strcasecmp(btn_name, "Square")
 		|| !strcasecmp(btn_name, "D")
 		|| is_fire(btn_name) == 4)
 		{
@@ -215,6 +222,7 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 
 		// Genesis C and Z  and TG16 V and VI
 		else if(!strcasecmp(btn_name, "R")
+		|| !strcasecmp(btn_name, "R1")
 		|| !strcasecmp(btn_name, "RT")
 		|| !strcasecmp(btn_name, "Coin"))
 		{
@@ -222,6 +230,7 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		}
 
 		else if(!strcasecmp(btn_name, "L")
+		|| !strcasecmp(btn_name, "L1")
 		|| !strcasecmp(btn_name, "LT"))
 		{
 			map[idx] = mmap[SYS_BTN_L];
