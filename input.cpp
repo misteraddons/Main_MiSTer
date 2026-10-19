@@ -1701,6 +1701,7 @@ typedef struct
 	uint8_t valid;
 	int dev;
 	int pos;
+	int moved_score; // best trigger_axis_moved_score() of the applied axis
 	uint8_t has_axis[TRIGGER_CAPTURE_AXIS_COUNT];
 	input_absinfo absinfo[TRIGGER_CAPTURE_AXIS_COUNT];
 } triggerCaptureState;
@@ -1885,7 +1886,7 @@ static void prepare_mapping_trigger_capture()
 {
 	if (!is_menu() || !mapping || !is_menu_trigger_map_pos(mapping_button) || mapping_dev < 0)
 	{
-		clear_mapping_trigger_capture();
+		if (mapping_trigger_capture.valid) clear_mapping_trigger_capture();
 		return;
 	}
 
@@ -2023,6 +2024,38 @@ static uint32_t build_trigger_axis_map(int dev, uint16_t keycode, const input_ab
 	return build_trigger_axis_map_for_axis(dev, (keycode - KEY_EMU) >> 1, absinfo, !(keycode & 1), 5);
 }
 
+// How far an axis has moved from its prompt baseline, in 1/1024 of its range;
+// 0 below the detection threshold.
+static int trigger_axis_moved_score(uint16_t axis, const input_absinfo *absinfo)
+{
+	if (axis > ABS_MAX || !mapping_trigger_capture.has_axis[axis])
+		return 0;
+
+	const input_absinfo *base_info = &mapping_trigger_capture.absinfo[axis];
+	const int64_t range = (int64_t)base_info->maximum - base_info->minimum;
+	if (range <= 1)
+		return 0;
+
+	const int64_t delta = llabs((int64_t)absinfo->value - base_info->value);
+	const int64_t threshold = (range / 32) > 4 ? (range / 32) : 4;
+	if (delta < threshold)
+		return 0;
+
+	return (int)((delta * 1024) / range);
+}
+
+// The map for an axis that has moved further than the capture's best so far, or 0.
+static uint32_t further_moved_trigger_axis_map(int dev, uint16_t axis, const input_absinfo *absinfo)
+{
+	const int score = trigger_axis_moved_score(axis, absinfo);
+	if (score <= mapping_trigger_capture.moved_score)
+		return 0;
+
+	const uint32_t map = build_trigger_axis_map_for_axis(dev, axis, absinfo, absinfo->value < mapping_trigger_capture.absinfo[axis].value, 32);
+	if (map) mapping_trigger_capture.moved_score = score;
+	return map;
+}
+
 static uint32_t detect_moved_trigger_axis_map(int dev)
 {
 	if (!mapping_trigger_capture.valid ||
@@ -2032,7 +2065,7 @@ static uint32_t detect_moved_trigger_axis_map(int dev)
 		return 0;
 
 	uint32_t best_map = 0;
-	int best_score = 0;
+	mapping_trigger_capture.moved_score = 0;
 
 	for (uint16_t axis = 0; axis <= ABS_MAX; axis++)
 	{
@@ -2043,26 +2076,8 @@ static uint32_t detect_moved_trigger_axis_map(int dev)
 		if (ioctl(pool[dev].fd, EVIOCGABS(axis), &absinfo) < 0)
 			continue;
 
-		const input_absinfo *base_info = &mapping_trigger_capture.absinfo[axis];
-		const int64_t range = (int64_t)base_info->maximum - base_info->minimum;
-		if (range <= 1)
-			continue;
-
-		const int64_t delta = llabs((int64_t)absinfo.value - base_info->value);
-		const int64_t threshold = (range / 32) > 4 ? (range / 32) : 4;
-		if (delta < threshold)
-			continue;
-
-		const int score = (int)((delta * 1024) / range);
-		if (score <= best_score)
-			continue;
-
-		const uint32_t map = build_trigger_axis_map_for_axis(dev, axis, &absinfo, absinfo.value < base_info->value, 32);
-		if (!map)
-			continue;
-
-		best_map = map;
-		best_score = score;
+		const uint32_t map = further_moved_trigger_axis_map(dev, axis, &absinfo);
+		if (map) best_map = map;
 	}
 
 	return best_map;
@@ -2122,7 +2137,9 @@ static void apply_menu_analog_trigger_map(int dev, uint32_t trigger_map)
 	input[dev].mmap[idx] = trigger_map;
 }
 
-static void update_menu_analog_trigger_axis(int dev)
+// While a digital L2/R2 is held at its prompt, an axis event that moved further
+// than the current analog trigger replaces it.
+static void update_menu_analog_trigger_axis(int dev, uint16_t axis, const input_absinfo *absinfo)
 {
 	if (!is_menu_trigger_map_pos(mapping_button) ||
 		mapping_dev != dev ||
@@ -2130,7 +2147,7 @@ static void update_menu_analog_trigger_axis(int dev)
 		mapping_key_mapped >= KEY_EMU)
 		return;
 
-	apply_menu_analog_trigger_map(dev, detect_moved_trigger_axis_map(dev));
+	apply_menu_analog_trigger_map(dev, further_moved_trigger_axis_map(dev, axis, absinfo));
 }
 
 static void map_menu_analog_trigger(int dev, uint16_t keycode, const input_absinfo *absinfo)
@@ -4557,7 +4574,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 
 		if (map_skip) clear_mapping_current_input();
 		if (ev->type == EV_ABS && absinfo)
-			update_menu_analog_trigger_axis(dev);
+			update_menu_analog_trigger_axis(dev, ev->code, absinfo);
 
 		if (ev->type == EV_KEY && mapping_button>=0 && !osd_event)
 		{

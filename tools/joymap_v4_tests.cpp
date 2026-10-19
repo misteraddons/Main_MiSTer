@@ -256,6 +256,38 @@ static void wide_range_trigger_tests()
 		"T1 a full 32-bit axis normalizes full and half travel");
 }
 
+static void trigger_follow_tests()
+{
+	// L2 prompt with a digital L2 held: Z (0..255) and a full 32-bit BRAKE captured released
+	set_menu_mouse_map(0);
+	memset(&input[0], 0, sizeof(input[0]));
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_button = SYS_MAP_BTN_L2;
+	clear_mapping_trigger_capture();
+	mapping_trigger_capture.valid = 1; mapping_trigger_capture.dev = 0; mapping_trigger_capture.pos = SYS_MAP_BTN_L2;
+	input_absinfo z = {}, brake = {};
+	z.maximum = 255;
+	brake.minimum = INT32_MIN; brake.maximum = INT32_MAX; brake.value = INT32_MIN;
+	mapping_trigger_capture.has_axis[ABS_Z] = 1; mapping_trigger_capture.absinfo[ABS_Z] = z;
+	mapping_trigger_capture.has_axis[ABS_BRAKE] = 1; mapping_trigger_capture.absinfo[ABS_BRAKE] = brake;
+	mapping_key_mapped = BTN_TL2;
+
+	z.value = 128;
+	update_menu_analog_trigger_axis(0, ABS_Z, &z);
+	const uint32_t z_map = ABS_Z | MAP_FLAG_ANALOG | MAP_FLAG_TRIGGER;
+	check(input[0].map[SYS_AXIS_L2] == z_map && input[0].mmap[SYS_AXIS_L2] == z_map,
+		"T2 a held digital L2 takes the analog axis its own event moved");
+	brake.value = 0;
+	update_menu_analog_trigger_axis(0, ABS_BRAKE, &brake);
+	check(input[0].map[SYS_AXIS_L2] == z_map, "T2 an axis that moved less does not replace it");
+	brake.value = INT32_MAX;
+	update_menu_analog_trigger_axis(0, ABS_BRAKE, &brake);
+	check(input[0].map[SYS_AXIS_L2] == (ABS_BRAKE | MAP_FLAG_ANALOG | MAP_FLAG_TRIGGER),
+		"T2 a full 32-bit axis that moved further replaces it");
+	mapping_key_mapped = 0;
+	clear_mapping_trigger_capture();
+	mapping = 0;
+}
+
 static void mixed_half_trigger_tests()
 {
 	input_absinfo axis = {};
@@ -739,6 +771,7 @@ int main(int argc, char **argv)
 	ignore_release_tests();
 	trigger_tests();
 	wide_range_trigger_tests();
+	trigger_follow_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();
 	osd_hold_tests();
