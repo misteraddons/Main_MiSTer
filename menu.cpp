@@ -280,7 +280,7 @@ const char *config_autofire_msg[] = { "        AUTOFIRE OFF", "        AUTOFIRE 
 const char *config_joystick_mode[] = { "Digital", "Analog", "CD32", "Analog" };
 const char *config_button_turbo_msg[] = { "OFF", "FAST", "MEDIUM", "SLOW" };
 const char *config_button_turbo_choice_msg[] = { "A only", "B only", "A & B" };
-const char *joy_button_map[] = { "RIGHT", "LEFT", "DOWN", "UP", "A", "B", "X", "Y", "L", "R", "SELECT", "START", "KBD TOGGLE", "Menu", "   Stick 1: Analog RIGHT", "    Stick 1: Analog DOWN", "   Mouse emu X: Tilt RIGHT", "   Mouse emu Y: Tilt DOWN" };
+const char *joy_button_map[] = { "RIGHT", "LEFT", "DOWN", "UP", "A", "B", "X", "Y", "L", "R", "SELECT", "START", "KBD TOGGLE", "Menu" };
 const char *joy_ana_map[] = { "DPAD test: Press RIGHT", "DPAD test: Press DOWN", "Stick 1: Analog RIGHT", "Stick 1: Analog DOWN", "Stick 2: Analog RIGHT", "Stick 2: Analog DOWN" };
 const char *config_stereo_msg[] = { "0%", "25%", "50%", "100%" };
 const char *config_uart_msg[] = { "      None", "       PPP", "   Console", "      MIDI", "     Modem", "UDP", "SNI"};
@@ -1279,7 +1279,6 @@ void HandleUI(void)
 		c = menu_key_get();
 	}
 	int map_hold_action = poll_map_hold_action();
-	poll_map_feedback();
 	if (map_hold_action) c = 0;
 
 	// decode and set events
@@ -4252,7 +4251,6 @@ void HandleUI(void)
 			int save_now = finish;
 			char id_line[64] = { 0 };
 			const char *subtitle = 0;
-			const char *map_feedback = get_map_feedback();
 			const char *map_hold_feedback = get_map_hold_feedback();
 			const int show_hold_feedback_in_prompt = is_map_nav_hold_feedback(map_hold_feedback);
 			char info_line[32] = { 0 };
@@ -4346,7 +4344,6 @@ void HandleUI(void)
 				show_combo_hint = 0;
 			}
 			else if (map_hold_feedback) subtitle = map_hold_feedback;
-			else if (map_feedback) subtitle = map_feedback;
 
 			char trigger_bar[32];
 			const int trigger_level = get_map_trigger_level();
@@ -4381,10 +4378,6 @@ void HandleUI(void)
 					s[0] = 0;
 					while (len-- > 0) strcat(s, " ");
 					strcat(s, map_hold_feedback);
-				}
-				else if (is_menu() && get_map_button() >= SYS_MAP_AXIS_X && get_map_button() <= SYS_MAP_AXIS_Y)
-				{
-					strcpy(s, joy_button_map[(get_map_button() - SYS_MAP_AXIS_X) + DPAD_BUTTON_NAMES + 2]);
 				}
 				else
 				{

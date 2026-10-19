@@ -120,8 +120,6 @@ static inline int osd_map_second_is_separate(const uint32_t *map)
 #define SYS_MAP_BTN_L2     10
 #define SYS_MAP_BTN_SELECT 14
 #define SYS_MAP_POS_OSD    16
-#define SYS_MAP_AXIS_X     19
-#define SYS_MAP_AXIS_Y     20
 
 #define SPIN_LEFT          30
 #define SPIN_RIGHT         31
@@ -173,9 +171,7 @@ uint16_t get_map_pid();
 int get_map_dev();
 advancedButtonMap *get_map_code_store();
 int get_map_advance();
-const char *get_map_feedback();
 const char *get_map_hold_feedback();
-void poll_map_feedback();
 int get_map_count();
 int has_default_map();
 void send_map_cmd(int key);

@@ -1738,7 +1738,7 @@ static int get_system_map_button_idx(int pos)
 	if (pos >= SYS_BTN_RIGHT && pos <= SYS_BTN_R) return pos;
 	if (pos >= SYS_MAP_BTN_L2 && pos < SYS_MAP_BTN_SELECT) return SYS_BTN_L2 + (pos - SYS_MAP_BTN_L2);
 	if (pos >= SYS_MAP_BTN_SELECT && pos < SYS_MAP_POS_OSD) return SYS_BTN_SELECT + (pos - SYS_MAP_BTN_SELECT);
-	if (pos >= SYS_MAP_POS_OSD && pos < SYS_MAP_AXIS_X) return SYS_BTN_OSD_KTGL + (pos - SYS_MAP_POS_OSD);
+	if (pos >= SYS_MAP_POS_OSD && pos < SYS_MAP_GAMEPAD_COUNT) return SYS_BTN_OSD_KTGL + (pos - SYS_MAP_POS_OSD);
 	return -1;
 }
 
@@ -1811,9 +1811,6 @@ static int mapping_combo_second_key = 0;
 static uint8_t mapping_combo_release_mask = 0;
 static uint32_t mapping_osd_hold_timer = 0;  // Menu prompt: a button held alone becomes hold mode
 static uint8_t mapping_osd_hold_latched = 0;
-static char mapping_feedback[32] = {};
-static uint32_t mapping_feedback_timer = 0;
-static int mapping_feedback_advance = 0;
 static advancedButtonMap *mapping_store = NULL;
 
 static uint32_t tmp_axis[4];
@@ -2279,13 +2276,6 @@ static void set_mapping_ignore_release_keys(int key1, int key2 = 0)
 	mapping_ignore_release_key2 = key2;
 }
 
-static void clear_map_feedback()
-{
-	mapping_feedback[0] = 0;
-	mapping_feedback_timer = 0;
-	mapping_feedback_advance = 0;
-}
-
 static void do_map_clear()
 {
 	if (!mapping || mapping_type > 1 || mapping_dev < 0)
@@ -2295,7 +2285,6 @@ static void do_map_clear()
 	clear_mapping_current_input();
 	clear_mapping_combo_state();
 	set_mapping_ignore_release_keys(0);
-	clear_map_feedback();
 	mapping_key_mapped = 0;
 	mapping_last_axis = 0;
 	clear_mapping_trigger_capture();
@@ -2367,7 +2356,6 @@ static int map_core_button_code(int dev, int code)
 static int map_menu_button_code(int dev, int code, const input_absinfo *absinfo)
 {
 	if (mapping_dev != dev ||
-		(mapping_button >= SYS_MAP_AXIS_X && mapping_button <= SYS_MAP_AXIS_Y) ||
 		(!mapping_button && mapping_last_axis && ((code == mapping_last_axis) || (code == mapping_last_axis + 1))))
 		return 0;
 
@@ -2405,8 +2393,8 @@ static int map_menu_button_code(int dev, int code, const input_absinfo *absinfo)
 	mapping_key_mapped = code;
 
 	// Check if an analog axis has been assigned to mouse movement.
-	const int mouse_axis_base = menu_mouse_map ? (SYS_BTN_A + 1) : (BUTTON_DPAD_COUNT + 1);
-	if (mapping_button == mouse_axis_base || mapping_button == (mouse_axis_base + 2))
+	const int mouse_axis_base = SYS_BTN_A + 1;
+	if (menu_mouse_map && (mapping_button == mouse_axis_base || mapping_button == (mouse_axis_base + 2)))
 	{
 		const int cur_idx = get_system_map_button_idx(mapping_button);
 		const int prev_idx = get_system_map_button_idx(mapping_button - 1);
@@ -2490,14 +2478,6 @@ static void clear_mapping_slot_for_pos(uint32_t *map, int pos)
 		{
 			map[SYS_BTN_MENU_FUNC] &= 0x0000FFFF;
 		}
-		else if (pos == SYS_MAP_AXIS_X)
-		{
-			map[SYS_AXIS_X] = 0;
-		}
-		else if (pos == SYS_MAP_AXIS_Y)
-		{
-			map[SYS_AXIS_Y] = 0;
-		}
 	}
 	else if (pos >= 0 && pos < mapping_count)
 	{
@@ -2537,7 +2517,6 @@ void start_map_setting(int cnt, int set, advancedButtonMap *abm_store)
 {
 	clear_mapping_current_input();
 	clear_mapping_combo_state();
-	clear_map_feedback();
 	set_mapping_ignore_release_keys(0);
 	mapping_pending_hold_action = MAP_HOLD_NONE;
 
@@ -2655,28 +2634,6 @@ int get_map_cancel()
 int get_map_advance()
 {
 	return (mapping && !is_menu() && map_advance_timer && CheckTimer(map_advance_timer));
-}
-
-const char *get_map_feedback()
-{
-	if (!mapping_feedback[0] || !mapping_feedback_timer || CheckTimer(mapping_feedback_timer))
-		return NULL;
-
-	return mapping_feedback;
-}
-
-void poll_map_feedback()
-{
-	if (!mapping_feedback_timer || !CheckTimer(mapping_feedback_timer))
-		return;
-
-	mapping_feedback_timer = 0;
-	mapping_feedback[0] = 0;
-
-	if (mapping_feedback_advance)
-		advance_map_button();
-
-	mapping_feedback_advance = 0;
 }
 
 const char *get_map_hold_feedback()
@@ -4517,9 +4474,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		&& input[dev].quirk != QUIRK_PDSP
 		&& input[dev].quirk != QUIRK_MSSP)
 	{
-		if (mapping_feedback_timer && !CheckTimer(mapping_feedback_timer))
-			return;
-
 		int idx = 0;
 		osdbtn = 0;
 		int released_hold_action = MAP_HOLD_NONE;
@@ -4706,8 +4660,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			//Define min-0-max analogs
 			switch (mapping_button)
 			{
-				case SYS_MAP_AXIS_X:  idx = SYS_AXIS_X;  break;
-				case SYS_MAP_AXIS_Y:  idx = SYS_AXIS_Y;  break;
 				case -4: idx = SYS_AXIS1_X; break;
 				case -3: idx = SYS_AXIS1_Y; break;
 				case -2: idx = SYS_AXIS2_X; break;
@@ -4790,14 +4742,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 								mapping_button++;
 								if (tmp_axis_n >= 4) mapping_button = 0;
 								mapping_last_axis = KEY_EMU + (ev->code << 1);
-							}
-						}
-						else
-						{
-							if (idx == SYS_AXIS_X || ev->code != (input[dev].map[idx - 1] & 0xFFFF))
-							{
-								input[dev].map[idx] = ev->code | MAP_FLAG_ANALOG | (min ? MAP_FLAG_INVERT : 0);
-								mapping_button++;
 							}
 						}
 					}
