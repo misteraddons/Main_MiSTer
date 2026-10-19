@@ -2277,6 +2277,7 @@ static void do_map_clear()
 	const int mouse_session = is_menu() && menu_mouse_map;
 	clear_mapping_current_input();
 	clear_mapping_combo_state();
+	set_mapping_ignore_release_keys(0);
 	clear_map_feedback();
 	mapping_key_mapped = 0;
 	mapping_last_axis = 0;
@@ -2508,6 +2509,7 @@ int step_back_map_setting()
 	if (is_menu() && !menu_mouse_map && pos < 0) restore_menu_tmp_axis_stage(pos);
 	clear_mapping_current_input();
 	clear_mapping_osd_hold_capture();
+	set_mapping_ignore_release_keys(0);
 	mapping_clear = 0;
 	mapping_finish = 0;
 	prepare_mapping_trigger_capture();
@@ -2519,6 +2521,7 @@ void start_map_setting(int cnt, int set, advancedButtonMap *abm_store)
 	clear_mapping_current_input();
 	clear_mapping_combo_state();
 	clear_map_feedback();
+	set_mapping_ignore_release_keys(0);
 	mapping_pending_hold_action = MAP_HOLD_NONE;
 
 	mapping_button = 0;

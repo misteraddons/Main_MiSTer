@@ -22,6 +22,7 @@ int FileLoadConfig(const char *name, void *data, int size)
 	return (int)found->second.size();
 }
 int FileDeleteConfig(const char *name) { configs.erase(name); return 1; }
+void user_io_kbd(uint16_t, int) {}
 
 // Fake millisecond clock with the production CheckTimer() contract (0 = expired).
 static unsigned long fake_ms = 1000;
@@ -148,6 +149,23 @@ static void hold_action_tests()
 	check(nav_holds(MAP_HOLD_SKIP, MAP_HOLD_BACK) && map_hold_action_for_key(0, BTN_SELECT) == MAP_HOLD_CLEAR,
 		"control a core's button prompts keep the Right, Left and Select holds");
 	test_core_session = 0;
+	mapping = 0;
+}
+
+static void ignore_release_tests()
+{
+	set_menu_mouse_map(0);
+	memset(&input[0], 0, sizeof(input[0]));
+	set_mapping_ignore_release_keys(BTN_X, BTN_Y);
+	start_map_setting(SYS_MAP_GAMEPAD_COUNT);
+	check(!mapping_ignore_release_key && !mapping_ignore_release_key2, "M2 a new session does not swallow a skipped key's release");
+	mapping_dev = 0; mapping_button = 2;
+	set_mapping_ignore_release_keys(BTN_X, BTN_Y);
+	check(step_back_map_setting() && !mapping_ignore_release_key && !mapping_ignore_release_key2,
+		"M2 Previous drops a skipped key's pending release");
+	set_mapping_ignore_release_keys(BTN_X, BTN_Y);
+	do_map_clear();
+	check(!mapping_ignore_release_key && !mapping_ignore_release_key2, "M2 Clear all drops a skipped key's pending release");
 	mapping = 0;
 }
 
@@ -697,6 +715,7 @@ int main(int argc, char **argv)
 	mouse_session_tests();
 	core_session_tests();
 	hold_action_tests();
+	ignore_release_tests();
 	trigger_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();
