@@ -4489,6 +4489,16 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 		// paddle axis - skip from mapping
 		if ((ev->type == EV_ABS || ev->type == EV_REL) && (ev->code == 7 || ev->code == 8) && input[dev].quirk != QUIRK_WHEEL) return;
 
+		// A key held through a skip has its next release dropped, wherever it lands.
+		if (ev->type == EV_KEY && !ev->value && mapping_dev == dev &&
+			((mapping_ignore_release_key && mapping_ignore_release_key == ev->code) ||
+			 (mapping_ignore_release_key2 && mapping_ignore_release_key2 == ev->code)))
+		{
+			if (mapping_ignore_release_key == ev->code) mapping_ignore_release_key = 0;
+			if (mapping_ignore_release_key2 == ev->code) mapping_ignore_release_key2 = 0;
+			return;
+		}
+
 		// protection against joysticks generating 2 codes per button
 		if (ev->type == EV_KEY && !(is_menu() && mapping < 2 && mapping_button == SYS_MAP_POS_OSD) && !map_skip)
 		{
@@ -4628,14 +4638,6 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 								mapping_key_mapped = 0;
 							}
 						}
-					}
-					else if (mapping_dev == dev && ev->value == 0 &&
-						((mapping_ignore_release_key && mapping_ignore_release_key == ev->code) ||
-						 (mapping_ignore_release_key2 && mapping_ignore_release_key2 == ev->code)))
-					{
-						mapping_key_mapped = 0;
-						if (mapping_ignore_release_key == ev->code) mapping_ignore_release_key = 0;
-						if (mapping_ignore_release_key2 == ev->code) mapping_ignore_release_key2 = 0;
 					}
 					else if(mapping_dev == dev && ev->value == 0 && mapping_key_mapped == ev->code)
 					{

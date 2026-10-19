@@ -24,6 +24,28 @@ int FileLoadConfig(const char *name, void *data, int size)
 int FileDeleteConfig(const char *name) { configs.erase(name); return 1; }
 void user_io_kbd(uint16_t, int) {}
 
+// The rest of what input_cb() calls outside the mapping and map-load paths under test.
+void Info(const char *, int, int, int, int) {}
+void InfoMessage(const char *, int, const char *) {}
+const char *get_autofire_rate_hz_button(int, uint32_t) { return "disabled"; }
+int hasAPI1_5() { return 1; }
+void inc_autofire_code(int, uint32_t, uint32_t) {}
+void set_autofire_code(int, uint32_t, uint32_t, int, bool) {}
+char is_n64() { return 0; }
+int menu_allow_cfg_switch() { return 0; }
+void menu_key_set(unsigned int) {}
+void n64_joy_emu(const int, const int, int *, int *, int, float) {}
+void stick_swap(int, int, int *, int *) {}
+uint16_t spi_uio_cmd(uint16_t) { return 0; }
+void user_io_analog_triggers(unsigned char, uint8_t, uint8_t) {}
+void user_io_check_reset(unsigned short, char) {}
+int user_io_get_kbdemu() { return 0; }
+void user_io_l_analog_joystick(unsigned char, char, char) {}
+void user_io_r_analog_joystick(unsigned char, char, char) {}
+char user_io_osd_is_visible() { return 0; }
+void user_io_set_ini(int) {}
+int video_fb_state() { return 0; }
+
 // Fake millisecond clock with the production CheckTimer() contract (0 = expired).
 static unsigned long fake_ms = 1000;
 unsigned long GetTimer(unsigned long offset) { return fake_ms + offset; }
@@ -453,6 +475,60 @@ static int key(int dev, int code, int value)
 	return osd_combo_event(dev, &ev);
 }
 
+// A numbered pad with its maps loaded, so input_cb() goes straight to the mapping code.
+static void test_pad(int dev)
+{
+	memset(&input[dev], 0, sizeof(input[dev]));
+	input[dev].bind = dev;
+	input[dev].num = dev + 1;
+	input[dev].map_shown = 1;
+	input[dev].has_mmap = input[dev].has_map = input[dev].has_kbdmap = 1;
+	input[dev].has_advanced_map = true;
+	input[dev].mmap[SYS_BTN_RIGHT] = BTN_DPAD_RIGHT;
+	input[dev].mmap[SYS_BTN_LEFT] = BTN_DPAD_LEFT;
+	input[dev].mmap[SYS_BTN_SELECT] = BTN_SELECT;
+}
+
+static void send_key(int dev, int code, int value)
+{
+	input_event ev = key_event(code, value);
+	input_cb(&ev, NULL, dev);
+}
+
+static void mapping_event_tests()
+{
+	// a core: B held through a skip at "Fire", then B at "Jump"
+	test_core_session = 1;
+	for (int i = 0; i < 8; i++) strcpy(joy_bnames[i], i ? "Jump" : "Fire");
+	test_pad(0);
+	start_map_setting(12);
+	mapping_dev = 0; mapping_button = SYS_BTN_A; mapping_key_mapped = 0;  // as the claim leaves it
+	send_key(0, BTN_EAST, 1);
+	send_key(0, KEY_ALTERASE, 1);
+	send_key(0, BTN_EAST, 0);
+	send_key(0, BTN_EAST, 1);
+	send_key(0, BTN_EAST, 0);
+	check(mapping_button == SYS_BTN_A + 2 && !(input[0].map[SYS_BTN_A] & 0xFFFF) && (input[0].map[SYS_BTN_A + 1] & 0xFFFF) == BTN_EAST,
+		"M3 a key held through a core skip maps and advances at the next prompt");
+	test_core_session = 0;
+
+	// the Menu core: A held through a skip at Menu, then A at Menu: OK
+	set_menu_mouse_map(0);
+	test_pad(0);
+	start_map_setting(SYS_MAP_GAMEPAD_COUNT);
+	mapping_dev = 0; mapping_button = SYS_MAP_POS_OSD; mapping_key_mapped = 0;
+	send_key(0, BTN_SOUTH, 1);
+	send_key(0, KEY_SPACE, 1);
+	send_key(0, KEY_SPACE, 0);
+	send_key(0, BTN_SOUTH, 0);
+	send_key(0, BTN_SOUTH, 1);
+	send_key(0, BTN_SOUTH, 0);
+	check(mapping_button == SYS_MAP_POS_OSD + 2 && (input[0].map[SYS_BTN_MENU_FUNC] & 0xFFFF) == BTN_SOUTH,
+		"M3 a key held through the Menu prompt's skip maps and advances at Menu: OK");
+	clear_mapping_combo_state();
+	mapping = 0;
+}
+
 static void osd_hold_tests()
 {
 	uint32_t map[NUMBUTTONS] = {};
@@ -782,6 +858,7 @@ int main(int argc, char **argv)
 #ifdef JOYMAP_TEST_HAS_HOLD_POLL
 	hold_poll_tests();
 #endif
+	mapping_event_tests();
 	core_name_tests();
 #ifdef JOYMAP_TEST_HAS_PAD
 	pad_tests();
