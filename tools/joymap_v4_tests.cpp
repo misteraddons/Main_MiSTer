@@ -550,6 +550,12 @@ static void core_name_tests()
 	joymap_test_core_names("A,B,X,Y,L,R,Select,Start", mmap, map);
 	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B] && map[6] == mmap[SYS_BTN_X] && map[7] == mmap[SYS_BTN_Y] &&
 		map[8] == mmap[SYS_BTN_L] && map[9] == mmap[SYS_BTN_R], "control SNES names map as before; X stays the SNES X");
+	joymap_test_core_names("A,B,L2,R2,L3,R3", mmap, map);
+	check(map[6] == mmap[SYS_BTN_L2] && map[7] == mmap[SYS_BTN_R2] && map[8] == mmap[SYS_BTN_L3] && map[9] == mmap[SYS_BTN_R3],
+		"control J1 names L2/R2/L3/R3 map to their own slots");
+	joymap_test_core_jn("A,B,L2,R2,L3,R3", "A,B,,", mmap, map);
+	check(map[4] == mmap[SYS_BTN_A] && map[5] == mmap[SYS_BTN_B] && !map[6] && !map[7] && !map[8] && !map[9],
+		"J1 an empty jn entry skips a button, L2/R2/L3/R3 included");
 }
 
 #ifdef JOYMAP_TEST_HAS_PAD

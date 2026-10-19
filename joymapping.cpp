@@ -115,22 +115,6 @@ static int is_fire(char* name)
 	return 0;
 }
 
-static int is_extended_button(char *name)
-{
-	return !strcasecmp(name, "L2")
-		|| !strcasecmp(name, "R2")
-		|| !strcasecmp(name, "L3")
-		|| !strcasecmp(name, "R3");
-}
-
-static void copy_core_button_name(char *dst, int index)
-{
-	strcpy(dst, joy_names[index]);
-	char *p = strchr(dst, '(');
-	if (p) *p = 0;
-	trim(dst);
-}
-
 void map_joystick(uint32_t *map, uint32_t *mmap)
 {
 	/*
@@ -180,11 +164,6 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		int idx = i+DPAD_COUNT;
 		char btn_name[32];
 		strcpy(btn_name, defaults ? joy_pnames[n] : joy_nnames[n]);
-		if (!btn_name[0])
-		{
-			copy_core_button_name(btn_name, i);
-			if (!is_extended_button(btn_name)) btn_name[0] = 0;
-		}
 
 		char *p = strchr(btn_name, '|');
 		if (p) *p = 0;
