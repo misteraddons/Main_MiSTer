@@ -1141,6 +1141,19 @@ static int is_map_nav_hold_feedback(const char *feedback)
 	return feedback && (!strcmp(feedback, "Skip/Unmap") || !strcmp(feedback, "Previous"));
 }
 
+// Define buttons is redrawn on every pass; rows 1-7 are sent only when their
+// text changes. Clearing joymap_rows_valid forces the next write of each row.
+static char joymap_rows[8][64];
+static uint8_t joymap_rows_valid = 0;
+
+static void joymap_write_row(unsigned char n, const char *s = "")
+{
+	if ((joymap_rows_valid & (1 << n)) && !strcmp(joymap_rows[n], s)) return;
+	snprintf(joymap_rows[n], sizeof(joymap_rows[n]), "%s", s);
+	joymap_rows_valid |= 1 << n;
+	OsdWrite(n, s, 0, 0);
+}
+
 void HandleUI(void)
 {
 	PROFILE_FUNCTION();
@@ -4192,6 +4205,7 @@ void HandleUI(void)
 
 	case MENU_JOYRESET:
 		for (int i = 0; i < OsdGetSize(); i++) OsdWrite(i);
+		joymap_rows_valid = 0;
 		m = 6;
 		menumask = 3;
 		OsdWrite(m++, "    Reset saved mapping?");
@@ -4232,6 +4246,7 @@ void HandleUI(void)
 		flash_timer = 0;
 		flash_state = 0;
 		for (int i = 0; i < OsdGetSize(); i++) OsdWrite(i);
+		joymap_rows_valid = 0;
 		if (is_menu())
 		{
 			OsdWrite(8, "          Esc \x16 Cancel");
@@ -4258,18 +4273,18 @@ void HandleUI(void)
 				get_map_button() <= SYS_MAP_POS_OSD + 2;
 			if (get_map_clear())
 			{
-				OsdWrite(3);
-				OsdWrite(4, "          Clearing");
-				OsdWrite(5);
+				joymap_write_row(3);
+				joymap_write_row(4, "          Clearing");
+				joymap_write_row(5);
 				joymap_first = 1;
 				break;
 			}
 
 			if (get_map_cancel())
 			{
-				OsdWrite(3);
-				OsdWrite(4, "          Canceling");
-				OsdWrite(5);
+				joymap_write_row(3);
+				joymap_write_row(4, "          Canceling");
+				joymap_write_row(5);
 				break;
 			}
 
@@ -4279,7 +4294,7 @@ void HandleUI(void)
 				save_now = 0;
 			}
 
-			if (is_menu() && !get_map_button() && !show_gamepad) OsdWrite(7);
+			if (is_menu() && !get_map_button() && !show_gamepad) joymap_write_row(7);
 
 			const char* p = 0;
 			if (get_map_button() < 0)
@@ -4293,7 +4308,7 @@ void HandleUI(void)
 					len--;
 				}
 				strcat(s, pa);
-				if (!show_gamepad) OsdWrite(7, "   Space/User \x16 Skip");
+				if (!show_gamepad) joymap_write_row(7, "   Space/User \x16 Skip");
 			}
 			else if (get_map_button() < DPAD_NAMES)
 			{
@@ -4417,25 +4432,25 @@ void HandleUI(void)
 
 			if (show_gamepad)
 			{
-				OsdWrite(1, s, 0, 0);
-				OsdWrite(2, info_line, 0, 0);
-				OsdWrite(3, id_line, 0, 0);
+				joymap_write_row(1, s);
+				joymap_write_row(2, info_line);
+				joymap_write_row(3, id_line);
 				const int keyboard = !get_map_type();
 				const int menu_prompt = get_map_button() == SYS_MAP_POS_OSD;
-				OsdWrite(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" : keyboard ? "         User \x16 Undefine" :
+				joymap_write_row(4, (get_map_button() < 0) ? "   Space/User \x16 Skip" : keyboard ? "         User \x16 Undefine" :
 					menu_prompt ? "   Space/User \x16 Undefine" : "Space/Hold RIGHT \x16 Undefine");
-				OsdWrite(5, (keyboard || menu_prompt) ? "    Backspace \x16 Prev" : " Backspace/Hold LEFT \x16 Prev");
-				OsdWrite(6, "          Esc \x16 Cancel");
-				OsdWrite(7, "        Enter \x16 Finish");
+				joymap_write_row(5, (keyboard || menu_prompt) ? "    Backspace \x16 Prev" : " Backspace/Hold LEFT \x16 Prev");
+				joymap_write_row(6, "          Esc \x16 Cancel");
+				joymap_write_row(7, "        Enter \x16 Finish");
 			}
 			else
 			{
-				OsdWrite(1);
-				OsdWrite(2, (info_line[0] && !combo_hint_below_prompt) ? info_line : "", 0, 0);
-				OsdWrite(3, s, 0, 0);
-				OsdWrite(4);
-				OsdWrite(5, id_line, 0, 0);
-				OsdWrite(6);
+				joymap_write_row(1);
+				joymap_write_row(2, (info_line[0] && !combo_hint_below_prompt) ? info_line : "");
+				joymap_write_row(3, s);
+				joymap_write_row(4);
+				joymap_write_row(5, id_line);
+				joymap_write_row(6);
 				if (combo_hint_below_prompt) OsdWrite(12, info_line);
 			}
 
@@ -4465,7 +4480,7 @@ void HandleUI(void)
 				if (flash_timer)
 				{
 					//clear all gamepad gfx
-					OsdWrite(7);
+					joymap_write_row(7);
 					OsdWrite(10);
 					OsdWrite(11);
 					OsdWrite(12);
@@ -4503,7 +4518,7 @@ void HandleUI(void)
 					{
 						if (!show_gamepad)
 						{
-							OsdWrite(7, (!get_map_type()) ? "         User \x16 Undefine" :
+							joymap_write_row(7, (!get_map_type()) ? "         User \x16 Undefine" :
 								is_menu() ? "   User/Space \x16 Undefine" :
 								get_map_menu_is_hold() ? "         User \x16 Undefine" : "    User/Menu \x16 Undefine");
 						}

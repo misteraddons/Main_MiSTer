@@ -97,6 +97,19 @@ def menu_checks(source):
             (back is not None and back.group(1).strip() == "MENU_SYSTEM_SUB_HELP", "8 Misc return uses Help enum (source guard)")]
 
 
+def menu_row_checks(source):
+    """Source guard: Define buttons writes rows 1-7 only through its row cache."""
+    def case(name):
+        start = source.index(f"\tcase {name}:")
+        return source[start:source.index("\tcase MENU_", start + 1)]
+    # the "define it in the Menu core first" screen redraws everything and leaves the state
+    screen = re.sub(r"for \(int i = 0; i < OsdGetSize\(\); i\+\+\) OsdWrite\(i\);.*?menustate = MENU_JOYDIGMAP2;", "",
+                    case("MENU_JOYDIGMAP1"), flags=re.S)
+    reset = all("joymap_rows_valid = 0;" in case(name) for name in ("MENU_JOYDIGMAP", "MENU_JOYRESET"))
+    return [(not re.search(r"OsdWrite\([1-7][,)]", screen) and reset,
+             "R1 Define buttons rows 1-7 use the row cache, reset on entry (source guard)")]
+
+
 def hold_wiring_checks(source):
     """Source guards for the hold-mode wiring inside input_cb()/input_poll()."""
     cb_start = source.index("static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int dev, bool menu_event)\n{")
@@ -189,7 +202,8 @@ def main():
         return built.returncode
     results = []
     results.append(subprocess.run([str(binary)], timeout=30).returncode == 0)
-    for passed, label in menu_checks((source_root / "menu.cpp").read_text()) + hold_wiring_checks(source):
+    menu_source = (source_root / "menu.cpp").read_text()
+    for passed, label in menu_checks(menu_source) + menu_row_checks(menu_source) + hold_wiring_checks(source):
         print(f"{'PASS' if passed else 'FAIL'}: {label}", flush=True)
         results.append(passed)
     negative = subprocess.run([str(binary), "--negative-control"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
@@ -200,6 +214,9 @@ def main():
     rejected = not menu_checks(mutant)[0][0]
     print(f"{'PASS' if rejected else 'FAIL'}: deliberately wrong menu-return enum rejected", flush=True)
     results.append(rejected)
+    uncached = not menu_row_checks(menu_source.replace("joymap_write_row(1, s);", "OsdWrite(1, s, 0, 0);", 1))[0][0]
+    print(f"{'PASS' if uncached else 'FAIL'}: deliberately uncached Define buttons row rejected", flush=True)
+    results.append(uncached)
     unwired = not hold_wiring_checks(re.sub(r"(if \(getchar\) return ret;\s*)osd_hold_poll\(\);", r"\1", source, count=1))[1][0]
     print(f"{'PASS' if unwired else 'FAIL'}: deliberately unwired hold poll rejected", flush=True)
     results.append(unwired)
