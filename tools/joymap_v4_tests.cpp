@@ -6,7 +6,8 @@
 #include "joymap_test_seams.h"
 
 static std::map<std::string, std::vector<unsigned char> > configs;
-char is_menu() { return 1; }
+static char test_core_session;  // is_menu() is false while set
+char is_menu() { return !test_core_session; }
 int FileSaveConfig(const char *name, void *data, int size)
 {
 	const unsigned char *bytes = (const unsigned char *)data;
@@ -86,6 +87,36 @@ static void mouse_session_tests()
 	map[SYS_AXIS_R2] = ABS_RZ | MAP_FLAG_TRIGGER | MAP_FLAG_ANALOG;
 	clear_mapping_slot_for_pos(map, SYS_MAP_BTN_L2);
 	check(!map[SYS_AXIS_L2] && map[SYS_AXIS_R2], "control gamepad L2 unmap clears only L2");
+}
+
+static bool map_is_empty(const uint32_t *map)
+{
+	for (int i = 0; i < NUMBUTTONS; i++) if (map[i]) return false;
+	return true;
+}
+
+static void core_session_tests()
+{
+	test_core_session = 1;
+	for (int i = 0; i < 8; i++) strcpy(joy_bnames[i], "Fire");
+	memset(&input[0], 0, sizeof(input[0]));
+	for (int i = 0; i < NUMBUTTONS; i++) input[0].map[i] = (BTN_TRIGGER_HAPPY1 << 16) | BTN_A;
+	mapping = 1; mapping_type = 1; mapping_set = 0; mapping_dev = -1; mapping_count = 12; mapping_button = 0;
+	claim_mapping_device(0);
+	check(mapping_dev == 0 && map_is_empty(input[0].map), "C1 a core's Define buttons starts from an empty map");
+	for (int i = 0; i < NUMBUTTONS; i++) input[0].map[i] = BTN_A;
+	mapping_button = 5;
+	do_map_clear();
+	check(map_is_empty(input[0].map) && mapping_button == 0, "C1 Clear all in a core clears every core button");
+	test_core_session = 0;
+
+	set_menu_mouse_map(0);
+	memset(input[0].map, 0, sizeof(input[0].map));
+	input[0].map[SYS_BTN_A] = BTN_A;
+	input[0].map[SYS_MS_BTN_L] = BTN_LEFT;
+	do_map_clear();
+	check(!input[0].map[SYS_BTN_A] && input[0].map[SYS_MS_BTN_L] == BTN_LEFT, "control Menu joypad Clear all keeps the mouse slots");
+	mapping = 0;
 }
 
 static void trigger_tests()
@@ -632,6 +663,7 @@ int main(int argc, char **argv)
 		return failures ? 1 : 0;
 	}
 	mouse_session_tests();
+	core_session_tests();
 	trigger_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();

@@ -1850,7 +1850,12 @@ static void claim_mapping_device(int dev)
 	if (mapping_dev >= 0) return;
 
 	mapping_dev = dev;
-	if (!is_menu()) return;
+	if (!is_menu())
+	{
+		// A core's map is defined from scratch; the alternative pass keeps it.
+		if (!mapping_set) memset(input[dev].map, 0, sizeof(input[dev].map));
+		return;
+	}
 
 	if (menu_mouse_map)
 	{
@@ -2280,7 +2285,8 @@ static void do_map_clear()
 	osd_timer = 0;
 	mapping_finish = 0;
 
-	if (mouse_session) clear_mouse_map_slots(input[mapping_dev].map);
+	if (!is_menu()) memset(input[mapping_dev].map, 0, sizeof(input[mapping_dev].map));
+	else if (mouse_session) clear_mouse_map_slots(input[mapping_dev].map);
 	else clear_joypad_map_slots(input[mapping_dev].map);
 
 	mapping_button = mouse_session ? SYS_BTN_A : 0;
