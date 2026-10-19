@@ -4205,7 +4205,6 @@ void HandleUI(void)
 
 	case MENU_JOYRESET:
 		for (int i = 0; i < OsdGetSize(); i++) OsdWrite(i);
-		joymap_rows_valid = 0;
 		m = 6;
 		menumask = 3;
 		OsdWrite(m++, "    Reset saved mapping?");
@@ -4217,9 +4216,10 @@ void HandleUI(void)
 		break;
 
 	case MENU_JOYRESET1:
+		// MENU_JOYDIGMAP redraws the screen and keeps the mapping session
 		if (menu || back)
 		{
-			menustate = MENU_JOYDIGMAP1;
+			menustate = MENU_JOYDIGMAP;
 			break;
 		}
 		if (select)
@@ -4232,7 +4232,7 @@ void HandleUI(void)
 			}
 			else
 			{
-				menustate = MENU_JOYDIGMAP1;
+				menustate = MENU_JOYDIGMAP;
 			}
 		}
 		break;

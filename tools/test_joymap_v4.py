@@ -105,9 +105,12 @@ def menu_row_checks(source):
     # the "define it in the Menu core first" screen redraws everything and leaves the state
     screen = re.sub(r"for \(int i = 0; i < OsdGetSize\(\); i\+\+\) OsdWrite\(i\);.*?menustate = MENU_JOYDIGMAP2;", "",
                     case("MENU_JOYDIGMAP1"), flags=re.S)
-    reset = all("joymap_rows_valid = 0;" in case(name) for name in ("MENU_JOYDIGMAP", "MENU_JOYRESET"))
+    reset = "joymap_rows_valid = 0;" in case("MENU_JOYDIGMAP")
+    reset_prompt = case("MENU_JOYRESET1")
     return [(not re.search(r"OsdWrite\([1-7][,)]", screen) and reset,
-             "R1 Define buttons rows 1-7 use the row cache, reset on entry (source guard)")]
+             "R1 Define buttons rows 1-7 use the row cache, reset on entry (source guard)"),
+            ("MENU_JOYDIGMAP1" not in reset_prompt and "menustate = MENU_JOYDIGMAP;" in reset_prompt,
+             "R2 the reset prompt returns through MENU_JOYDIGMAP, which redraws the screen (source guard)")]
 
 
 def hold_wiring_checks(source):
