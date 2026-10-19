@@ -34,7 +34,15 @@ static int joy_count = 0;
 
 static char joy_nnames[NUMBUTTONS][32];
 static char joy_pnames[NUMBUTTONS][32];
+static int joy_nnames_given = 0, joy_pnames_given = 0; // entries jn/jp list, empty ones included
 static int defaults = 0;
+
+static int list_entries(const char *p)
+{
+	int count = 1;
+	while (*p) count += *p++ == ',';
+	return count;
+}
 
 static void read_buttons()
 {
@@ -44,6 +52,7 @@ static void read_buttons()
 	memset(joy_nnames, 0, sizeof(joy_nnames));
 	memset(joy_pnames, 0, sizeof(joy_pnames));
 	joy_count = 0;
+	joy_nnames_given = joy_pnames_given = 0;
 	defaults = 0;
 
 	user_io_read_confstr();
@@ -78,6 +87,7 @@ static void read_buttons()
 	if (p)
 	{
 		memset(joy_nnames, 0, sizeof(joy_nnames));
+		joy_nnames_given = list_entries(p);
 		for (int n = 0; n < joy_count; n++)
 		{
 			substrcpy(joy_nnames[n], p, n);
@@ -92,6 +102,7 @@ static void read_buttons()
 	if (p)
 	{
 		defaults = cfg.gamepad_defaults;
+		joy_pnames_given = list_entries(p);
 		for (int n = 0; n < joy_count; n++)
 		{
 			substrcpy(joy_pnames[n], p, n);
@@ -113,6 +124,22 @@ static int is_fire(char* name)
 	}
 
 	return 0;
+}
+
+static int is_extended_button(char *name)
+{
+	return !strcasecmp(name, "L2")
+		|| !strcasecmp(name, "R2")
+		|| !strcasecmp(name, "L3")
+		|| !strcasecmp(name, "R3");
+}
+
+static void copy_core_button_name(char *dst, int index)
+{
+	strcpy(dst, joy_names[index]);
+	char *p = strchr(dst, '(');
+	if (p) *p = 0;
+	trim(dst);
 }
 
 void map_joystick(uint32_t *map, uint32_t *mmap)
@@ -164,6 +191,13 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		int idx = i+DPAD_COUNT;
 		char btn_name[32];
 		strcpy(btn_name, defaults ? joy_pnames[n] : joy_nnames[n]);
+		// An empty jn/jp entry skips the button. Past the end of a shorter list
+		// (most predate L2/R2/L3/R3), a J1 L2/R2/L3/R3 keeps its own slot.
+		if (!btn_name[0] && n >= (defaults ? joy_pnames_given : joy_nnames_given))
+		{
+			copy_core_button_name(btn_name, i);
+			if (!is_extended_button(btn_name)) btn_name[0] = 0;
+		}
 
 		char *p = strchr(btn_name, '|');
 		if (p) *p = 0;

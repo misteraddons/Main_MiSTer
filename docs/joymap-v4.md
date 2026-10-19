@@ -34,7 +34,9 @@ v3 fields and append the v4 button/trigger fields.
 - Holding Right (Skip) or Left (Previous) acts only at button prompts, and in
   the Menu core only in the joypad session, whose hints offer it. A skipped
   key's ignored release does not outlive its prompt state.
-- An empty `jn`/`jp` entry skips the button, L2/R2/L3/R3 included.
+- An empty `jn`/`jp` entry skips the button, L2/R2/L3/R3 included. Past the
+  end of a shorter `jn`/`jp` list, a `J1` button named L2/R2/L3/R3 keeps its
+  own slot.
 - Wheels keep their pedals on the wheel path, not the analog trigger path.
 - `UIO_ATRIG` is sent only when a player's L2/R2 values change.
 
