@@ -4270,6 +4270,9 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				input[dev].mmap[SYS_AXIS1_Y] = -1;
 				input[dev].mmap[SYS_AXIS2_X] = -1;
 				input[dev].mmap[SYS_AXIS2_Y] = -1;
+				// The wheel code reads the pedals, so they are not analog triggers.
+				input[dev].mmap[SYS_AXIS_L2] = 0;
+				input[dev].mmap[SYS_AXIS_R2] = 0;
 			}
 			else
 			{
