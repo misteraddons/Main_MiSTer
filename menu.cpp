@@ -4276,7 +4276,7 @@ void HandleUI(void)
 				joymap_write_row(3);
 				joymap_write_row(4, "          Clearing");
 				joymap_write_row(5);
-				joymap_first = 1;
+				if (!get_map_set()) joymap_first = 1;
 				break;
 			}
 

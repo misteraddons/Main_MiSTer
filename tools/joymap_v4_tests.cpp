@@ -131,6 +131,13 @@ static void core_session_tests()
 	mapping_button = 5;
 	do_map_clear();
 	check(map_is_empty(input[0].map) && mapping_button == 0, "C1 Clear all in a core clears every core button");
+	for (int i = 0; i < NUMBUTTONS; i++) input[0].map[i] = (BTN_TRIGGER_HAPPY1 << 16) | BTN_A;
+	mapping_set = 1; mapping_button = 6;
+	do_map_clear();
+	bool primaries = true;
+	for (int i = 0; i < NUMBUTTONS; i++) primaries &= input[0].map[i] == BTN_A;
+	check(primaries && mapping_button == 0 && mapping_set == 1, "C1 Clear all in the alternative pass clears only the alternatives");
+	mapping_set = 0;
 	test_core_session = 0;
 
 	set_menu_mouse_map(0);

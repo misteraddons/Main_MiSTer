@@ -2292,7 +2292,12 @@ static void do_map_clear()
 	osd_timer = 0;
 	mapping_finish = 0;
 
-	if (!is_menu()) memset(input[mapping_dev].map, 0, sizeof(input[mapping_dev].map));
+	if (!is_menu())
+	{
+		// The alternative pass clears only the alternatives and starts again.
+		if (mapping_set) for (int i = 0; i < NUMBUTTONS; i++) input[mapping_dev].map[i] &= 0x0000FFFF;
+		else memset(input[mapping_dev].map, 0, sizeof(input[mapping_dev].map));
+	}
 	else if (mouse_session) clear_mouse_map_slots(input[mapping_dev].map);
 	else clear_joypad_map_slots(input[mapping_dev].map);
 
