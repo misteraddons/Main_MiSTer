@@ -222,8 +222,6 @@ Known limitation: the joystick-to-keyboard mapping screen still says
 2 s hold, and Clear needs that plus the screen's own hold time.
 
 Pre-existing issues noticed during the hold-mode review, not changed here:
-- `handle_autofire_toggle()` indexes `lastcode[num]`/`lastmask[num]` with
-  `num = -1` for OSD navigation calls (`joy_digital(0, ...)`).
 - `clear_mapping_slot_for_pos(SYS_MAP_POS_OSD)` does not clear the keyboard
   slot 20.
 - Gamepad Menu bindings with codes below 256 never worked as tap or combo:

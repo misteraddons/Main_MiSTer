@@ -3259,7 +3259,8 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 	if (num < NUMPLAYERS)
 	{
 		// autofire handler moved to helper function for clarity
-		if (handle_autofire_toggle(num, mask, code, press, bnum, dont_save)) {
+		// (num is -1 for OSD navigation and pads without a player number)
+		if (num >= 0 && handle_autofire_toggle(num, mask, code, press, bnum, dont_save)) {
 			return;
 		}
 
@@ -3291,7 +3292,7 @@ static void joy_digital(int jnum, uint32_t mask, uint32_t code, char press, int 
 
 		// toggling autofire via OSD button consumes the "press" event of OSD but not the release event
 		// this suppresses that so toggling autofire on a button doesn't immediately disable the button
-		if (bnum == BTN_OSD && !press && osd_autofire_consumed[num]) {
+		if (bnum == BTN_OSD && !press && num >= 0 && osd_autofire_consumed[num]) {
 			osd_autofire_consumed[num] = false;
 			return;
 		}
