@@ -241,6 +241,21 @@ static void trigger_tests()
 	check(joymap_test_events.empty(), "control unchanged axis state emits no synthetic key transition");
 }
 
+static void wide_range_trigger_tests()
+{
+	input_absinfo axis = {};
+	axis.minimum = 0; axis.maximum = 100000000;
+	const uint32_t full = joymap_test_trigger("a0");
+	const int mid = normalize_analog_trigger(full, axis.maximum / 2, &axis);
+	check(normalize_analog_trigger(full, axis.maximum, &axis) == 255 && mid > 120 && mid < 135,
+		"T1 a high-resolution trigger normalizes without overflow");
+	axis.minimum = INT32_MIN; axis.maximum = INT32_MAX;
+	const uint32_t half = joymap_test_trigger("+a0");
+	check(normalize_analog_trigger(full, INT32_MAX, &axis) == 255 && normalize_analog_trigger(full, INT32_MIN, &axis) == 0 &&
+		normalize_analog_trigger(half, INT32_MAX, &axis) == 255 && normalize_analog_trigger(half, 0, &axis) == 0,
+		"T1 a full 32-bit axis normalizes full and half travel");
+}
+
 static void mixed_half_trigger_tests()
 {
 	input_absinfo axis = {};
@@ -723,6 +738,7 @@ int main(int argc, char **argv)
 	hold_action_tests();
 	ignore_release_tests();
 	trigger_tests();
+	wide_range_trigger_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();
 	osd_hold_tests();

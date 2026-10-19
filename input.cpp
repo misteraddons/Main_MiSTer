@@ -1965,14 +1965,14 @@ static int trigger_axis_has_valid_baseline(int dev, uint16_t axis)
 		return 0;
 
 	const input_absinfo *base = &mapping_trigger_capture.absinfo[axis];
-	const int range = base->maximum - base->minimum;
+	const int64_t range = (int64_t)base->maximum - base->minimum;
 	if (range <= 1) return 0;
 
-	const int threshold = (range / 8) > 4 ? (range / 8) : 4;
-	const int center = base->minimum + (range / 2);
+	const int64_t threshold = (range / 8) > 4 ? (range / 8) : 4;
+	const int64_t center = base->minimum + (range / 2);
 	return base->value <= base->minimum + threshold ||
 		base->value >= base->maximum - threshold ||
-		abs(base->value - center) <= threshold;
+		llabs(base->value - center) <= threshold;
 }
 
 static uint32_t build_trigger_axis_map_for_axis(int dev, uint16_t axis, const input_absinfo *absinfo, int negative, int threshold_divisor)
@@ -1990,19 +1990,19 @@ static uint32_t build_trigger_axis_map_for_axis(int dev, uint16_t axis, const in
 		mapping_trigger_capture.has_axis[axis])
 	{
 		const input_absinfo *base_info = &mapping_trigger_capture.absinfo[axis];
-		const int range = base_info->maximum - base_info->minimum;
-		const int delta = abs(absinfo->value - base_info->value);
+		const int64_t range = (int64_t)base_info->maximum - base_info->minimum;
+		const int64_t delta = llabs((int64_t)absinfo->value - base_info->value);
 
 		if (range > 1 && threshold_divisor > 0)
 		{
-			const int threshold = (range / threshold_divisor) > 4 ? (range / threshold_divisor) : 4;
+			const int64_t threshold = (range / threshold_divisor) > 4 ? (range / threshold_divisor) : 4;
 			if (delta < threshold)
 				return 0;
 		}
 
-		const int center = base_info->minimum + (range / 2);
-		const int centered_threshold = range / 4;
-		if (range > 1 && abs(base_info->value - center) <= centered_threshold)
+		const int64_t center = base_info->minimum + (range / 2);
+		const int64_t centered_threshold = range / 4;
+		if (range > 1 && llabs(base_info->value - center) <= centered_threshold)
 			map |= MAP_FLAG_CENTERED;
 
 		if (delta)
@@ -2044,16 +2044,16 @@ static uint32_t detect_moved_trigger_axis_map(int dev)
 			continue;
 
 		const input_absinfo *base_info = &mapping_trigger_capture.absinfo[axis];
-		const int range = base_info->maximum - base_info->minimum;
+		const int64_t range = (int64_t)base_info->maximum - base_info->minimum;
 		if (range <= 1)
 			continue;
 
-		const int delta = abs(absinfo.value - base_info->value);
-		const int threshold = (range / 32) > 4 ? (range / 32) : 4;
+		const int64_t delta = llabs((int64_t)absinfo.value - base_info->value);
+		const int64_t threshold = (range / 32) > 4 ? (range / 32) : 4;
 		if (delta < threshold)
 			continue;
 
-		const int score = (delta * 1024) / range;
+		const int score = (int)((delta * 1024) / range);
 		if (score <= best_score)
 			continue;
 
@@ -2095,11 +2095,11 @@ static uint32_t detect_standard_trigger_axis_map(int dev, uint16_t keycode)
 			continue;
 
 		const input_absinfo *base_info = &mapping_trigger_capture.absinfo[axis];
-		const int range = base_info->maximum - base_info->minimum;
+		const int64_t range = (int64_t)base_info->maximum - base_info->minimum;
 		if (range <= 1)
 			continue;
 
-		const int edge_threshold = (range / 8) > 4 ? (range / 8) : 4;
+		const int64_t edge_threshold = (range / 8) > 4 ? (range / 8) : 4;
 		const int released_near_min = base_info->value <= (base_info->minimum + edge_threshold);
 		const int released_near_max = base_info->value >= (base_info->maximum - edge_threshold);
 		if (!released_near_min && !released_near_max)
@@ -3542,18 +3542,19 @@ static uint8_t normalize_analog_trigger(uint32_t map, int value, const input_abs
 	if (value < absinfo->minimum) value = absinfo->minimum;
 	if (value > absinfo->maximum) value = absinfo->maximum;
 
-	int released = absinfo->minimum;
-	int pressed = absinfo->maximum;
+	// 64-bit: an evdev range can span the whole int.
+	int64_t released = absinfo->minimum;
+	int64_t pressed = absinfo->maximum;
 
 	if (map & MAP_FLAG_CENTERED)
 	{
-		released = (absinfo->minimum + absinfo->maximum) / 2;
+		released = (released + pressed) / 2;
 		pressed = (map & MAP_FLAG_NEGATIVE) ? absinfo->minimum : absinfo->maximum;
 		// '~' reverses endpoints within the selected half, not the half itself.
 		if ((map & MAP_FLAG_NEGATIVE) ? value > released : value < released) return 0;
 		if (map & MAP_FLAG_INVERT)
 		{
-			const int center = released;
+			const int64_t center = released;
 			released = pressed;
 			pressed = center;
 		}
@@ -3564,18 +3565,18 @@ static uint8_t normalize_analog_trigger(uint32_t map, int value, const input_abs
 		pressed = absinfo->minimum;
 	}
 
-	const int denom = pressed - released;
+	const int64_t denom = pressed - released;
 	if (!denom)
 		return 0;
 
 	// Trim endpoint noise per trigger half; hardware may not reach either endpoint.
-	const int span = abs(denom);
-	int deadzone = span / 50;
+	const int64_t span = llabs(denom);
+	int64_t deadzone = span / 50;
 	if (deadzone < 5) deadzone = 5;
 	if (deadzone * 4 > span) deadzone = span / 4;
 
-	const int travel = (value - released) * ((denom > 0) ? 1 : -1) - deadzone;
-	int out = (travel * 255) / (span - 2 * deadzone);
+	const int64_t travel = (value - released) * ((denom > 0) ? 1 : -1) - deadzone;
+	int64_t out = (travel * 255) / (span - 2 * deadzone);
 	if (out < 0) out = 0;
 	if (out > 255) out = 255;
 	return (uint8_t)out;
