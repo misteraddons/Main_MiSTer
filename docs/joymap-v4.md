@@ -28,6 +28,15 @@ v3 fields and append the v4 button/trigger fields.
   stage was captured. Re-entering it discards the old Down snapshot, including
   digital-DPAD/hat recognition, keeping later stick X/Y stages in order.
 - Core-selector and Misc return paths use the named Exit/Help menu entries.
+- A core's Define buttons starts from an empty map, and its Clear all clears
+  every core button. The Menu core's joypad and mouse sessions keep each
+  other's slots.
+- Holding Right (Skip) or Left (Previous) acts only at button prompts, and in
+  the Menu core only in the joypad session, whose hints offer it. A skipped
+  key's ignored release does not outlive its prompt state.
+- An empty `jn`/`jp` entry skips the button, L2/R2/L3/R3 included.
+- Wheels keep their pedals on the wheel path, not the analog trigger path.
+- `UIO_ATRIG` is sent only when a player's L2/R2 values change.
 
 ## Map file layout
 
@@ -39,6 +48,8 @@ n × 4.
 The version is only in the file name. v3 had 32 slots (128 bytes); v4 appends
 six more (152 bytes) and leaves the first 32 unchanged. A shorter file loads
 with the missing slots zero, and v3 files stay in place for older builds.
+A v3 system map is used without a GamecontrollerDB merge, so its L2/R2/L3/R3
+and trigger slots stay empty until the pad is defined again in the Menu core.
 
 Each slot is two 16-bit halves, low half first. The low half is a Linux input
 code:
@@ -186,7 +197,9 @@ The harness compiles the production `input.cpp` and `gamecontroller_db.cpp` with
 synthetic evdev/GCDB input and in-memory configuration storage. Unsigned `char`
 matches the ARM target. It checks partial-map save/load, skip/Previous state,
 trigger normalization and export, held-input cache lookups, shared-axis digital
-transitions, Joy-Con orientation, and OSD directions. It also checks the
+transitions, Joy-Con orientation, and OSD directions. It also checks core map
+clearing, hold-action prompts, ignored releases, `jn` skips, high-resolution
+trigger ranges and the trigger prompt's axis tracking, and the
 Menu-button hold mode against a fake millisecond clock:
 - encoding;
 - tap versus hold;
@@ -194,8 +207,9 @@ Menu-button hold mode against a fake millisecond clock:
   Previous;
 - save and load;
 - GamecontrollerDB export.
-Source guards cover its `input_cb()`/`input_poll()` wiring. Ordinary-mapping
-controls and deliberately wrong expectations exercise the checker itself.
+Source guards cover its `input_cb()`/`input_poll()` wiring and the Define
+buttons row cache. Ordinary-mapping controls and deliberately wrong
+expectations exercise the checker itself.
 
 Joy-Con/OSD integration and synthetic event emission use source-derived seams;
 the two menu return paths use source guards, not a complete UI emulator. Unknown
