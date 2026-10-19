@@ -6433,6 +6433,11 @@ int input_test(int getchar)
 
 		memset(input, 0, sizeof(input));
 
+		// Device numbers change, so drop mapping state that refers to them.
+		clear_mapping_current_input();
+		clear_mapping_osd_hold_capture();
+		clear_mapping_trigger_capture();
+
 		int n = 0;
 		DIR *d = opendir("/dev/input");
 		if (d)
