@@ -3529,7 +3529,6 @@ static void joy_analog(int dev, int axis, int offset, int stick = 0)
 }
 
 static uint8_t analog_trigger_pos[NUMPLAYERS][2] = {};
-static uint8_t analog_trigger_last[NUMPLAYERS][2] = {};
 
 void input_analog_triggers_resync(int suppress)
 {
@@ -3540,8 +3539,6 @@ void input_analog_triggers_resync(int suppress)
 		const uint8_t l2 = suppress ? 0 : analog_trigger_pos[num][0];
 		const uint8_t r2 = suppress ? 0 : analog_trigger_pos[num][1];
 
-		analog_trigger_last[num][0] = l2;
-		analog_trigger_last[num][1] = r2;
 		user_io_analog_triggers(num, l2, r2);
 	}
 }
@@ -3722,15 +3719,7 @@ static int joy_analog_triggers(int dev, int axis, int value, const input_absinfo
 	}
 
 	if (handled && grabbed && !user_io_osd_is_visible())
-	{
-		if (analog_trigger_pos[num][0] != analog_trigger_last[num][0] ||
-			analog_trigger_pos[num][1] != analog_trigger_last[num][1])
-		{
-			analog_trigger_last[num][0] = analog_trigger_pos[num][0];
-			analog_trigger_last[num][1] = analog_trigger_pos[num][1];
-			user_io_analog_triggers(num, analog_trigger_pos[num][0], analog_trigger_pos[num][1]);
-		}
-	}
+		user_io_analog_triggers(num, analog_trigger_pos[num][0], analog_trigger_pos[num][1]);
 
 	return handled;
 }
