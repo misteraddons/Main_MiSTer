@@ -2573,7 +2573,8 @@ int poll_map_hold_action()
 		return mapping ? action : 0;
 	}
 
-	if (!mapping || mapping_type > 1 || !mapping_hold_key || !mapping_hold_timer || !mapping_hold_action)
+	if (!mapping || mapping_type > 1 || !mapping_hold_key || !mapping_hold_timer || !mapping_hold_action ||
+		mapping_current_dev != mapping_dev)
 		return 0;
 
 	if (!CheckTimer(mapping_hold_timer))
@@ -4499,8 +4500,10 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			return;
 		}
 
-		// protection against joysticks generating 2 codes per button
-		if (ev->type == EV_KEY && !(is_menu() && mapping < 2 && mapping_button == SYS_MAP_POS_OSD) && !map_skip)
+		// protection against joysticks generating 2 codes per button;
+		// once a device is being mapped, only its keys are tracked
+		if (ev->type == EV_KEY && !(is_menu() && mapping < 2 && mapping_button == SYS_MAP_POS_OSD) && !map_skip &&
+			(mapping_dev < 0 || mapping_dev == dev))
 		{
 			if (!mapping_current_key)
 			{

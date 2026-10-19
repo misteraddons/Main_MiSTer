@@ -526,6 +526,28 @@ static void mapping_event_tests()
 	check(mapping_button == SYS_MAP_POS_OSD + 2 && (input[0].map[SYS_BTN_MENU_FUNC] & 0xFFFF) == BTN_SOUTH,
 		"M3 a key held through the Menu prompt's skip maps and advances at Menu: OK");
 	clear_mapping_combo_state();
+
+	// a core with two pads: pad 2 holds Select (Clear) and then Right (Skip) for 1.5 s
+	test_core_session = 1;
+	test_pad(0);
+	test_pad(1);
+	start_map_setting(12);
+	mapping_dev = 0; mapping_button = SYS_BTN_A; mapping_key_mapped = 0;
+	fake_ms = 200000;
+	send_key(1, BTN_SELECT, 1);
+	send_key(0, BTN_EAST, 1);
+	fake_ms = 201500;
+	const int clear_action = poll_map_hold_action();
+	send_key(0, BTN_EAST, 0);
+	send_key(1, BTN_SELECT, 0);
+	check(clear_action == MAP_HOLD_NONE && mapping_button == SYS_BTN_A + 1 && (input[0].map[SYS_BTN_A] & 0xFFFF) == BTN_EAST,
+		"M4 another pad's held Select neither blocks nor clears the mapping pad");
+	send_key(1, BTN_DPAD_RIGHT, 1);
+	fake_ms = 203000;
+	const int skip_action = poll_map_hold_action();
+	send_key(1, BTN_DPAD_RIGHT, 0);
+	check(skip_action == MAP_HOLD_NONE && mapping_button == SYS_BTN_A + 1, "M4 another pad's held Right does not skip");
+	test_core_session = 0;
 	mapping = 0;
 }
 
