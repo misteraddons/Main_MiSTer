@@ -2420,6 +2420,20 @@ static const char *get_map_hold_feedback_text(int action)
 	}
 }
 
+// Right skips and Left steps back at button prompts; Select clears a core's map.
+static int map_hold_action_for_key(int dev, uint16_t code)
+{
+	const uint32_t *mmap = input[dev].mmap;
+	if (mapping_type > 1) return MAP_HOLD_NONE;
+
+	// The Menu core's hints offer Skip/Previous holds only for a joypad's buttons.
+	const int nav = mapping_button >= 0 && (!is_menu() || (mapping_type && !menu_mouse_map));
+	if (nav && mmap[SYS_BTN_RIGHT] && code == mmap[SYS_BTN_RIGHT]) return MAP_HOLD_SKIP;
+	if (nav && mmap[SYS_BTN_LEFT] && code == mmap[SYS_BTN_LEFT]) return MAP_HOLD_BACK;
+	if (!is_menu() && mmap[SYS_BTN_SELECT] && code == mmap[SYS_BTN_SELECT]) return MAP_HOLD_CLEAR;
+	return MAP_HOLD_NONE;
+}
+
 void set_menu_mouse_map(int enable)
 {
 	menu_mouse_map = enable ? 1 : 0;
@@ -4514,14 +4528,7 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 			{
 				if (ev->value == 1)
 				{
-					int hold_action = MAP_HOLD_NONE;
-					if (mapping_type <= 1 && input[dev].mmap[SYS_BTN_RIGHT] && ev->code == input[dev].mmap[SYS_BTN_RIGHT])
-						hold_action = MAP_HOLD_SKIP;
-					else if (mapping_type <= 1 && input[dev].mmap[SYS_BTN_LEFT] && ev->code == input[dev].mmap[SYS_BTN_LEFT])
-						hold_action = MAP_HOLD_BACK;
-					else if (!is_menu() && mapping_type <= 1 && input[dev].mmap[SYS_BTN_SELECT] && ev->code == input[dev].mmap[SYS_BTN_SELECT])
-						hold_action = MAP_HOLD_CLEAR;
-
+					const int hold_action = map_hold_action_for_key(dev, ev->code);
 					mapping_current_key = ev->code;
 					mapping_current_dev = dev;
 					mapping_hold_key = hold_action ? ev->code : 0;

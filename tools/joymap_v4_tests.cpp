@@ -119,6 +119,38 @@ static void core_session_tests()
 	mapping = 0;
 }
 
+static bool nav_holds(int skip, int back)
+{
+	return map_hold_action_for_key(0, BTN_DPAD_RIGHT) == skip && map_hold_action_for_key(0, BTN_DPAD_LEFT) == back;
+}
+
+static void hold_action_tests()
+{
+	memset(&input[0], 0, sizeof(input[0]));
+	input[0].mmap[SYS_BTN_RIGHT] = BTN_DPAD_RIGHT;
+	input[0].mmap[SYS_BTN_LEFT] = BTN_DPAD_LEFT;
+	input[0].mmap[SYS_BTN_SELECT] = BTN_SELECT;
+	set_menu_mouse_map(0);
+	mapping = 1; mapping_type = 1; mapping_dev = 0; mapping_button = SYS_BTN_A;
+	check(nav_holds(MAP_HOLD_SKIP, MAP_HOLD_BACK) && map_hold_action_for_key(0, BTN_SELECT) == MAP_HOLD_NONE,
+		"control Menu joypad button prompts hold Right to skip and Left for Previous");
+	bool stages = true;
+	for (mapping_button = -6; mapping_button < 0; mapping_button++) stages &= nav_holds(MAP_HOLD_NONE, MAP_HOLD_NONE);
+	check(stages, "M1 the d-pad test and stick stages have no Right/Left hold actions");
+	set_menu_mouse_map(1);
+	mapping_button = SYS_BTN_A;
+	check(nav_holds(MAP_HOLD_NONE, MAP_HOLD_NONE), "M1 the mouse session, which hints no holds, has none");
+	set_menu_mouse_map(0);
+	mapping_type = 0;
+	check(nav_holds(MAP_HOLD_NONE, MAP_HOLD_NONE), "M1 a keyboard in the Menu core, which hints no holds, has none");
+	test_core_session = 1;
+	mapping_type = 1; mapping_button = 0;
+	check(nav_holds(MAP_HOLD_SKIP, MAP_HOLD_BACK) && map_hold_action_for_key(0, BTN_SELECT) == MAP_HOLD_CLEAR,
+		"control a core's button prompts keep the Right, Left and Select holds");
+	test_core_session = 0;
+	mapping = 0;
+}
+
 static void trigger_tests()
 {
 	input_absinfo axis = {};
@@ -664,6 +696,7 @@ int main(int argc, char **argv)
 	}
 	mouse_session_tests();
 	core_session_tests();
+	hold_action_tests();
 	trigger_tests();
 	mixed_half_trigger_tests();
 	navigation_tests();
