@@ -558,6 +558,31 @@ static void mapping_event_tests()
 	mapping = 0;
 }
 
+static void wheel_map_tests()
+{
+	// a GCDB-style wheel map: L2/R2 on the pedal axes Z/RZ, L3 on an axis the wheel code does not read
+	uint32_t saved[NUMBUTTONS] = {};
+	saved[SYS_BTN_L2] = KEY_EMU + (ABS_Z << 1) + 1;
+	saved[SYS_BTN_R2] = KEY_EMU + (ABS_RZ << 1) + 1;
+	saved[SYS_BTN_L3] = KEY_EMU + (ABS_HAT0X << 1);
+	saved[SYS_AXIS_L2] = ABS_Z | MAP_FLAG_ANALOG | MAP_FLAG_TRIGGER;
+	saved[SYS_AXIS_R2] = ABS_RZ | MAP_FLAG_ANALOG | MAP_FLAG_TRIGGER;
+	test_pad(0);
+	input[0].quirk = QUIRK_WHEEL;
+	input[0].vid = 0x046d; input[0].pid = 0xc24f;
+	input[0].wh_steer = ABS_X; input[0].wh_accel = ABS_Z; input[0].wh_brake = ABS_RZ;
+	input[0].wh_clutch = input[0].wh_combo = -1;
+	save_map(get_map_name(0, 1), saved, sizeof(saved));
+	input[0].has_mmap = 0;
+	mapping = 0;
+	send_key(0, BTN_THUMBL, 0);  // the next event loads the system map
+	check(input[0].has_mmap && !input[0].mmap[SYS_AXIS_L2] && !input[0].mmap[SYS_AXIS_R2] && !input[0].mmap[SYS_BTN_L2] &&
+		!input[0].mmap[SYS_BTN_R2] && input[0].mmap[SYS_BTN_L3] == saved[SYS_BTN_L3],
+		"W1 a wheel's pedals drive neither the analog nor the digital L2/R2");
+	delete_map(get_map_name(0, 1));
+	memset(&input[0], 0, sizeof(input[0]));
+}
+
 static void osd_hold_tests()
 {
 	uint32_t map[NUMBUTTONS] = {};
@@ -888,6 +913,7 @@ int main(int argc, char **argv)
 	hold_poll_tests();
 #endif
 	mapping_event_tests();
+	wheel_map_tests();
 	core_name_tests();
 #ifdef JOYMAP_TEST_HAS_PAD
 	pad_tests();

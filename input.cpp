@@ -4223,7 +4223,12 @@ static void input_cb(struct input_event *ev, struct input_absinfo *absinfo, int 
 				input[dev].mmap[SYS_AXIS1_Y] = -1;
 				input[dev].mmap[SYS_AXIS2_X] = -1;
 				input[dev].mmap[SYS_AXIS2_Y] = -1;
-				// The wheel code reads the pedals, so they are not analog triggers.
+				// The wheel code reads the pedals, so they drive neither the analog
+				// triggers nor L2/R2 through their synthetic axis keys.
+				const int8_t wheel_axes[] = { input[dev].wh_steer, input[dev].wh_accel, input[dev].wh_brake, input[dev].wh_clutch, input[dev].wh_combo };
+				for (int i = SYS_BTN_L2; i <= SYS_BTN_R2; i++)
+					for (int n = 0; n < (int)sizeof(wheel_axes); n++)
+						if (wheel_axes[n] >= 0 && map_entry_uses_axis(input[dev].mmap[i], wheel_axes[n])) input[dev].mmap[i] = 0;
 				input[dev].mmap[SYS_AXIS_L2] = 0;
 				input[dev].mmap[SYS_AXIS_R2] = 0;
 			}
