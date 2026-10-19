@@ -4359,7 +4359,7 @@ void HandleUI(void)
 				subtitle = trigger_bar;
 			}
 
-			// Menu prompt: a button held alone fills the bar, then becomes hold mode
+			// Menu prompt hold meter
 			char osd_hold_bar[32];
 			const int osd_hold = show_combo_hint ? get_map_osd_hold() : -1;
 			if (!subtitle && osd_hold >= 100)

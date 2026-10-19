@@ -112,7 +112,6 @@ static inline void osd_map_fill_second(uint32_t *map)
 	if (!map[SYS_BTN_OSD_2] && !osd_map_is_hold(map)) map[SYS_BTN_OSD_2] = map[SYS_BTN_OSD_1];
 }
 
-// The second slot names its own button (a combo) rather than repeating the first.
 static inline int osd_map_second_is_separate(const uint32_t *map)
 {
 	return map[SYS_BTN_OSD_2] != map[SYS_BTN_OSD_1];

@@ -2369,7 +2369,6 @@ static int map_menu_button_code(int dev, int code, const input_absinfo *absinfo)
 		input[dev].map[SYS_BTN_OSD_KTGL + mapping_type] = code;
 		input[dev].map[SYS_BTN_OSD_2] = input[dev].map[SYS_BTN_OSD_1];
 		mapping_current_key = 0; // allow 2 buttons to be pressed
-		// held alone it becomes hold mode (map_osd_hold_poll)
 		if (mapping_type) mapping_osd_hold_timer = GetTimer(OSD_HOLD_DEFAULT_MS);
 	}
 	else
@@ -3641,7 +3640,6 @@ void get_map_osd_positions(int *first, int *second)
 	}
 }
 
-// The mapping device's current Menu binding is hold mode.
 int get_map_menu_is_hold()
 {
 	return mapping_dev >= 0 && osd_map_is_hold(input[mapping_dev].mmap);
@@ -4087,9 +4085,8 @@ static int osd_hold_expired(int dev)
 #define OSD_HOLD_CLICK_MS 100
 
 // Hold timers run while no input events arrive, so input_poll() checks them.
-// A completed hold is a whole Menu press: the press now and the release
-// OSD_HOLD_CLICK_MS later, so the OSD opens while the button is still held
-// and the button's own release does nothing more.
+// A completed hold sends a whole Menu press, so the OSD opens while the
+// button is still held and its own release does nothing more.
 static void osd_hold_poll()
 {
 	map_osd_hold_poll();
