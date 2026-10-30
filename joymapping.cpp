@@ -14,6 +14,7 @@ This file contains lookup information on known controllers
 #include "cfg.h"
 
 #define DPAD_COUNT 4
+#define CORE_BUTTON_COUNT (32 - DPAD_COUNT)
 
 /*****************************************************************************/
 static void trim(char * s)
@@ -33,7 +34,15 @@ static int joy_count = 0;
 
 static char joy_nnames[NUMBUTTONS][32];
 static char joy_pnames[NUMBUTTONS][32];
+static int joy_nnames_given = 0, joy_pnames_given = 0;
 static int defaults = 0;
+
+static int list_entries(const char *p)
+{
+	int count = 1;
+	while (*p) count += *p++ == ',';
+	return count;
+}
 
 static void read_buttons()
 {
@@ -43,6 +52,7 @@ static void read_buttons()
 	memset(joy_nnames, 0, sizeof(joy_nnames));
 	memset(joy_pnames, 0, sizeof(joy_pnames));
 	joy_count = 0;
+	joy_nnames_given = joy_pnames_given = 0;
 	defaults = 0;
 
 	user_io_read_confstr();
@@ -51,7 +61,7 @@ static void read_buttons()
 	p = get_buttons(0);
 	if (p)
 	{
-		for (int n = 0; n < NUMBUTTONS - DPAD_COUNT; n++)
+		for (int n = 0; n < CORE_BUTTON_COUNT; n++)
 		{
 			substrcpy(joy_names[n], p, n);
 			if (!joy_names[n][0]) break;
@@ -77,6 +87,7 @@ static void read_buttons()
 	if (p)
 	{
 		memset(joy_nnames, 0, sizeof(joy_nnames));
+		joy_nnames_given = list_entries(p);
 		for (int n = 0; n < joy_count; n++)
 		{
 			substrcpy(joy_nnames[n], p, n);
@@ -91,6 +102,7 @@ static void read_buttons()
 	if (p)
 	{
 		defaults = cfg.gamepad_defaults;
+		joy_pnames_given = list_entries(p);
 		for (int n = 0; n < joy_count; n++)
 		{
 			substrcpy(joy_pnames[n], p, n);
@@ -114,6 +126,22 @@ static int is_fire(char* name)
 	return 0;
 }
 
+static int is_extended_button(char *name)
+{
+	return !strcasecmp(name, "L2")
+		|| !strcasecmp(name, "R2")
+		|| !strcasecmp(name, "L3")
+		|| !strcasecmp(name, "R3");
+}
+
+static void copy_core_button_name(char *dst, size_t size, int index)
+{
+	snprintf(dst, size, "%.*s", (int)sizeof(joy_names[0]) - 1, joy_names[index]);
+	char *p = strchr(dst, '(');
+	if (p) *p = 0;
+	trim(dst);
+}
+
 void map_joystick(uint32_t *map, uint32_t *mmap)
 {
 	/*
@@ -132,16 +160,24 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 
 	if (mmap[SYS_AXIS_X] && !is_psx())
 	{
-		uint32_t key = KEY_EMU + (((uint16_t)mmap[SYS_AXIS_X]) << 1);
-		map[SYS_BTN_LEFT] = (key << 16) | map[SYS_BTN_LEFT];
-		map[SYS_BTN_RIGHT] = ((key+1) << 16) | map[SYS_BTN_RIGHT];
+		const uint32_t min_key = KEY_EMU + ((mmap[SYS_AXIS_X] & MAP_AXIS_MASK) << 1);
+		const uint32_t max_key = min_key + 1;
+		const uint32_t left_key = (mmap[SYS_AXIS_X] & MAP_FLAG_INVERT) ? max_key : min_key;
+		const uint32_t right_key = (mmap[SYS_AXIS_X] & MAP_FLAG_INVERT) ? min_key : max_key;
+
+		map[SYS_BTN_LEFT] = (left_key << 16) | map[SYS_BTN_LEFT];
+		map[SYS_BTN_RIGHT] = (right_key << 16) | map[SYS_BTN_RIGHT];
 	}
 
 	if (mmap[SYS_AXIS_Y] && !is_psx())
 	{
-		uint32_t key = KEY_EMU + (((uint16_t)mmap[SYS_AXIS_Y]) << 1);
-		map[SYS_BTN_UP] = (key << 16) | map[SYS_BTN_UP];
-		map[SYS_BTN_DOWN] = ((key + 1) << 16) | map[SYS_BTN_DOWN];
+		const uint32_t min_key = KEY_EMU + ((mmap[SYS_AXIS_Y] & MAP_AXIS_MASK) << 1);
+		const uint32_t max_key = min_key + 1;
+		const uint32_t up_key = (mmap[SYS_AXIS_Y] & MAP_FLAG_INVERT) ? max_key : min_key;
+		const uint32_t down_key = (mmap[SYS_AXIS_Y] & MAP_FLAG_INVERT) ? min_key : max_key;
+
+		map[SYS_BTN_UP] = (up_key << 16) | map[SYS_BTN_UP];
+		map[SYS_BTN_DOWN] = (down_key << 16) | map[SYS_BTN_DOWN];
 	}
 
 	// loop through core requested buttons and construct result map
@@ -152,6 +188,11 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 		int idx = i+DPAD_COUNT;
 		char btn_name[32];
 		strcpy(btn_name, defaults ? joy_pnames[n] : joy_nnames[n]);
+		if (!btn_name[0] && n >= (defaults ? joy_pnames_given : joy_nnames_given))
+		{
+			copy_core_button_name(btn_name, sizeof(btn_name), i);
+			if (!is_extended_button(btn_name)) btn_name[0] = 0;
+		}
 
 		char *p = strchr(btn_name, '|');
 		if (p) *p = 0;
@@ -197,6 +238,26 @@ void map_joystick(uint32_t *map, uint32_t *mmap)
 			map[idx] = mmap[SYS_BTN_L];
 		}
 
+		else if(!strcasecmp(btn_name, "L2"))
+		{
+			map[idx] = mmap[SYS_BTN_L2];
+		}
+
+		else if(!strcasecmp(btn_name, "R2"))
+		{
+			map[idx] = mmap[SYS_BTN_R2];
+		}
+
+		else if(!strcasecmp(btn_name, "L3"))
+		{
+			map[idx] = mmap[SYS_BTN_L3];
+		}
+
+		else if(!strcasecmp(btn_name, "R3"))
+		{
+			map[idx] = mmap[SYS_BTN_R3];
+		}
+
 		else if(!strcasecmp(btn_name, "Select")
 		|| !strcasecmp(btn_name, "Mode")
 		|| !strcasecmp(btn_name, "Game Select")
@@ -240,6 +301,10 @@ static const char* get_std_name(uint16_t code, uint32_t *mmap)
 		if (code == mmap[SYS_BTN_Y]) return "[Y]";
 		if (code == mmap[SYS_BTN_L]) return "[L]";
 		if (code == mmap[SYS_BTN_R]) return "[R]";
+		if (code == mmap[SYS_BTN_L2]) return "[L2]";
+		if (code == mmap[SYS_BTN_R2]) return "[R2]";
+		if (code == mmap[SYS_BTN_L3]) return "[L3]";
+		if (code == mmap[SYS_BTN_R3]) return "[R3]";
 		if (code == mmap[SYS_BTN_SELECT]) return "[\x96]";
 		if (code == mmap[SYS_BTN_START]) return "[\x16]";
 		return "[ ]";
