@@ -36,6 +36,8 @@ struct arc_struct {
 	int patchaddr;
 	int dataop;
 	int validrom0;
+	bool rom0_loaded;
+	bool rom_missing_part;
 	int insidesw;
 	int insideinterleave;
 	int insidecheats;
@@ -324,7 +326,7 @@ static int rom_patch(const uint8_t *buf, int offset, uint16_t len, int dataop)
 	return 1;
 }
 
-static void rom_finish(int send, uint32_t address, int index)
+static bool rom_finish(int send, uint32_t address, int index)
 {
 	if (romlen[0] && romdata)
 	{
@@ -372,7 +374,7 @@ static void rom_finish(int send, uint32_t address, int index)
 		}
 		free(romdata);
 		romdata = 0;
-		return;
+		return send;
 	}
 
 	if (romdata)
@@ -381,6 +383,7 @@ static void rom_finish(int send, uint32_t address, int index)
 		romdata = 0;
 	}
 	printf("file_finish: no data, discarded\n\n");
+	return false;
 }
 
 
@@ -472,6 +475,7 @@ static int xml_send_rom(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 		if (!strcasecmp(node->tag, "rom"))
 		{
 			arc_info->insiderom = 1;
+			arc_info->rom_missing_part = false;
 			arc_info->romname[0] = 0;
 			arc_info->romindex = 0;
 			arc_info->md5[0] = 0;
@@ -843,7 +847,10 @@ static int xml_send_rom(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 
 				checksumsame |= no_checksum;
 
-				rom_finish(checksumsame, arc_info->address, arc_info->romindex);
+				if (rom_finish(checksumsame, arc_info->address, arc_info->romindex) && !arc_info->romindex)
+				{
+					arc_info->rom0_loaded = !arc_info->address && !arc_info->rom_missing_part;
+				}
 			}
 			arc_info->insiderom = 0;
 		}
@@ -915,6 +922,7 @@ static int xml_send_rom(XMLEvent evt, const XMLNode* node, SXML_CHAR* text, cons
 				}
 				if (result == 0)
 				{
+					arc_info->rom_missing_part = true;
 					printf("%s does not exist\n", arc_info->partname);
 					snprintf(arc_info->error_msg, kBigTextSize, "%s\n%s not found", fname, arc_info->partname);
 				}
@@ -1130,7 +1138,7 @@ static int xml_read_pre_parse(XMLEvent evt, const XMLNode* node, SXML_CHAR* text
 	return true;
 }
 
-int arcade_send_rom(const char *xml)
+bool arcade_send_rom(const char *xml)
 {
 	const char *p = strrchr(xml, '/');
 	p = p ? p + 1 : xml;
@@ -1154,6 +1162,7 @@ int arcade_send_rom(const char *xml)
 	arc_info.data = buffer_init(kBigTextSize);
 	arc_info.error_msg[0] = 0;
 	arc_info.validrom0 = 0;
+	arc_info.rom0_loaded = false;
 	struct stat64 *st = getPathStat(xml);
 	if (st) arc_info.file_size = (int)st->st_size;
 	ProgressMessage(0, 0, 0, 0);
@@ -1180,7 +1189,7 @@ int arcade_send_rom(const char *xml)
 	switches.dip_saved = switches.dip_cur;
 	arcade_sw_send();
 	ProgressMessage(0, 0, 0, 0);
-	return 0;
+	return arc_info.rom0_loaded;
 }
 
 void arcade_pre_parse(const char *xml)

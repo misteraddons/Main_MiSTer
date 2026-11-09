@@ -61,7 +61,7 @@ private:
 	uint8_t *chd_hunkbuf;
 
 	int LoadCUE(const char* filename);
-	int LoadISO(const char* filename);
+	int LoadISO(const char* filename, bool img);
 	void LBAToMSF(int lba, msf_t* msf);
 	int MSFToLBA(msf_t* msf);
 	int GetLBAFromCommand(uint8_t* cmd);
@@ -79,7 +79,7 @@ extern uint32_t p3do_frame_cnt;
 #define CD_INFO_IO_INDEX	0xC
 
 void p3do_poll();
-void p3do_set_image(int num, const char *filename);
+void p3do_set_image(int num, const char *filename, bool keep_mra_bios);
 void p3do_reset();
 void p3do_fill_blanksave(uint8_t *buf, uint32_t lba);
 int p3do_send_data(uint8_t* buf, int len, uint8_t index);

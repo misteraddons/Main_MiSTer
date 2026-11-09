@@ -1,7 +1,7 @@
 #ifndef ROMUTILS_H_
 #define ROMUTILS_H_
 
-int arcade_send_rom(const char *xml);
+bool arcade_send_rom(const char *xml);
 int xml_load(const char *xml);
 void arcade_check_error();
 
@@ -65,6 +65,7 @@ struct mgl_struct
 	int  state;
 	int  done;
 	int  from_mra;
+	bool rom0_loaded;
 	int  opt_count;
 	mgl_option_struct opt[MGL_MAX_OPTIONS];
 };

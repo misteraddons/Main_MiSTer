@@ -1594,7 +1594,10 @@ void user_io_init(const char *path, const char *xml)
 	load_volume();
 
 	user_io_send_buttons(1);
-	if (xml && isXmlName(xml)) mgl_parse(xml);
+	const bool p3do_mra = xml && isXmlName(xml) == 1 && is_3do();
+	bool mra_rom0_loaded = false;
+	if (p3do_mra) mgl_get()->done = 1;
+	else if (xml && isXmlName(xml)) mgl_parse(xml);
 
 	switch (core_type)
 	{
@@ -1652,7 +1655,7 @@ void user_io_init(const char *path, const char *xml)
 
 				if (xml && isXmlName(xml) == 1)
 				{
-					arcade_send_rom(xml);
+					mra_rom0_loaded = arcade_send_rom(xml);
 					if (ss_base) process_ss(xml);
 				}
 				else if (is_minimig())
@@ -1840,6 +1843,8 @@ void user_io_init(const char *path, const char *xml)
 	SetUARTMode(uartmode);
 
 	f12_mod = spi_uio_cmd(UIO_GET_F12_MOD);
+
+	if (p3do_mra) mgl_parse(xml)->rom0_loaded = mra_rom0_loaded;
 
 	if (!mgl_get()->count || is_menu() || is_archie())
 	{

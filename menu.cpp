@@ -3088,7 +3088,7 @@ void HandleUI(void)
 			}
 			else if (is_3do())
 			{
-				p3do_set_image(ioctl_index, selPath);
+				p3do_set_image(ioctl_index, selPath, !mgl->done && mgl->from_mra && mgl->rom0_loaded);
 			}
 			else if (is_marty())
 			{

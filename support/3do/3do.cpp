@@ -109,7 +109,7 @@ static int p3do_load_rom(const char *basename, const char *name, int index)
 	return 0;
 }
 
-void p3do_set_image(int num, const char *filename)
+void p3do_set_image(int num, const char *filename, bool keep_mra_bios)
 {
 	static char last_dir[1024] = {};
 
@@ -130,22 +130,17 @@ void p3do_set_image(int num, const char *filename)
 		user_io_status_set("[0]", 1);
 		p3do_reset();
 
-		// load CD BIOS
-		int bios_loaded = 1;
-		if (!p3do_load_rom(filename, "cd_bios.rom", 0)) // from disk folder.
+		bool bios_loaded = keep_mra_bios;
+		if (bios_loaded)
 		{
-			if (!p3do_load_rom(last_dir, "cd_bios.rom", 0)) // from parent folder.
-			{
-				sprintf(buf, "%s/boot.rom", HomeDir()); // from home folder.
-				if (!user_io_file_tx(buf))
-				{
-					bios_loaded = 0;
-					Info("CD BIOS not found!", 4000);
-				}
-				else {
-					
-				}
-			}
+			printf("3DO: Keeping BIOS loaded by MRA\n");
+		}
+		else if (!(bios_loaded = p3do_load_rom(filename, "cd_bios.rom", 0) ||
+		                         p3do_load_rom(last_dir, "cd_bios.rom", 0)))
+		{
+			sprintf(buf, "%s/boot.rom", HomeDir());
+			bios_loaded = user_io_file_tx(buf);
+			if (!bios_loaded) Info("CD BIOS not found!", 4000);
 		}
 
 		// load kanji rom

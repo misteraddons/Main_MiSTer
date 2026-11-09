@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <time.h>
 
 #include "3do.h"
@@ -290,13 +291,23 @@ int p3docdd_t::LoadCUE(const char* filename) {
 	return 0;
 }
 
-int p3docdd_t::LoadISO(const char* filename) {
-	static char fname[1024 + 10];
-	strcpy(fname, filename);
-
+int p3docdd_t::LoadISO(const char* filename, bool img) {
 	if (!FileOpen(&this->toc.tracks[0].f, filename)) return -1;
+	const auto size = this->toc.tracks[0].f.size;
+	if (img)
+	{
+		static const uint8_t raw_sync[] = {0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0};
+		uint8_t sync[sizeof(raw_sync)];
+		if (size <= 0 || size > INT_MAX || size % 2048 ||
+		    FileReadAdv(&this->toc.tracks[0].f, sync, sizeof(sync)) != sizeof(sync) ||
+		    !memcmp(sync, raw_sync, sizeof(sync)))
+		{
+			FileClose(&this->toc.tracks[0].f);
+			return -1;
+		}
+	}
 	FileSeek(&this->toc.tracks[0].f, 0, SEEK_SET);
-	int file_size = this->toc.tracks[0].f.size;
+	int file_size = size;
 
 	this->toc.tracks[0].start = 0;
 	this->toc.tracks[0].offset = 0;
@@ -316,15 +327,18 @@ int p3docdd_t::Load(const char *filename)
 {
 	Unload();
 
-	const char *ext = filename + strlen(filename) - 4;
+	const size_t len = strlen(filename);
+	if (len < 4) return -1;
+	const char *ext = filename + len - 4;
+	const bool img = !strcasecmp(".img", ext);
 	if (!strncasecmp(".cue", ext, 4))
 	{
 		if (LoadCUE(filename)) {
 			return (-1);
 		}
 	}
-	else if (!strncasecmp(".iso", ext, 4)) {
-		if (LoadISO(filename)) {
+	else if (img || !strncasecmp(".iso", ext, 4)) {
+		if (LoadISO(filename, img)) {
 			return (-1);
 		}
 
